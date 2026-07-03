@@ -1,3 +1,4 @@
+import { createPrivateKey } from 'crypto'
 import { SignJWT, importPKCS8 } from 'jose'
 
 export async function generateJWT() {
@@ -8,7 +9,9 @@ export async function generateJWT() {
     throw new Error('ENABLE_BANKING_APP_ID e ENABLE_BANKING_PRIVATE_KEY sono obbligatori')
   }
 
-  const privateKey = await importPKCS8(privateKeyPem, 'RS256')
+  const privateKey = privateKeyPem.includes('BEGIN RSA PRIVATE KEY')
+    ? createPrivateKey(privateKeyPem)
+    : await importPKCS8(privateKeyPem, 'RS256')
   const now = Math.floor(Date.now() / 1000)
 
   return new SignJWT({})
