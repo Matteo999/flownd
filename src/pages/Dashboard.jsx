@@ -13,6 +13,8 @@ const currencyFormatter = new Intl.NumberFormat('it-IT', {
   currency: 'EUR',
 })
 
+const TRANSACTION_LOOKBACK_MONTHS = 24
+
 function formatMoney(value) {
   return currencyFormatter.format(Number(value || 0))
 }
@@ -42,7 +44,11 @@ export default function Dashboard() {
 
     const today = new Date()
     const dateTo = today.toISOString().slice(0, 10)
-    const dateFrom = new Date(today.getFullYear(), today.getMonth() - 3, 1).toISOString().slice(0, 10)
+    const dateFrom = new Date(
+      today.getFullYear(),
+      today.getMonth() - TRANSACTION_LOOKBACK_MONTHS,
+      1,
+    ).toISOString().slice(0, 10)
 
     Promise.all([getBalances(account.uid), getTransactions(account.uid, dateFrom, dateTo)])
       .then(([balanceData, transactionData]) => {
@@ -54,6 +60,7 @@ export default function Dashboard() {
           transactionData,
           sessionId,
           sessionRaw,
+          requestedRange: { dateFrom, dateTo },
         })
 
         exportBankPayloadDocument(payload, { autoDownload: true })

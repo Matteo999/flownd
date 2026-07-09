@@ -27,6 +27,7 @@ export function buildBankPayloadDocument({
   transactionData,
   sessionId,
   sessionRaw,
+  requestedRange,
 }) {
   return {
     generatedAt: new Date().toISOString(),
@@ -37,6 +38,7 @@ export function buildBankPayloadDocument({
       raw: sessionRaw || null,
     },
     selectedAccount: account || null,
+    requestedRange: requestedRange || null,
     balances: {
       normalized: {
         amount: balanceData?.amount ?? null,
