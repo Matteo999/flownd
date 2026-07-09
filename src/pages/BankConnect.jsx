@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getBanks, startAuth } from '../lib/enablebanking.js'
 
 export default function BankConnect() {
+  const navigate = useNavigate()
   const [banks, setBanks] = useState([])
+  const [rememberedConnection, setRememberedConnection] = useState(() => {
+    const accounts = JSON.parse(localStorage.getItem('eb_accounts') || '[]')
+    return {
+      account: accounts[0] || null,
+      validUntil: localStorage.getItem('eb_consent_valid_until'),
+    }
+  })
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('Carico le banche italiane...')
   const [error, setError] = useState('')
@@ -31,13 +40,23 @@ export default function BankConnect() {
     setError('')
 
     try {
-      const { url, authorizationId } = await startAuth(bank.name, bank.country || 'IT')
+      const { url, authorizationId, validUntil } = await startAuth(bank.name, bank.country || 'IT')
       if (authorizationId) localStorage.setItem('eb_authorization_id', authorizationId)
+      if (validUntil) localStorage.setItem('eb_consent_valid_until', validUntil)
       window.location.assign(url)
     } catch (err) {
       setSelectedBank('')
       setError(err.message)
     }
+  }
+
+  function clearRememberedConnection() {
+    localStorage.removeItem('eb_session_id')
+    localStorage.removeItem('eb_accounts')
+    localStorage.removeItem('eb_session_raw')
+    localStorage.removeItem('eb_authorization_id')
+    localStorage.removeItem('eb_consent_valid_until')
+    setRememberedConnection({ account: null, validUntil: null })
   }
 
   return (
@@ -55,6 +74,33 @@ export default function BankConnect() {
       </section>
 
       <section className="surface-panel">
+        {rememberedConnection.account && (
+          <div className="remembered-connection">
+            <div>
+              <span className="eyebrow">Conto gia collegato</span>
+              <strong>
+                {rememberedConnection.account.iban
+                  || rememberedConnection.account.identification_hash
+                  || rememberedConnection.account.uid}
+              </strong>
+              {rememberedConnection.validUntil && (
+                <small>
+                  Consenso richiesto fino al{' '}
+                  {new Date(rememberedConnection.validUntil).toLocaleDateString('it-IT')}
+                </small>
+              )}
+            </div>
+            <div className="panel-actions">
+              <button className="secondary-button" type="button" onClick={() => navigate('/dashboard')}>
+                Continua
+              </button>
+              <button className="secondary-button muted-button" type="button" onClick={clearRememberedConnection}>
+                Dimentica
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="section-head">
           <div>
             <h2>Scegli banca</h2>

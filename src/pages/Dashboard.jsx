@@ -91,6 +91,7 @@ export default function Dashboard() {
     localStorage.removeItem('eb_accounts')
     localStorage.removeItem('eb_session_raw')
     localStorage.removeItem('eb_authorization_id')
+    localStorage.removeItem('eb_consent_valid_until')
     clearBankPayloadExportState()
     navigate('/connect')
   }

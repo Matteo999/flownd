@@ -169,6 +169,46 @@ a {
   color: var(--muted);
 }
 
+.muted-button {
+  color: var(--muted);
+}
+
+.remembered-connection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid rgba(29, 158, 117, 0.26);
+  border-radius: 14px;
+  background: #e1f5ee;
+}
+
+.remembered-connection strong,
+.remembered-connection small,
+.eyebrow {
+  display: block;
+}
+
+.eyebrow {
+  margin-bottom: 4px;
+  color: #16664d;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.remembered-connection strong {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.remembered-connection small {
+  margin-top: 3px;
+  color: #315f50;
+}
+
 .field-label {
   display: block;
   margin-bottom: 8px;
