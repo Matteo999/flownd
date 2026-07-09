@@ -50,7 +50,7 @@ export default function Dashboard() {
       1,
     ).toISOString().slice(0, 10)
 
-    Promise.all([getBalances(account.uid), getTransactions(account.uid, dateFrom, dateTo, 'longest')])
+    Promise.all([getBalances(account.uid), getTransactions(account.uid, dateFrom, null, 'longest')])
       .then(([balanceData, transactionData]) => {
         const sessionId = localStorage.getItem('eb_session_id')
         const sessionRaw = JSON.parse(localStorage.getItem('eb_session_raw') || 'null')

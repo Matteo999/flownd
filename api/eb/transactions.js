@@ -33,8 +33,10 @@ function getSignedAmount(transaction) {
 }
 
 function getTransactionKey(transaction) {
+  const stableReference = transaction.transaction_id || transaction.entry_reference
+  if (stableReference && String(stableReference).length > 8) return stableReference
+
   return transaction.transaction_id
-    || transaction.entry_reference
     || [
       transaction.booking_date || transaction.transaction_date || transaction.value_date || '',
       transaction.transaction_amount?.amount || '',
