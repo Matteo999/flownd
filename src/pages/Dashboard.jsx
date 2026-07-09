@@ -13,7 +13,7 @@ const currencyFormatter = new Intl.NumberFormat('it-IT', {
   currency: 'EUR',
 })
 
-const TRANSACTION_LOOKBACK_MONTHS = 24
+const TRANSACTION_LOOKBACK_MONTHS = 120
 
 function formatMoney(value) {
   return currencyFormatter.format(Number(value || 0))
@@ -50,7 +50,7 @@ export default function Dashboard() {
       1,
     ).toISOString().slice(0, 10)
 
-    Promise.all([getBalances(account.uid), getTransactions(account.uid, dateFrom, dateTo)])
+    Promise.all([getBalances(account.uid), getTransactions(account.uid, dateFrom, dateTo, 'longest')])
       .then(([balanceData, transactionData]) => {
         const sessionId = localStorage.getItem('eb_session_id')
         const sessionRaw = JSON.parse(localStorage.getItem('eb_session_raw') || 'null')

@@ -32,24 +32,43 @@ function getSignedAmount(transaction) {
   return parseFloat(transaction.transaction_amount?.amount || 0)
 }
 
+function getTransactionKey(transaction) {
+  return transaction.transaction_id
+    || transaction.entry_reference
+    || [
+      transaction.booking_date || transaction.transaction_date || transaction.value_date || '',
+      transaction.transaction_amount?.amount || '',
+      transaction.transaction_amount?.currency || '',
+      getDescription(transaction),
+      transaction.status || '',
+    ].join('|')
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end()
 
-  const { uid, dateFrom, dateTo } = req.query
+  const { uid, dateFrom, dateTo, strategy = 'longest' } = req.query
   if (!uid) return res.status(400).json({ error: 'uid obbligatorio' })
 
   try {
     const jwt = await generateJWT()
     const pages = []
     const allTransactions = []
+    const seenTransactionKeys = new Set()
     let continuationKey = null
     let pageCount = 0
+    let duplicateCount = 0
+    let stopReason = 'completed'
 
     do {
       const params = new URLSearchParams()
-      if (dateFrom) params.set('date_from', dateFrom)
-      if (dateTo) params.set('date_to', dateTo)
-      if (continuationKey) params.set('continuation_key', continuationKey)
+      if (strategy) params.set('strategy', strategy)
+      if (continuationKey) {
+        params.set('continuation_key', continuationKey)
+      } else {
+        if (dateFrom) params.set('date_from', dateFrom)
+        if (dateTo) params.set('date_to', dateTo)
+      }
 
       const query = params.toString()
       const response = await fetch(
@@ -62,12 +81,33 @@ export default async function handler(req, res) {
       }
 
       const data = await response.json()
+      const pageTransactions = data.transactions || []
+      let newTransactionsInPage = 0
+
       pages.push(data)
-      allTransactions.push(...(data.transactions || []))
+      pageTransactions.forEach((transaction) => {
+        const key = getTransactionKey(transaction)
+        if (seenTransactionKeys.has(key)) {
+          duplicateCount += 1
+          return
+        }
+
+        seenTransactionKeys.add(key)
+        allTransactions.push(transaction)
+        newTransactionsInPage += 1
+      })
       pageCount += 1
+
+      if (pageTransactions.length > 0 && newTransactionsInPage === 0) {
+        stopReason = 'duplicate-page'
+        continuationKey = null
+        break
+      }
 
       const nextContinuationKey = getContinuationKey(data)
       continuationKey = nextContinuationKey !== continuationKey ? nextContinuationKey : null
+      if (!continuationKey) stopReason = 'no-continuation-key'
+      if (pageCount >= MAX_TRANSACTION_PAGES) stopReason = 'page-limit'
     } while (continuationKey && pageCount < MAX_TRANSACTION_PAGES)
 
     const normalized = allTransactions
@@ -84,7 +124,15 @@ export default async function handler(req, res) {
     res.status(200).json({
       transactions: normalized,
       raw: {
-        request: { dateFrom, dateTo, pagesFetched: pageCount, hitPageLimit: Boolean(continuationKey) },
+        request: {
+          dateFrom,
+          dateTo,
+          strategy,
+          pagesFetched: pageCount,
+          duplicateCount,
+          hitPageLimit: stopReason === 'page-limit',
+          stopReason,
+        },
         pages,
         transactions: allTransactions,
       },

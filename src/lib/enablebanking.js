@@ -44,10 +44,11 @@ export async function getBalances(uid) {
   return readJson(response, 'Errore nel recupero del saldo')
 }
 
-export async function getTransactions(uid, dateFrom, dateTo) {
+export async function getTransactions(uid, dateFrom, dateTo, strategy = 'longest') {
   const params = new URLSearchParams({ uid })
   if (dateFrom) params.set('dateFrom', dateFrom)
   if (dateTo) params.set('dateTo', dateTo)
+  if (strategy) params.set('strategy', strategy)
 
   const response = await fetch(`/api/eb/transactions?${params}`)
   return readJson(response, 'Errore nel recupero delle transazioni')
