@@ -99,6 +99,12 @@ export default function BankConnect() {
           <div className="empty-state">Nessuna banca trovata.</div>
         )}
       </section>
+
+      <footer className="legal-links">
+        <a href="/privacy">Privacy</a>
+        <span>·</span>
+        <a href="/terms">Termini</a>
+      </footer>
     </main>
   )
 }
