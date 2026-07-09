@@ -25,9 +25,10 @@ export default function Callback() {
     if (!code) return
 
     createSession(code)
-      .then(({ sessionId, accounts }) => {
+      .then(({ sessionId, accounts, raw }) => {
         localStorage.setItem('eb_session_id', sessionId)
         localStorage.setItem('eb_accounts', JSON.stringify(accounts))
+        localStorage.setItem('eb_session_raw', JSON.stringify(raw || null))
         navigate('/dashboard')
       })
       .catch((err) => {

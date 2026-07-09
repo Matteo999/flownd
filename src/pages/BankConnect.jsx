@@ -41,7 +41,7 @@ export default function BankConnect() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell connect-shell">
       <section className="hero-panel">
         <div className="brand-row">
           <span className="brand-mark">F</span>

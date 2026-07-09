@@ -26,6 +26,7 @@ export default async function handler(req, res) {
       amount: parseFloat(available?.balance_amount?.amount || 0),
       currency: available?.balance_amount?.currency || 'EUR',
       balances: data.balances || [],
+      raw: data,
     })
   } catch (error) {
     res.status(500).json({ error: error.message })

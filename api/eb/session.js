@@ -27,6 +27,7 @@ export default async function handler(req, res) {
     res.status(200).json({
       sessionId: data.session_id,
       accounts: data.accounts || [],
+      raw: data,
     })
   } catch (error) {
     res.status(500).json({ error: error.message })

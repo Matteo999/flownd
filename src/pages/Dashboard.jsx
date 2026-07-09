@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import {
+  buildBankPayloadDocument,
+  clearBankPayloadExportState,
+  downloadLatestBankPayload,
+  exportBankPayloadDocument,
+} from '../lib/bankPayloadExport.js'
 import { getBalances, getTransactions } from '../lib/enablebanking.js'
 
 const currencyFormatter = new Intl.NumberFormat('it-IT', {
@@ -24,6 +30,7 @@ export default function Dashboard() {
   const [account] = useState(() => JSON.parse(localStorage.getItem('eb_accounts') || '[]')[0] || null)
   const [balance, setBalance] = useState(null)
   const [transactions, setTransactions] = useState([])
+  const [hasDebugPayload, setHasDebugPayload] = useState(false)
   const [status, setStatus] = useState('Carico saldo e transazioni...')
   const [error, setError] = useState('')
 
@@ -39,8 +46,20 @@ export default function Dashboard() {
 
     Promise.all([getBalances(account.uid), getTransactions(account.uid, dateFrom, dateTo)])
       .then(([balanceData, transactionData]) => {
+        const sessionId = localStorage.getItem('eb_session_id')
+        const sessionRaw = JSON.parse(localStorage.getItem('eb_session_raw') || 'null')
+        const payload = buildBankPayloadDocument({
+          account,
+          balanceData,
+          transactionData,
+          sessionId,
+          sessionRaw,
+        })
+
+        exportBankPayloadDocument(payload, { autoDownload: true })
         setBalance(balanceData)
         setTransactions(transactionData.transactions || [])
+        setHasDebugPayload(true)
         setStatus('')
       })
       .catch((err) => {
@@ -63,12 +82,20 @@ export default function Dashboard() {
   function disconnect() {
     localStorage.removeItem('eb_session_id')
     localStorage.removeItem('eb_accounts')
+    localStorage.removeItem('eb_session_raw')
     localStorage.removeItem('eb_authorization_id')
+    clearBankPayloadExportState()
     navigate('/connect')
   }
 
+  function handleDownloadDebugPayload() {
+    if (!downloadLatestBankPayload()) {
+      setError('Nessun JSON debug disponibile. Ricarica i dati del conto e riprova.')
+    }
+  }
+
   return (
-    <main className="app-shell">
+    <main className="app-shell dashboard-shell">
       <section className="balance-card">
         <div className="top-actions">
           <span>Flownd</span>
@@ -98,7 +125,17 @@ export default function Dashboard() {
             <h2>Movimenti recenti</h2>
             <p>Normalizzati dalle serverless functions Enable Banking.</p>
           </div>
-          <Link to="/connect">Cambia banca</Link>
+          <div className="panel-actions">
+            <button
+              className="secondary-button"
+              disabled={!hasDebugPayload}
+              type="button"
+              onClick={handleDownloadDebugPayload}
+            >
+              Scarica JSON debug
+            </button>
+            <Link to="/connect">Cambia banca</Link>
+          </div>
         </div>
 
         <div className="transactions-list">

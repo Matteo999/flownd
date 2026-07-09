@@ -41,7 +41,7 @@ export default async function handler(req, res) {
       }))
       .sort((a, b) => new Date(b.date) - new Date(a.date))
 
-    res.status(200).json({ transactions: normalized })
+    res.status(200).json({ transactions: normalized, raw: data })
   } catch (error) {
     res.status(500).json({ error: error.message })
   }

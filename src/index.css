@@ -27,7 +27,9 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: var(--bg);
+  background:
+    linear-gradient(135deg, rgba(4, 44, 83, 0.08), transparent 36%),
+    var(--bg);
 }
 
 button,
@@ -51,10 +53,10 @@ a {
 }
 
 .app-shell {
-  width: min(100%, 430px);
+  width: min(100%, 1120px);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 18px 16px 30px;
+  padding: 24px 18px 34px;
   background: var(--bg);
 }
 
@@ -65,8 +67,8 @@ a {
 
 .hero-panel,
 .balance-card {
-  margin: -18px -16px 18px;
-  padding: 26px 16px 28px;
+  margin: -24px -18px 18px;
+  padding: 28px 18px 30px;
   color: white;
   background: var(--hero);
 }
@@ -100,7 +102,7 @@ a {
 .hero-panel h1,
 .callback-panel h1 {
   margin: 0;
-  font-size: 30px;
+  font-size: clamp(30px, 4vw, 48px);
   line-height: 1.08;
   letter-spacing: 0;
 }
@@ -124,7 +126,7 @@ a {
 }
 
 .surface-panel {
-  padding: 16px;
+  padding: 18px;
 }
 
 .section-head {
@@ -143,6 +145,27 @@ a {
 }
 
 .section-head p {
+  color: var(--muted);
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.secondary-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--hero);
+  font-weight: 800;
+  background: white;
+}
+
+.secondary-button:disabled {
   color: var(--muted);
 }
 
@@ -336,8 +359,8 @@ a {
 }
 
 .legal-shell {
-  max-width: 720px;
-  width: min(100%, 720px);
+  max-width: 920px;
+  width: min(100%, 920px);
 }
 
 .legal-panel {
@@ -389,4 +412,136 @@ a {
 
 .legal-section p {
   margin: 0;
+}
+
+@media (min-width: 760px) {
+  .app-shell {
+    padding: 40px 28px;
+  }
+
+  .connect-shell {
+    display: grid;
+    grid-template-columns: minmax(320px, 0.8fr) minmax(420px, 1.2fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .connect-shell .hero-panel,
+  .dashboard-shell .balance-card {
+    margin: 0;
+    border-radius: 18px;
+  }
+
+  .connect-shell .hero-panel {
+    position: sticky;
+    top: 24px;
+    min-height: calc(100vh - 80px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 34px;
+  }
+
+  .connect-shell .surface-panel {
+    padding: 24px;
+  }
+
+  .connect-shell .legal-links {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    margin-top: 0;
+  }
+
+  .bank-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .bank-row {
+    min-height: 82px;
+  }
+
+  .dashboard-shell {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+
+  .dashboard-shell .balance-card {
+    position: sticky;
+    top: 24px;
+    min-height: 260px;
+    padding: 28px;
+  }
+
+  .dashboard-shell .notice,
+  .dashboard-shell .error,
+  .dashboard-shell .metrics-grid,
+  .dashboard-shell .surface-panel {
+    grid-column: 2;
+  }
+
+  .dashboard-shell .notice,
+  .dashboard-shell .error {
+    margin-top: 0;
+  }
+
+  .metrics-grid {
+    margin: 0;
+  }
+
+  .transactions-list {
+    gap: 8px;
+  }
+
+  .legal-panel {
+    padding: 36px;
+  }
+
+  .legal-panel h1 {
+    font-size: 42px;
+  }
+}
+
+@media (min-width: 1040px) {
+  .connect-shell {
+    grid-template-columns: 420px 1fr;
+    gap: 32px;
+  }
+
+  .connect-shell .surface-panel,
+  .dashboard-shell .surface-panel {
+    padding: 28px;
+  }
+
+  .bank-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-shell {
+    grid-template-columns: 390px 1fr;
+    gap: 24px;
+  }
+
+  .transactions-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .app-shell {
+    width: min(100%, 430px);
+    padding: 18px 16px 30px;
+  }
+
+  .hero-panel,
+  .balance-card {
+    margin: -18px -16px 18px;
+    padding: 26px 16px 28px;
+  }
+
+  .surface-panel {
+    padding: 16px;
+  }
 }
