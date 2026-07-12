@@ -67,8 +67,17 @@ export default function Dashboard() {
       1,
     ).toISOString().slice(0, 10)
 
-    Promise.all([getBalances(account.uid), getTransactions(account.uid, dateFrom, null, 'longest')])
-      .then(([balanceData, transactionData]) => {
+    Promise.allSettled([
+      getBalances(account.uid),
+      getTransactions(account.uid, dateFrom, null, 'longest'),
+    ])
+      .then(([balanceResult, transactionResult]) => {
+        const balanceData = balanceResult.status === 'fulfilled'
+          ? balanceResult.value
+          : null
+        const transactionData = transactionResult.status === 'fulfilled'
+          ? transactionResult.value
+          : { transactions: [], raw: { error: transactionResult.reason.message } }
         const sessionId = localStorage.getItem('eb_session_id')
         const sessionRaw = JSON.parse(localStorage.getItem('eb_session_raw') || 'null')
         const payload = buildBankPayloadDocument({
@@ -81,10 +90,16 @@ export default function Dashboard() {
         })
 
         exportBankPayloadDocument(payload, { autoDownload: true })
-        setBalance(balanceData)
+        if (balanceData) setBalance(balanceData)
         setTransactions(transactionData.transactions || [])
         setHasDebugPayload(true)
         setStatus('')
+
+        const errors = [
+          balanceResult.status === 'rejected' ? `Saldo: ${balanceResult.reason.message}` : '',
+          transactionResult.status === 'rejected' ? `Transazioni: ${transactionResult.reason.message}` : '',
+        ].filter(Boolean)
+        setError(errors.join(' · '))
       })
       .catch((err) => {
         setStatus('')

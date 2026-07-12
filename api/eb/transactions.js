@@ -60,6 +60,7 @@ export default async function handler(req, res) {
     let continuationKey = null
     let pageCount = 0
     let duplicateCount = 0
+    let paginationError = null
     let stopReason = 'completed'
 
     do {
@@ -79,7 +80,18 @@ export default async function handler(req, res) {
       )
 
       if (!response.ok) {
-        throw new Error(`Enable Banking error: ${response.status} ${await response.text()}`)
+        const errorText = await response.text()
+        if (pageCount > 0) {
+          paginationError = {
+            status: response.status,
+            body: errorText,
+          }
+          stopReason = 'continuation-error'
+          continuationKey = null
+          break
+        }
+
+        throw new Error(`Enable Banking error: ${response.status} ${errorText}`)
       }
 
       const data = await response.json()
@@ -134,6 +146,7 @@ export default async function handler(req, res) {
           duplicateCount,
           hitPageLimit: stopReason === 'page-limit',
           stopReason,
+          paginationError,
         },
         pages,
         transactions: allTransactions,
