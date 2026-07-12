@@ -64,10 +64,10 @@ export default async function handler(req, res) {
 
     do {
       const params = new URLSearchParams()
-      if (strategy) params.set('strategy', strategy)
       if (continuationKey) {
         params.set('continuation_key', continuationKey)
       } else {
+        if (strategy) params.set('strategy', strategy)
         if (dateFrom) params.set('date_from', dateFrom)
         if (dateTo) params.set('date_to', dateTo)
       }
