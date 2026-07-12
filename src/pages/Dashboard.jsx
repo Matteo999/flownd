@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { clearAccountsInspector, getStoredAccountsInspector } from '../lib/accountInspector.js'
+import {
+  clearAccountsInspector,
+  getStoredAccountsInspector,
+  moveAccountToFirst,
+  storeAccounts,
+} from '../lib/accountInspector.js'
 import {
   buildBankPayloadDocument,
   clearBankPayloadExportState,
@@ -114,11 +119,8 @@ export default function Dashboard() {
     const selectedAccount = accounts[index]
     if (!selectedAccount) return
 
-    localStorage.setItem('eb_accounts', JSON.stringify([
-      selectedAccount,
-      ...accounts.filter((_, accountIndex) => accountIndex !== index),
-    ]))
-    setAccountsInspector(getStoredAccountsInspector())
+    const orderedAccounts = moveAccountToFirst(accounts, index)
+    setAccountsInspector(storeAccounts(orderedAccounts))
     window.location.reload()
   }
 

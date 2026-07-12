@@ -32,6 +32,37 @@ export function buildAccountsInspector(accounts = []) {
   }
 }
 
+export function scoreAccount(account) {
+  const product = String(account.product || '').toLowerCase()
+  const status = String(account.psu_status || '').toLowerCase()
+  let score = 0
+
+  if (status === 'enabled') score += 100
+  if (status === 'deleted') score -= 100
+  if (account.account_id?.iban || account.iban) score += 80
+  if (product.includes('current account')) score += 50
+  if (product.includes('space')) score -= 20
+
+  return score
+}
+
+export function reorderAccountsByBestCandidate(accounts = []) {
+  return accounts
+    .map((account, originalIndex) => ({ account, originalIndex, score: scoreAccount(account) }))
+    .sort((a, b) => b.score - a.score || a.originalIndex - b.originalIndex)
+    .map((item) => item.account)
+}
+
+export function moveAccountToFirst(accounts = [], index) {
+  const selectedAccount = accounts[index]
+  if (!selectedAccount) return accounts
+
+  return [
+    selectedAccount,
+    ...accounts.filter((_, accountIndex) => accountIndex !== index),
+  ]
+}
+
 export function getStoredAccountsInspector() {
   return JSON.parse(localStorage.getItem('eb_accounts_inspector') || 'null')
 }
@@ -40,6 +71,11 @@ export function storeAccountsInspector(accounts) {
   const inspector = buildAccountsInspector(accounts)
   localStorage.setItem('eb_accounts_inspector', JSON.stringify(inspector, null, 2))
   return inspector
+}
+
+export function storeAccounts(accounts) {
+  localStorage.setItem('eb_accounts', JSON.stringify(accounts))
+  return storeAccountsInspector(accounts)
 }
 
 export function clearAccountsInspector() {
