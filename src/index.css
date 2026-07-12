@@ -233,6 +233,10 @@ a {
   box-shadow: 0 0 0 3px rgba(55, 138, 221, 0.16);
 }
 
+.field-label .input {
+  margin-top: 8px;
+}
+
 .notice,
 .error,
 .empty-state {
@@ -389,6 +393,35 @@ a {
   color: var(--green);
 }
 
+.raw-api-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.raw-api-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.raw-api-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.raw-api-output {
+  width: 100%;
+  min-height: 360px;
+  resize: vertical;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: #202020;
+  background: #fbfbf8;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre;
+}
+
 .legal-links {
   display: flex;
   justify-content: center;
@@ -533,6 +566,14 @@ a {
 
   .transactions-list {
     gap: 8px;
+  }
+
+  .raw-api-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .raw-api-wide {
+    grid-column: 1 / -1;
   }
 
   .legal-panel {

@@ -53,3 +53,22 @@ export async function getTransactions(uid, dateFrom, dateTo, strategy = 'longest
   const response = await fetch(`/api/eb/transactions?${params}`)
   return readJson(response, 'Errore nel recupero delle transazioni')
 }
+
+export async function callRawBankApi(kind, options = {}) {
+  const params = new URLSearchParams({ kind, uid: options.uid })
+  if (options.dateFrom) params.set('dateFrom', options.dateFrom)
+  if (options.dateTo) params.set('dateTo', options.dateTo)
+  if (options.strategy) params.set('strategy', options.strategy)
+  if (options.transactionStatus) params.set('transactionStatus', options.transactionStatus)
+  if (options.continuationKey) params.set('continuationKey', options.continuationKey)
+  if (options.transactionId) params.set('transactionId', options.transactionId)
+
+  const response = await fetch(`/api/eb/raw?${params}`)
+  const text = await response.text()
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    text,
+  }
+}

@@ -6,7 +6,7 @@ import {
   downloadLatestBankPayload,
   exportBankPayloadDocument,
 } from '../lib/bankPayloadExport.js'
-import { getBalances, getTransactions } from '../lib/enablebanking.js'
+import { callRawBankApi, getBalances, getTransactions } from '../lib/enablebanking.js'
 
 const currencyFormatter = new Intl.NumberFormat('it-IT', {
   style: 'currency',
@@ -33,6 +33,16 @@ export default function Dashboard() {
   const [balance, setBalance] = useState(null)
   const [transactions, setTransactions] = useState([])
   const [hasDebugPayload, setHasDebugPayload] = useState(false)
+  const [rawApiState, setRawApiState] = useState({
+    dateFrom: '',
+    dateTo: '',
+    strategy: 'longest',
+    transactionStatus: '',
+    continuationKey: '',
+    transactionId: '',
+    output: 'Seleziona una chiamata API per vedere qui la risposta raw della banca.',
+    loadingKind: '',
+  })
   const [status, setStatus] = useState('Carico saldo e transazioni...')
   const [error, setError] = useState('')
 
@@ -102,6 +112,51 @@ export default function Dashboard() {
     }
   }
 
+  async function handleRawApiCall(kind) {
+    if (!account?.uid) return
+
+    setRawApiState((current) => ({
+      ...current,
+      loadingKind: kind,
+      output: `Chiamata ${kind} in corso...`,
+    }))
+
+    try {
+      const result = await callRawBankApi(kind, {
+        uid: account.uid,
+        dateFrom: rawApiState.dateFrom,
+        dateTo: rawApiState.dateTo,
+        strategy: rawApiState.strategy,
+        transactionStatus: rawApiState.transactionStatus,
+        continuationKey: rawApiState.continuationKey,
+        transactionId: rawApiState.transactionId,
+      })
+      const prettyText = (() => {
+        try {
+          return JSON.stringify(JSON.parse(result.text), null, 2)
+        } catch {
+          return result.text
+        }
+      })()
+
+      setRawApiState((current) => ({
+        ...current,
+        loadingKind: '',
+        output: `HTTP ${result.status}\n\n${prettyText}`,
+      }))
+    } catch (err) {
+      setRawApiState((current) => ({
+        ...current,
+        loadingKind: '',
+        output: `Errore locale: ${err.message}`,
+      }))
+    }
+  }
+
+  function updateRawApiField(field, value) {
+    setRawApiState((current) => ({ ...current, [field]: value }))
+  }
+
   return (
     <main className="app-shell dashboard-shell">
       <section className="balance-card">
@@ -161,6 +216,110 @@ export default function Dashboard() {
         {!status && !error && transactions.length === 0 && (
           <div className="empty-state">Nessuna transazione disponibile.</div>
         )}
+      </section>
+
+      <section className="surface-panel raw-api-panel">
+        <div className="section-head">
+          <div>
+            <h2>API raw inspector</h2>
+            <p>Chiamate dirette Enable Banking per analizzare le risposte della banca.</p>
+          </div>
+        </div>
+
+        <div className="raw-api-grid">
+          <label className="field-label" htmlFor="raw-date-from">
+            Date from
+            <input
+              id="raw-date-from"
+              className="input"
+              type="date"
+              value={rawApiState.dateFrom}
+              onChange={(event) => updateRawApiField('dateFrom', event.target.value)}
+            />
+          </label>
+
+          <label className="field-label" htmlFor="raw-date-to">
+            Date to
+            <input
+              id="raw-date-to"
+              className="input"
+              type="date"
+              value={rawApiState.dateTo}
+              onChange={(event) => updateRawApiField('dateTo', event.target.value)}
+            />
+          </label>
+
+          <label className="field-label" htmlFor="raw-strategy">
+            Strategy
+            <input
+              id="raw-strategy"
+              className="input"
+              value={rawApiState.strategy}
+              onChange={(event) => updateRawApiField('strategy', event.target.value)}
+              placeholder="longest"
+            />
+          </label>
+
+          <label className="field-label" htmlFor="raw-status">
+            Transaction status
+            <input
+              id="raw-status"
+              className="input"
+              value={rawApiState.transactionStatus}
+              onChange={(event) => updateRawApiField('transactionStatus', event.target.value)}
+              placeholder="BOOK / PDNG"
+            />
+          </label>
+
+          <label className="field-label raw-api-wide" htmlFor="raw-continuation">
+            Continuation key
+            <input
+              id="raw-continuation"
+              className="input"
+              value={rawApiState.continuationKey}
+              onChange={(event) => updateRawApiField('continuationKey', event.target.value)}
+              placeholder="Se presente, viene inviata da sola per /transactions"
+            />
+          </label>
+
+          <label className="field-label raw-api-wide" htmlFor="raw-transaction-id">
+            Transaction ID
+            <input
+              id="raw-transaction-id"
+              className="input"
+              value={rawApiState.transactionId}
+              onChange={(event) => updateRawApiField('transactionId', event.target.value)}
+              placeholder="Obbligatorio per transaction details"
+            />
+          </label>
+        </div>
+
+        <div className="raw-api-actions">
+          <button className="secondary-button" type="button" onClick={() => handleRawApiCall('details')}>
+            Account details
+          </button>
+          <button className="secondary-button" type="button" onClick={() => handleRawApiCall('balances')}>
+            Balances
+          </button>
+          <button className="secondary-button" type="button" onClick={() => handleRawApiCall('transactions')}>
+            Transactions
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!rawApiState.transactionId || Boolean(rawApiState.loadingKind)}
+            onClick={() => handleRawApiCall('transaction-details')}
+          >
+            Transaction details
+          </button>
+        </div>
+
+        <textarea
+          className="raw-api-output"
+          readOnly
+          value={rawApiState.output}
+          aria-label="Risposta raw Enable Banking"
+        />
       </section>
     </main>
   )
