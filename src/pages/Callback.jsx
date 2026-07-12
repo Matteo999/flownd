@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { storeAccountsInspector } from '../lib/accountInspector.js'
 import { createSession } from '../lib/enablebanking.js'
 
 export default function Callback() {
@@ -28,6 +29,7 @@ export default function Callback() {
       .then(({ sessionId, accounts, raw }) => {
         localStorage.setItem('eb_session_id', sessionId)
         localStorage.setItem('eb_accounts', JSON.stringify(accounts))
+        storeAccountsInspector(accounts)
         localStorage.setItem('eb_session_raw', JSON.stringify(raw || null))
         navigate('/dashboard')
       })

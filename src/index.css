@@ -137,6 +137,10 @@ a {
   margin-bottom: 16px;
 }
 
+.compact-head {
+  margin-bottom: 10px;
+}
+
 .section-head h2 {
   margin: 0;
   color: var(--text);
@@ -391,6 +395,53 @@ a {
 
 .positive {
   color: var(--green);
+}
+
+.accounts-inspector {
+  display: grid;
+  gap: 12px;
+}
+
+.accounts-inspector pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: #202020;
+  background: #fbfbf8;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.account-choice-list {
+  display: grid;
+  gap: 8px;
+}
+
+.account-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  text-align: left;
+  background: white;
+}
+
+.account-choice strong,
+.account-choice small {
+  display: block;
+}
+
+.account-choice small {
+  margin-top: 4px;
+  color: var(--muted);
 }
 
 .raw-api-panel {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { clearAccountsInspector, getStoredAccountsInspector } from '../lib/accountInspector.js'
 import { getBanks, startAuth } from '../lib/enablebanking.js'
 
 export default function BankConnect() {
@@ -12,6 +13,7 @@ export default function BankConnect() {
       validUntil: localStorage.getItem('eb_consent_valid_until'),
     }
   })
+  const [accountsInspector, setAccountsInspector] = useState(() => getStoredAccountsInspector())
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('Carico le banche italiane...')
   const [error, setError] = useState('')
@@ -56,7 +58,9 @@ export default function BankConnect() {
     localStorage.removeItem('eb_session_raw')
     localStorage.removeItem('eb_authorization_id')
     localStorage.removeItem('eb_consent_valid_until')
+    clearAccountsInspector()
     setRememberedConnection({ account: null, validUntil: null })
+    setAccountsInspector(null)
   }
 
   return (
@@ -98,6 +102,18 @@ export default function BankConnect() {
                 Dimentica
               </button>
             </div>
+          </div>
+        )}
+
+        {accountsInspector && (
+          <div className="accounts-inspector">
+            <div className="section-head compact-head">
+              <div>
+                <h2>Account restituiti</h2>
+                <p>Vista sanitizzata della sessione Enable Banking.</p>
+              </div>
+            </div>
+            <pre>{JSON.stringify(accountsInspector, null, 2)}</pre>
           </div>
         )}
 

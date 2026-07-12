@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { clearAccountsInspector, getStoredAccountsInspector } from '../lib/accountInspector.js'
 import {
   buildBankPayloadDocument,
   clearBankPayloadExportState,
@@ -33,6 +34,7 @@ export default function Dashboard() {
   const [balance, setBalance] = useState(null)
   const [transactions, setTransactions] = useState([])
   const [hasDebugPayload, setHasDebugPayload] = useState(false)
+  const [accountsInspector, setAccountsInspector] = useState(() => getStoredAccountsInspector())
   const [rawApiState, setRawApiState] = useState({
     dateFrom: '',
     dateTo: '',
@@ -102,8 +104,22 @@ export default function Dashboard() {
     localStorage.removeItem('eb_session_raw')
     localStorage.removeItem('eb_authorization_id')
     localStorage.removeItem('eb_consent_valid_until')
+    clearAccountsInspector()
     clearBankPayloadExportState()
     navigate('/connect')
+  }
+
+  function selectAccount(index) {
+    const accounts = JSON.parse(localStorage.getItem('eb_accounts') || '[]')
+    const selectedAccount = accounts[index]
+    if (!selectedAccount) return
+
+    localStorage.setItem('eb_accounts', JSON.stringify([
+      selectedAccount,
+      ...accounts.filter((_, accountIndex) => accountIndex !== index),
+    ]))
+    setAccountsInspector(getStoredAccountsInspector())
+    window.location.reload()
   }
 
   function handleDownloadDebugPayload() {
@@ -170,6 +186,36 @@ export default function Dashboard() {
 
       {status && <div className="notice">{status}</div>}
       {error && <div className="error">{error}</div>}
+
+      {accountsInspector && (
+        <section className="surface-panel accounts-inspector">
+          <div className="section-head">
+            <div>
+              <h2>Account sessione</h2>
+              <p>Lista sanitizzata degli account ricevuti da Enable Banking.</p>
+            </div>
+          </div>
+          <div className="account-choice-list">
+            {accountsInspector.accounts.map((item) => (
+              <button
+                className="account-choice"
+                key={`${item.index}-${item.uidPreview}`}
+                type="button"
+                onClick={() => selectAccount(item.index)}
+              >
+                <span>
+                  <strong>{item.product || item.name || `Account ${item.index + 1}`}</strong>
+                  <small>
+                    status: {item.psuStatus || 'n/d'} · iban: {item.hasIban ? 'si' : 'no'} · uid: {item.uidPreview}
+                  </small>
+                </span>
+                <span className="chevron">{item.index === 0 ? 'attivo' : 'usa'}</span>
+              </button>
+            ))}
+          </div>
+          <pre>{JSON.stringify(accountsInspector, null, 2)}</pre>
+        </section>
+      )}
 
       <section className="metrics-grid">
         <article>
