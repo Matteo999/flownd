@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import BankConnect from './pages/BankConnect.jsx'
 import Callback from './pages/Callback.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import LandingPage from './pages/LandingPage.jsx'
 import LegalPage from './pages/LegalPage.jsx'
 import './index.css'
 
@@ -11,7 +12,7 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<BankConnect />} />
+        <Route path="/" element={<LandingPage />} />
         <Route path="/connect" element={<BankConnect />} />
         <Route path="/callback" element={<Callback />} />
         <Route path="/dashboard" element={<Dashboard />} />
