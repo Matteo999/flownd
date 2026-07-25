@@ -1,16 +1,27 @@
-# React + Vite
+# Flownd
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Flownd è organizzato come monorepo npm con due client indipendenti e un unico backend.
 
-Currently, two official plugins are available:
+## Struttura
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `apps/mobile`: app iOS e Android in React Native + Expo
+- `apps/web`: web app React + Vite
+- `packages/core`: tipi e logica di dominio indipendenti dalla piattaforma
+- `packages/api-client`: client del backend condiviso
+- `packages/config`: configurazione e design token condivisi
+- `api`: funzioni serverless condivise da mobile e web
+- `supabase`: migrazioni ed Edge Functions condivise
 
-## React Compiler
+Mobile e web devono usare lo stesso progetto Supabase, lo stesso schema e gli stessi endpoint. La UI e le integrazioni specifiche della piattaforma rimangono nelle rispettive app.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Comandi
 
-## Expanding the ESLint configuration
+```bash
+npm install
+npm run dev:mobile
+npm run dev:web
+npm run build:web
+npm run lint
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Per le decisioni architetturali e la roadmap consulta `prompt/flownd-project.md`.
