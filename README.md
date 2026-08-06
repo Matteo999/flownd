@@ -24,4 +24,22 @@ npm run build:web
 npm run lint
 ```
 
+## Test locale del Money Coach su mobile
+
+Il modello AI viene chiamato soltanto dalla funzione backend `api/coach.js`: non
+inserire mai una chiave AI in una variabile `EXPO_PUBLIC_*`.
+
+1. Crea `.env.local` dalla struttura di `.env.example` e imposta
+   `AI_PROVIDER=gemini`, `GEMINI_API_KEY` e `GEMINI_COACH_MODEL=gemini-3.6-flash`.
+2. Avvia il backend locale con `npm run dev:api`.
+3. Imposta `EXPO_PUBLIC_API_URL` in `.env.local` sull'URL raggiungibile dal
+   dispositivo: `http://localhost:3000` per il simulatore iOS, oppure
+   `http://10.0.2.2:3000` per Android Emulator. Per un telefono fisico usa un
+   tunnel HTTPS temporaneo verso la porta 3000: iOS e Android possono bloccare
+   le richieste HTTP in chiaro verso l'IP LAN del Mac.
+4. Riavvia `npm run dev:mobile` dopo ogni modifica a una variabile `EXPO_PUBLIC_*`.
+
+Il telefono e il Mac devono essere sulla stessa rete. La chiave `GEMINI_API_KEY`
+resta caricata solo dal processo locale di Vercel e non viene inclusa nel bundle Expo.
+
 Per le decisioni architetturali e la roadmap consulta `prompt/flownd-project.md`.

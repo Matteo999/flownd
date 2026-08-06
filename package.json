@@ -13,14 +13,18 @@
   },
   "scripts": {
     "dev:mobile": "npm run start --workspace @flownd/mobile",
+    "dev:api": "node --env-file=.env.local api/local-server.mjs",
     "dev:web": "npm run dev --workspace @flownd/web",
     "build:web": "npm run build --workspace @flownd/web",
     "lint": "npm run lint --workspaces --if-present",
     "preview:web": "npm run preview --workspace @flownd/web"
   },
   "devDependencies": {
-    "expo-router": "~57.0.8",
+    "expo-router": "~57.0.9",
     "react": "19.2.3",
     "react-dom": "19.2.3"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.8"
   }
 }

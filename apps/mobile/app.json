@@ -8,15 +8,14 @@
     "scheme": "flownd",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.anonymous.flownd"
+      "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "com.mlmdev.flownd"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#F6F8F7",
+        "foregroundImage": "./assets/images/android-icon-flownd.png",
+        "monochromeImage": "./assets/images/android-icon-flownd.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -29,9 +28,14 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F4F7F8",
-          "image": "./assets/images/flownd-logo.png",
-          "imageWidth": 76
+          "backgroundColor": "#0F1712",
+          "image": "./assets/images/f-alpha-splash.png",
+          "imageWidth": 88,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#0F1712",
+            "image": "./assets/images/f-alpha-splash.png"
+          }
         }
       ]
     ],

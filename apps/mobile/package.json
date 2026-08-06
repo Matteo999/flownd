@@ -3,10 +3,15 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@expo-google-fonts/baloo-2": "^0.4.2",
+    "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
+    "@expo-google-fonts/ibm-plex-sans": "^0.4.1",
+    "@expo-google-fonts/material-symbols": "^0.4.41",
     "@expo/ui": "~57.0.7",
     "@flownd/api-client": "*",
     "@flownd/config": "*",
     "@flownd/core": "*",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.8",
     "expo-constants": "~57.0.7",
     "expo-dev-client": "~57.0.9",
@@ -38,11 +43,11 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
+    "start": "node --env-file=../../.env.local ../../node_modules/expo/bin/cli start",
     "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web",
+    "android": "node --env-file=../../.env.local ../../node_modules/expo/bin/cli run:android",
+    "ios": "node --env-file=../../.env.local ../../node_modules/expo/bin/cli run:ios",
+    "web": "node --env-file=../../.env.local ../../node_modules/expo/bin/cli start --web",
     "lint": "expo lint"
   },
   "private": true
