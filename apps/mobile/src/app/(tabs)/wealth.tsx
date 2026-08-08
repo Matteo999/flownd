@@ -1,6 +1,6 @@
-import { type Href, router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type Href, router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppHeaderActions } from '@/components/app-header-actions';
 import {
@@ -17,7 +17,6 @@ import { formatEuro } from '@/lib/onboarding';
 import {
   listBankConnections,
   type OpenBankingConnection,
-  removeBankConnection,
   syncBankConnection,
 } from '@/lib/open-banking';
 import { useApp } from '@/providers/app-provider';
@@ -34,7 +33,6 @@ export default function WealthScreen() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [connections, setConnections] = useState<OpenBankingConnection[]>([]);
-  const [removingConnectionId, setRemovingConnectionId] = useState<string | null>(null);
   const netWorth = financialAccounts.reduce(
     (sum, account) => sum + account.balance,
     0,
@@ -55,7 +53,7 @@ export default function WealthScreen() {
   );
   const accessToken = session?.access_token;
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     if (!accessToken) return;
     let active = true;
     listBankConnections(accessToken)
@@ -71,7 +69,7 @@ export default function WealthScreen() {
     return () => {
       active = false;
     };
-  }, [accessToken]);
+  }, [accessToken]));
 
   async function reloadConnections() {
     if (!accessToken) return;
@@ -194,8 +192,15 @@ export default function WealthScreen() {
           </View>
           <View style={styles.accountList}>
             {authorizedConnections.map((connection) => (
-              <Card key={connection.id} style={styles.connectionCard}>
-                <View style={styles.accountRow}>
+              <Pressable
+                key={connection.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Apri il dettaglio di ${connection.aspsp_name}`}
+                onPress={() =>
+                  router.push(`/bank-connection?id=${connection.id}` as Href)
+                }
+                style={({ pressed }) => pressed && styles.pressed}>
+                <Card style={styles.accountRow}>
                   <View style={[styles.accountIcon, { backgroundColor: colors.sunken }]}>
                     <Text style={[styles.materialIcon, { color: colors.text }]}>account_balance</Text>
                   </View>
@@ -212,58 +217,9 @@ export default function WealthScreen() {
                   <Text style={[styles.accountBalance, { color: colors.text }]}>
                     {amountsVisible ? formatEuro(connection.balance) : HIDDEN_AMOUNT}
                   </Text>
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Rimuovi collegamento ${connection.aspsp_name}`}
-                  disabled={removingConnectionId === connection.id}
-                  onPress={() => {
-                    Alert.alert(
-                      'Rimuovere il collegamento?',
-                      `Flownd interromperà la sincronizzazione con ${connection.aspsp_name}. Le transazioni già importate resteranno nello storico.`,
-                      [
-                        { text: 'Annulla', style: 'cancel' },
-                        {
-                          text: 'Rimuovi',
-                          style: 'destructive',
-                          onPress: async () => {
-                            if (!session?.access_token) return;
-                            setRemovingConnectionId(connection.id);
-                            setSyncError(null);
-                            try {
-                              await removeBankConnection(
-                                session.access_token,
-                                connection.id,
-                              );
-                              await refreshData();
-                              await reloadConnections();
-                            } catch (reason) {
-                              setSyncError(
-                                reason instanceof Error
-                                  ? reason.message
-                                  : 'Rimozione non riuscita.',
-                              );
-                            } finally {
-                              setRemovingConnectionId(null);
-                            }
-                          },
-                        },
-                      ],
-                    );
-                  }}
-                  style={({ pressed }) => [
-                    styles.removeConnection,
-                    { borderTopColor: colors.border },
-                    pressed && styles.pressed,
-                  ]}>
-                  <Text style={[styles.removeIcon, { color: colors.negative }]}>delete</Text>
-                  <Text style={[styles.removeText, { color: colors.negative }]}>
-                    {removingConnectionId === connection.id
-                      ? 'Rimozione…'
-                      : 'Rimuovi collegamento'}
-                  </Text>
-                </Pressable>
-              </Card>
+                  <Text style={[styles.chevron, { color: colors.textSecondary }]}>chevron_right</Text>
+                </Card>
+              </Pressable>
             ))}
           </View>
         </>
@@ -346,7 +302,6 @@ const styles = StyleSheet.create({
   chartEmptyIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 28 },
   chartEmptyText: { fontFamily: font.body, fontSize: 11, marginTop: 7 },
   accountList: { gap: 9 },
-  connectionCard: { paddingBottom: 0, overflow: 'hidden' },
   accountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   accountIcon: {
     width: 38,
@@ -359,18 +314,7 @@ const styles = StyleSheet.create({
   accountName: { fontFamily: font.bodySemiBold, fontSize: 13 },
   accountMeta: { fontFamily: font.body, fontSize: 9, marginTop: 2 },
   accountBalance: { fontFamily: font.dataMedium, fontSize: 12 },
-  removeConnection: {
-    minHeight: 40,
-    marginTop: 12,
-    marginHorizontal: -16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-  },
-  removeIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 17 },
-  removeText: { fontFamily: font.bodySemiBold, fontSize: 10 },
+  chevron: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 19 },
   pressed: { opacity: 0.7 },
   planHint: { marginTop: 20 },
   planHintTitle: { fontFamily: font.bodySemiBold, fontSize: 13 },

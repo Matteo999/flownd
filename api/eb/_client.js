@@ -48,7 +48,10 @@ export async function enableBankingRequest(path, options = {}) {
   return data
 }
 
-export async function fetchAllTransactions(accountUid, { dateFrom, dateTo }) {
+async function fetchTransactionsWithStrategy(
+  accountUid,
+  { dateFrom, dateTo, strategy },
+) {
   const transactions = []
   const seenPageKeys = new Set()
   let continuationKey = null
@@ -59,7 +62,7 @@ export async function fetchAllTransactions(accountUid, { dateFrom, dateTo }) {
     if (continuationKey) {
       params.set('continuation_key', continuationKey)
     } else {
-      params.set('strategy', 'default')
+      params.set('strategy', strategy)
       if (dateFrom) params.set('date_from', dateFrom)
       if (dateTo) params.set('date_to', dateTo)
     }
@@ -75,4 +78,25 @@ export async function fetchAllTransactions(accountUid, { dateFrom, dateTo }) {
   } while (continuationKey && pages < 40)
 
   return transactions
+}
+
+export async function fetchAllTransactions(
+  accountUid,
+  { dateFrom, dateTo, preferredStrategy = 'default' },
+) {
+  const fallbackStrategy = preferredStrategy === 'longest' ? 'default' : 'longest'
+  try {
+    return await fetchTransactionsWithStrategy(accountUid, {
+      dateFrom,
+      dateTo,
+      strategy: preferredStrategy,
+    })
+  } catch (error) {
+    if (![400, 404, 409, 422].includes(Number(error?.providerStatus))) throw error
+    return fetchTransactionsWithStrategy(accountUid, {
+      dateFrom,
+      dateTo,
+      strategy: fallbackStrategy,
+    })
+  }
 }

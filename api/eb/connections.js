@@ -86,22 +86,25 @@ export default async function handler(req, res) {
     if (error) throw error
     const { data: bankAccounts, error: accountError } = await service
       .from('open_banking_accounts')
-      .select('id,connection_id')
+      .select('id,connection_id,name,currency,account_type,product,iban_last4,active')
       .eq('user_id', user.id)
-      .eq('active', true)
     if (accountError) throw accountError
-    const accountIds = (bankAccounts || []).map((account) => account.id)
+    const activeBankAccounts = (bankAccounts || []).filter((account) => account.active)
+    const accountIds = activeBankAccounts.map((account) => account.id)
     const { data: financialAccounts, error: financialError } = accountIds.length
       ? await service
           .from('financial_accounts')
-          .select('open_banking_account_id,current_balance,currency')
+          .select('open_banking_account_id,current_balance,previous_month_balance,currency,last_synced_at')
           .eq('user_id', user.id)
           .eq('active', true)
           .in('open_banking_account_id', accountIds)
       : { data: [], error: null }
     if (financialError) throw financialError
     const connectionByAccount = new Map(
-      (bankAccounts || []).map((account) => [account.id, account.connection_id]),
+      activeBankAccounts.map((account) => [account.id, account.connection_id]),
+    )
+    const financialByAccount = new Map(
+      (financialAccounts || []).map((account) => [account.open_banking_account_id, account]),
     )
     const balances = new Map()
     for (const account of financialAccounts || []) {
@@ -112,14 +115,75 @@ export default async function handler(req, res) {
         (balances.get(connectionId) || 0) + Number(account.current_balance),
       )
     }
+    const decoratedConnections = (connections || []).map((connection) => ({
+      ...connection,
+      balance: balances.get(connection.id) || 0,
+      currency: 'EUR',
+    }))
+    const requestedConnectionId = String(req.query.id || '')
+    if (requestedConnectionId) {
+      const connection = decoratedConnections.find(
+        (item) => item.id === requestedConnectionId,
+      )
+      if (!connection) throw new ApiError(404, 'Collegamento bancario non trovato')
+      const resources = activeBankAccounts.filter(
+        (account) => account.connection_id === connection.id,
+      )
+      const resourceIds = resources.map((account) => account.id)
+      const { data: imports, error: importsError } = resourceIds.length
+        ? await service
+            .from('open_banking_transaction_imports')
+            .select('bank_account_id,status')
+            .eq('user_id', user.id)
+            .in('bank_account_id', resourceIds)
+        : { data: [], error: null }
+      if (importsError) throw importsError
+      const importsByAccount = new Map()
+      for (const item of imports || []) {
+        const summary = importsByAccount.get(item.bank_account_id)
+          || { imported: 0, pending: 0 }
+        summary.imported += 1
+        if (item.status === 'pending') summary.pending += 1
+        importsByAccount.set(item.bank_account_id, summary)
+      }
+      const detailedResources = resources.map((account) => {
+        const financial = financialByAccount.get(account.id)
+        const importSummary = importsByAccount.get(account.id)
+          || { imported: 0, pending: 0 }
+        return {
+          id: account.id,
+          name: account.name,
+          product: account.product,
+          accountType: account.account_type,
+          ibanLast4: account.iban_last4,
+          balance: Number(financial?.current_balance || 0),
+          previousMonthBalance:
+            financial?.previous_month_balance == null
+              ? null
+              : Number(financial.previous_month_balance),
+          currency: financial?.currency || account.currency || 'EUR',
+          lastSyncedAt: financial?.last_synced_at || null,
+          importedTransactions: importSummary.imported,
+          pendingTransactions: importSummary.pending,
+        }
+      })
+      return res.status(200).json({
+        ...connection,
+        resources: detailedResources,
+        importedTransactions: detailedResources.reduce(
+          (sum, resource) => sum + resource.importedTransactions,
+          0,
+        ),
+        pendingTransactions: detailedResources.reduce(
+          (sum, resource) => sum + resource.pendingTransactions,
+          0,
+        ),
+      })
+    }
     return res.status(200).json({
       plan: entitlement.plan,
       maxConnections: entitlement.maxConnections,
-      connections: (connections || []).map((connection) => ({
-        ...connection,
-        balance: balances.get(connection.id) || 0,
-        currency: 'EUR',
-      })),
+      connections: decoratedConnections,
     })
   } catch (error) {
     return sendApiError(res, error)

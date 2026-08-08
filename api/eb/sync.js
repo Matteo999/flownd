@@ -249,7 +249,13 @@ async function syncAccount({ service, userId, connection, savedAccount, dateFrom
   const [detailsResult, balancesResult, transactionsResult] = await Promise.allSettled([
     enableBankingRequest(`/accounts/${encodeURIComponent(uid)}/details`),
     enableBankingRequest(`/accounts/${encodeURIComponent(uid)}/balances`),
-    fetchAllTransactions(uid, { dateFrom, dateTo }),
+    fetchAllTransactions(uid, {
+      dateFrom,
+      dateTo,
+      preferredStrategy: /n26/i.test(connection.aspsp_name)
+        ? 'longest'
+        : 'default',
+    }),
   ])
   const successfulResources = [detailsResult, balancesResult, transactionsResult]
     .filter((result) => result.status === 'fulfilled').length
@@ -422,7 +428,15 @@ export default async function handler(req, res) {
       .eq('active', true)
     if (accountError) throw accountError
     const dateTo = dateOnly()
-    const dateFrom = connection.last_synced_at
+    const accountIds = (accounts || []).map((account) => account.id)
+    const { count: existingImportCount, error: importCountError } = accountIds.length
+      ? await service
+          .from('open_banking_transaction_imports')
+          .select('id', { count: 'exact', head: true })
+          .in('bank_account_id', accountIds)
+      : { count: 0, error: null }
+    if (importCountError) throw importCountError
+    const dateFrom = connection.last_synced_at && (existingImportCount || 0) > 0
       ? shiftDate(dateOnly(connection.last_synced_at), -14)
       : shiftDate(dateTo, -370)
     const totals = { imported: 0, linked: 0, pending: 0 }
