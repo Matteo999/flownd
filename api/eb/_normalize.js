@@ -126,6 +126,7 @@ export function normalizeAccount(account, aspspName) {
   const last4 = iban ? iban.replace(/\s/g, '').slice(-4) : null
   const product = clean(account.product)
   const details = clean(account.details)
+  const providerStatus = clean(account.psu_status).toLowerCase() || null
   const displayName =
     details
     || product
@@ -138,6 +139,10 @@ export function normalizeAccount(account, aspspName) {
     currency: clean(account.currency) || 'EUR',
     accountType: clean(account.cash_account_type) || null,
     product: product || null,
+    providerStatus,
+    active:
+      !providerStatus
+      || ['enabled', 'active', 'available'].includes(providerStatus),
   }
 }
 

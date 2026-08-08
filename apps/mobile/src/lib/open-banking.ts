@@ -13,6 +13,9 @@ export type OpenBankingConnection = {
   status: 'authorized' | 'expired' | 'revoked' | 'error';
   valid_until: string;
   last_synced_at: string | null;
+  last_error: string | null;
+  balance: number;
+  currency: string;
 };
 
 type ApiErrorBody = { error?: string; code?: string };
@@ -93,4 +96,15 @@ export async function listBankConnections(accessToken: string) {
     accessToken,
   );
   return data.connections;
+}
+
+export async function removeBankConnection(
+  accessToken: string,
+  connectionId: string,
+) {
+  return ebRequest<{ removed: boolean }>(
+    `connections?id=${encodeURIComponent(connectionId)}`,
+    accessToken,
+    { method: 'DELETE' },
+  );
 }

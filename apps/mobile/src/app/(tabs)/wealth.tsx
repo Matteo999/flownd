@@ -1,6 +1,6 @@
 import { type Href, router } from 'expo-router';
-import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppHeaderActions } from '@/components/app-header-actions';
 import {
@@ -14,7 +14,12 @@ import {
 } from '@/components/flownd-ui';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import { formatEuro } from '@/lib/onboarding';
-import { listBankConnections, syncBankConnection } from '@/lib/open-banking';
+import {
+  listBankConnections,
+  type OpenBankingConnection,
+  removeBankConnection,
+  syncBankConnection,
+} from '@/lib/open-banking';
 import { useApp } from '@/providers/app-provider';
 
 export default function WealthScreen() {
@@ -28,6 +33,8 @@ export default function WealthScreen() {
   } = useApp();
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [connections, setConnections] = useState<OpenBankingConnection[]>([]);
+  const [removingConnectionId, setRemovingConnectionId] = useState<string | null>(null);
   const netWorth = financialAccounts.reduce(
     (sum, account) => sum + account.balance,
     0,
@@ -43,9 +50,33 @@ export default function WealthScreen() {
   const deltaPercentage = previousNetWorth
     ? (delta / Math.abs(previousNetWorth)) * 100
     : 0;
-  const openBankingAccounts = financialAccounts.filter(
-    (account) => account.source === 'open_banking',
+  const authorizedConnections = connections.filter(
+    (connection) => connection.status === 'authorized',
   );
+  const accessToken = session?.access_token;
+
+  useEffect(() => {
+    if (!accessToken) return;
+    let active = true;
+    listBankConnections(accessToken)
+      .then((items) => {
+        if (active) setConnections(items);
+      })
+      .catch((reason) => {
+        if (!active) return;
+        setSyncError(
+          reason instanceof Error ? reason.message : 'Collegamenti non disponibili.',
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [accessToken]);
+
+  async function reloadConnections() {
+    if (!accessToken) return;
+    setConnections(await listBankConnections(accessToken));
+  }
   const maxChartValue = Math.max(
     1,
     Math.abs(previousNetWorth),
@@ -87,9 +118,9 @@ export default function WealthScreen() {
       {planTier !== 'free' ? (
         <View style={styles.connectAction}>
           <PrimaryButton onPress={() => router.push('/connect-bank' as Href)}>
-            {openBankingAccounts.length ? 'Aggiungi un’altra banca' : 'Collega una banca'}
+            {authorizedConnections.length ? 'Aggiungi un’altra banca' : 'Collega una banca'}
           </PrimaryButton>
-          {openBankingAccounts.length ? (
+          {authorizedConnections.length ? (
             <SecondaryButton
               disabled={syncing}
               onPress={async () => {
@@ -97,13 +128,11 @@ export default function WealthScreen() {
                 setSyncing(true);
                 setSyncError(null);
                 try {
-                  const connections = await listBankConnections(session.access_token);
-                  for (const connection of connections.filter(
-                    (item) => item.status === 'authorized',
-                  )) {
+                  for (const connection of authorizedConnections) {
                     await syncBankConnection(session.access_token, connection.id);
                   }
                   await refreshData();
+                  await reloadConnections();
                 } catch (reason) {
                   setSyncError(
                     reason instanceof Error
@@ -155,31 +184,85 @@ export default function WealthScreen() {
         )}
       </Card>
 
-      {planTier !== 'free' && openBankingAccounts.length ? (
+      {authorizedConnections.length ? (
         <>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Conti collegati</Text>
             <Text style={[styles.sectionCaption, { color: colors.textSecondary }]}> 
-              {openBankingAccounts.length}
+              {authorizedConnections.length}
             </Text>
           </View>
           <View style={styles.accountList}>
-            {openBankingAccounts.map((account) => (
-              <Card key={account.id} style={styles.accountRow}>
-                <View style={[styles.accountIcon, { backgroundColor: colors.sunken }]}> 
-                  <Text style={[styles.materialIcon, { color: colors.text }]}>account_balance</Text>
-                </View>
-                <View style={styles.flex}>
-                  <Text style={[styles.accountName, { color: colors.text }]}>{account.name}</Text>
-                  <Text style={[styles.accountMeta, { color: colors.textSecondary }]}> 
-                    {account.lastSyncedAt
-                      ? `Aggiornato ${formatSyncDate(account.lastSyncedAt)}`
-                      : 'In attesa di sincronizzazione'}
+            {authorizedConnections.map((connection) => (
+              <Card key={connection.id} style={styles.connectionCard}>
+                <View style={styles.accountRow}>
+                  <View style={[styles.accountIcon, { backgroundColor: colors.sunken }]}>
+                    <Text style={[styles.materialIcon, { color: colors.text }]}>account_balance</Text>
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={[styles.accountName, { color: colors.text }]}>
+                      {connection.aspsp_name}
+                    </Text>
+                    <Text style={[styles.accountMeta, { color: colors.textSecondary }]}>
+                      {connection.last_synced_at
+                        ? `Aggiornato ${formatSyncDate(connection.last_synced_at)}`
+                        : 'In attesa di sincronizzazione'}
+                    </Text>
+                  </View>
+                  <Text style={[styles.accountBalance, { color: colors.text }]}>
+                    {amountsVisible ? formatEuro(connection.balance) : HIDDEN_AMOUNT}
                   </Text>
                 </View>
-                <Text style={[styles.accountBalance, { color: colors.text }]}> 
-                  {amountsVisible ? formatEuro(account.balance) : HIDDEN_AMOUNT}
-                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Rimuovi collegamento ${connection.aspsp_name}`}
+                  disabled={removingConnectionId === connection.id}
+                  onPress={() => {
+                    Alert.alert(
+                      'Rimuovere il collegamento?',
+                      `Flownd interromperà la sincronizzazione con ${connection.aspsp_name}. Le transazioni già importate resteranno nello storico.`,
+                      [
+                        { text: 'Annulla', style: 'cancel' },
+                        {
+                          text: 'Rimuovi',
+                          style: 'destructive',
+                          onPress: async () => {
+                            if (!session?.access_token) return;
+                            setRemovingConnectionId(connection.id);
+                            setSyncError(null);
+                            try {
+                              await removeBankConnection(
+                                session.access_token,
+                                connection.id,
+                              );
+                              await refreshData();
+                              await reloadConnections();
+                            } catch (reason) {
+                              setSyncError(
+                                reason instanceof Error
+                                  ? reason.message
+                                  : 'Rimozione non riuscita.',
+                              );
+                            } finally {
+                              setRemovingConnectionId(null);
+                            }
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  style={({ pressed }) => [
+                    styles.removeConnection,
+                    { borderTopColor: colors.border },
+                    pressed && styles.pressed,
+                  ]}>
+                  <Text style={[styles.removeIcon, { color: colors.negative }]}>delete</Text>
+                  <Text style={[styles.removeText, { color: colors.negative }]}>
+                    {removingConnectionId === connection.id
+                      ? 'Rimozione…'
+                      : 'Rimuovi collegamento'}
+                  </Text>
+                </Pressable>
               </Card>
             ))}
           </View>
@@ -263,6 +346,7 @@ const styles = StyleSheet.create({
   chartEmptyIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 28 },
   chartEmptyText: { fontFamily: font.body, fontSize: 11, marginTop: 7 },
   accountList: { gap: 9 },
+  connectionCard: { paddingBottom: 0, overflow: 'hidden' },
   accountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   accountIcon: {
     width: 38,
@@ -275,6 +359,19 @@ const styles = StyleSheet.create({
   accountName: { fontFamily: font.bodySemiBold, fontSize: 13 },
   accountMeta: { fontFamily: font.body, fontSize: 9, marginTop: 2 },
   accountBalance: { fontFamily: font.dataMedium, fontSize: 12 },
+  removeConnection: {
+    minHeight: 40,
+    marginTop: 12,
+    marginHorizontal: -16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  removeIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 17 },
+  removeText: { fontFamily: font.bodySemiBold, fontSize: 10 },
+  pressed: { opacity: 0.7 },
   planHint: { marginTop: 20 },
   planHintTitle: { fontFamily: font.bodySemiBold, fontSize: 13 },
   planHintCopy: { fontFamily: font.body, fontSize: 10, lineHeight: 16, marginTop: 3 },

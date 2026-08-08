@@ -77,7 +77,10 @@ export function sendApiError(res, error) {
     console.error('Flownd Enable Banking failed', error)
   }
   return res.status(status).json({
-    error: status >= 500 ? 'Open Banking non è disponibile in questo momento.' : error.message,
+    error:
+      status >= 500
+        ? error?.publicMessage || 'Open Banking non è disponibile in questo momento.'
+        : error.message,
     ...(error?.code ? { code: error.code } : {}),
   })
 }

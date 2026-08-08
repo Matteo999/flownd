@@ -54,6 +54,7 @@ export default function DashboardScreen() {
     draft,
     transactions,
     financialAccounts,
+    planTier,
     upcomingPayments,
     coachInsight,
     amountsVisible,
@@ -328,7 +329,7 @@ export default function DashboardScreen() {
             ) : (
               <Text style={[styles.overviewHint, { color: colors.textSecondary }]}>
                 {financialAccounts.length
-                  ? `${financialAccounts.length} ${financialAccounts.length === 1 ? 'saldo incluso' : 'saldi inclusi'}`
+                  ? 'Saldi bancari aggregati'
                   : 'Collega un conto o aggiungi un saldo manuale.'}
               </Text>
             )}
@@ -570,7 +571,11 @@ export default function DashboardScreen() {
           </Text>
           <PrimaryButton
             onPress={() =>
-              router.push('/settings?section=accounts' as Href)
+              router.push(
+                (planTier === 'free'
+                  ? '/settings?section=accounts'
+                  : '/connect-bank') as Href,
+              )
             }>
             {financialAccounts.length
               ? 'Importa estratto conto'

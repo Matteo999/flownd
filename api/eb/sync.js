@@ -246,15 +246,39 @@ async function markInternalTransfers(service, userId) {
 
 async function syncAccount({ service, userId, connection, savedAccount, dateFrom, dateTo }) {
   const uid = savedAccount.provider_account_uid
-  const [details, balances, rawTransactions] = await Promise.all([
+  const [detailsResult, balancesResult, transactionsResult] = await Promise.allSettled([
     enableBankingRequest(`/accounts/${encodeURIComponent(uid)}/details`),
     enableBankingRequest(`/accounts/${encodeURIComponent(uid)}/balances`),
     fetchAllTransactions(uid, { dateFrom, dateTo }),
   ])
+  const successfulResources = [detailsResult, balancesResult, transactionsResult]
+    .filter((result) => result.status === 'fulfilled').length
+  if (!successfulResources) {
+    throw detailsResult.reason || balancesResult.reason || transactionsResult.reason
+  }
+  const details = detailsResult.status === 'fulfilled' ? detailsResult.value : null
+  const balances = balancesResult.status === 'fulfilled' ? balancesResult.value : null
+  const rawTransactions = transactionsResult.status === 'fulfilled'
+    ? transactionsResult.value
+    : []
   const normalizedAccount = normalizeAccount(
-    { ...(details || {}), uid, identification_hash: savedAccount.identification_hash },
+    {
+      name: savedAccount.name,
+      currency: savedAccount.currency,
+      cash_account_type: savedAccount.account_type,
+      product: savedAccount.product,
+      ...(details || {}),
+      uid,
+      identification_hash: savedAccount.identification_hash,
+    },
     connection.aspsp_name,
   )
+  if (!normalizedAccount.active) {
+    const inactiveError = new ApiError(409, 'Conto bancario non più attivo')
+    inactiveError.code = 'INACTIVE_BANK_ACCOUNT'
+    inactiveError.providerStatus = 410
+    throw inactiveError
+  }
   const selectedBalance = chooseBalance(balances)
   const now = new Date().toISOString()
   const { error: accountError } = await service
@@ -344,7 +368,29 @@ async function syncAccount({ service, userId, connection, savedAccount, dateFrom
       totals.pending += result.pending
     }
   }
-  return totals
+  return {
+    ...totals,
+    warnings: 3 - successfulResources,
+  }
+}
+
+function shouldDeactivateAccount(error) {
+  return error?.code === 'INACTIVE_BANK_ACCOUNT'
+    || [400, 403, 404, 409, 410, 422].includes(Number(error?.providerStatus))
+}
+
+async function deactivateAccount(service, accountId) {
+  const now = new Date().toISOString()
+  const { error: accountError } = await service
+    .from('open_banking_accounts')
+    .update({ active: false, updated_at: now })
+    .eq('id', accountId)
+  if (accountError) throw accountError
+  const { error: financialError } = await service
+    .from('financial_accounts')
+    .update({ active: false, last_synced_at: now })
+    .eq('open_banking_account_id', accountId)
+  if (financialError) throw financialError
 }
 
 export default async function handler(req, res) {
@@ -370,7 +416,7 @@ export default async function handler(req, res) {
     }
     const { data: accounts, error: accountError } = await service
       .from('open_banking_accounts')
-      .select('id,provider_account_uid,identification_hash')
+      .select('id,provider_account_uid,identification_hash,name,currency,account_type,product')
       .eq('connection_id', connection.id)
       .eq('user_id', user.id)
       .eq('active', true)
@@ -380,34 +426,86 @@ export default async function handler(req, res) {
       ? shiftDate(dateOnly(connection.last_synced_at), -14)
       : shiftDate(dateTo, -370)
     const totals = { imported: 0, linked: 0, pending: 0 }
-    for (const account of accounts || []) {
-      const result = await syncAccount({
-        service,
-        userId: user.id,
-        connection,
-        savedAccount: account,
-        dateFrom,
-        dateTo,
-      })
-      totals.imported += result.imported
-      totals.linked += result.linked
-      totals.pending += result.pending
+    let syncedAccounts = 0
+    let skippedAccounts = 0
+    let resourceWarnings = 0
+    const transientFailures = []
+    const activeAccounts = accounts || []
+    for (let index = 0; index < activeAccounts.length; index += 3) {
+      const results = await Promise.all(
+        activeAccounts.slice(index, index + 3).map(async (account) => {
+          try {
+            const result = await syncAccount({
+              service,
+              userId: user.id,
+              connection,
+              savedAccount: account,
+              dateFrom,
+              dateTo,
+            })
+            return { result, skipped: false, failure: null }
+          } catch (accountSyncError) {
+            console.warn('Enable Banking account sync incomplete', {
+              connectionId: connection.id,
+              accountId: account.id,
+              code: accountSyncError?.code || null,
+              providerStatus: accountSyncError?.providerStatus || null,
+            })
+            if (shouldDeactivateAccount(accountSyncError)) {
+              await deactivateAccount(service, account.id)
+              return { result: null, skipped: true, failure: null }
+            }
+            return { result: null, skipped: false, failure: accountSyncError }
+          }
+        }),
+      )
+      for (const item of results) {
+        if (item.result) {
+          totals.imported += item.result.imported
+          totals.linked += item.result.linked
+          totals.pending += item.result.pending
+          resourceWarnings += item.result.warnings
+          syncedAccounts += 1
+        }
+        if (item.skipped) skippedAccounts += 1
+        if (item.failure) transientFailures.push(item.failure)
+      }
+    }
+    if (!syncedAccounts && transientFailures.length) {
+      const unavailable = new ApiError(
+        502,
+        'Nessuna risorsa bancaria sincronizzabile',
+        'BANK_RESOURCES_UNAVAILABLE',
+      )
+      unavailable.publicMessage =
+        'La banca non ha restituito alcuna risorsa sincronizzabile. Riprova tra poco o rimuovi e ricollega il conto.'
+      throw unavailable
     }
     const internalTransfers = await markInternalTransfers(service, user.id)
     await service
       .from('open_banking_connections')
       .update({
         last_synced_at: new Date().toISOString(),
-        last_error: null,
+        last_error:
+          skippedAccounts || resourceWarnings || transientFailures.length
+            ? `${skippedAccounts} conti ignorati, ${resourceWarnings} risorse non disponibili, ${transientFailures.length} errori temporanei`
+            : null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', connection.id)
     return res.status(200).json({
-      accounts: accounts?.length || 0,
+      accounts: syncedAccounts,
+      skippedAccounts,
+      warnings: resourceWarnings + transientFailures.length,
       ...totals,
       internalTransfers,
     })
   } catch (error) {
+    console.error('Enable Banking connection sync failed', {
+      code: error?.code || null,
+      status: error?.status || null,
+      providerStatus: error?.providerStatus || null,
+    })
     return sendApiError(res, error)
   }
 }

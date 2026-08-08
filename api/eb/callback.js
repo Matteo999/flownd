@@ -61,7 +61,11 @@ export default async function handler(req, res) {
 
     for (const rawAccount of session.accounts || []) {
       const account = normalizeAccount(rawAccount, session.aspsp?.name)
-      if (!account.providerAccountUid || !account.identificationHash) continue
+      if (
+        !account.providerAccountUid
+        || !account.identificationHash
+        || !account.active
+      ) continue
       const { data: savedAccount, error: accountError } = await service
         .from('open_banking_accounts')
         .upsert(
