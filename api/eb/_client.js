@@ -127,20 +127,27 @@ async function fetchTransactionsByDateWindows(
 ) {
   const transactions = []
   const seen = new Set()
-  let windowEnd = dateTo
-  let windows = 0
+  const ranges = []
   let partial = false
+  let requests = 0
 
-  while (windowEnd >= dateFrom && windows < 18) {
+  for (let windowEnd = dateTo; windowEnd >= dateFrom;) {
     const proposedStart = shiftDate(windowEnd, -89)
     const windowStart = proposedStart < dateFrom ? dateFrom : proposedStart
+    ranges.push({ start: windowStart, end: windowEnd })
+    windowEnd = shiftDate(windowStart, -1)
+  }
+
+  while (ranges.length && requests < 80) {
+    const range = ranges.shift()
     const params = new URLSearchParams({
       strategy: 'default',
-      date_from: windowStart,
-      date_to: windowEnd,
+      date_from: range.start,
+      date_to: range.end,
     })
     let data
     try {
+      requests += 1
       data = await enableBankingRequest(
         `/accounts/${encodeURIComponent(accountUid)}/transactions?${params}`,
       )
@@ -151,23 +158,37 @@ async function fetchTransactionsByDateWindows(
         enumerable: false,
         configurable: true,
       })
-      break
+      continue
     }
     const page = data?.transactions || []
+
+    // Some N26 connections return a valid first page but cannot consume the
+    // continuation key. Split the requested period until each response fits in
+    // one page, so the complete history does not depend on that key.
+    if (data?.continuation_key && range.start < range.end) {
+      const startTime = new Date(`${range.start}T12:00:00Z`).getTime()
+      const endTime = new Date(`${range.end}T12:00:00Z`).getTime()
+      const middle = new Date(startTime + Math.floor((endTime - startTime) / 2))
+        .toISOString()
+        .slice(0, 10)
+      ranges.unshift(
+        { start: shiftDate(middle, 1), end: range.end },
+        { start: range.start, end: middle },
+      )
+      continue
+    }
+
     for (const transaction of page) {
       const key = transactionKey(transaction)
       if (seen.has(key)) continue
       seen.add(key)
       transactions.push(transaction)
     }
-    const dates = page.map(transactionDate).filter(Boolean).sort()
-    const oldest = dates[0] || null
-    windowEnd = oldest && oldest > windowStart
-      ? shiftDate(oldest, -1)
-      : shiftDate(windowStart, -1)
-    windows += 1
+
+    // More than one page for a single date cannot be split any further.
+    if (data?.continuation_key) partial = true
   }
-  if (windowEnd >= dateFrom) partial = true
+  if (ranges.length) partial = true
   if (partial) {
     Object.defineProperty(transactions, 'partial', {
       value: true,
@@ -188,13 +209,17 @@ export async function fetchAllTransactions(
       dateTo,
       strategy: preferredStrategy,
     })
-    if (!transactions.partial || preferredStrategy !== 'longest') {
+    if (preferredStrategy !== 'longest') {
       return transactions
     }
     const dates = transactions.map(transactionDate).filter(Boolean).sort()
     const oldest = dates[0] || dateTo
-    const olderDateTo = shiftDate(oldest, -1)
-    if (olderDateTo < dateFrom) return transactions
+    // Include the boundary day: a capped page can contain only part of that
+    // day's movements. Stable-key deduplication removes the overlap.
+    const olderDateTo = oldest
+    if (olderDateTo < dateFrom) {
+      return transactions
+    }
     const olderTransactions = await fetchTransactionsByDateWindows(
       accountUid,
       { dateFrom, dateTo: olderDateTo },
