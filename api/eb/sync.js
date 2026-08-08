@@ -376,7 +376,9 @@ async function syncAccount({ service, userId, connection, savedAccount, dateFrom
   }
   return {
     ...totals,
-    warnings: 3 - successfulResources,
+    warnings:
+      3 - successfulResources
+      + (rawTransactions.partial ? 1 : 0),
   }
 }
 
@@ -436,7 +438,10 @@ export default async function handler(req, res) {
           .in('bank_account_id', accountIds)
       : { count: 0, error: null }
     if (importCountError) throw importCountError
-    const dateFrom = connection.last_synced_at && (existingImportCount || 0) > 0
+    const dateFrom =
+      connection.last_synced_at
+      && !connection.last_error
+      && (existingImportCount || 0) > 0
       ? shiftDate(dateOnly(connection.last_synced_at), -14)
       : shiftDate(dateTo, -370)
     const totals = { imported: 0, linked: 0, pending: 0 }
