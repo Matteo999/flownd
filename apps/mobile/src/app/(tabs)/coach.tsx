@@ -22,6 +22,7 @@ import {
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { AppHeaderActions } from '@/components/app-header-actions';
 import {
   askCoach,
   type CoachMessage,
@@ -160,7 +161,11 @@ export default function CoachScreen() {
 
   return (
     <Screen scroll={false} style={styles.screen}>
-      <PageHeader title="Coach" eyebrow="MONEY COACH" />
+      <PageHeader
+        title="Coach"
+        action={<AppHeaderActions />}
+        collapseInPlace
+      />
       <ScreenScrollBridge>
         {(onScroll) => (
           <KeyboardAvoidingView

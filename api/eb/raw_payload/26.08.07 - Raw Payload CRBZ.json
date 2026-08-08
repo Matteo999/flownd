@@ -1,0 +1,2942 @@
+{
+  "generatedAt": "2026-08-06T15:25:07.741Z",
+  "provider": "enable-banking",
+  "note": "Documento locale di debug per analizzare la struttura dei dati bancari ricevuti da Enable Banking.",
+  "session": {
+    "sessionId": "8bbf0e48-af54-4617-a56f-ade5ebf3946a",
+    "raw": {
+      "session_id": "8bbf0e48-af54-4617-a56f-ade5ebf3946a",
+      "accounts": [
+        {
+          "account_id": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "all_account_ids": [
+            {
+              "identification": "IT50Y0604558230000000402000",
+              "scheme_name": "IBAN",
+              "issuer": null
+            }
+          ],
+          "account_servicer": null,
+          "name": "LA MENDOLA MATTEO",
+          "details": null,
+          "usage": null,
+          "cash_account_type": "CACC",
+          "product": null,
+          "currency": "EUR",
+          "psu_status": null,
+          "credit_limit": null,
+          "legal_age": null,
+          "postal_address": null,
+          "uid": "ae1a89e9-8216-497a-aae2-840cf365f72b",
+          "identification_hash": "WwpbCiJhY2NvdW50IiwKImFjY291bnRfaWQiLAoiaWJhbiIKXSwKWwoiYWNjb3VudCIsCiJjdXJyZW5jeSIKXQpd.Go3UItVuAjM0plqudAp3YK1H0A5b077sNFKZV+E0DWY=",
+          "identification_hashes": [
+            "WwpbCiJhY2NvdW50IiwKImFjY291bnRfaWQiLAoiaWJhbiIKXQpd.pGak43ZjeHYrXS803sJW/2EmH4eOIkTes4UZ9rGPKvQ=",
+            "WwpbCiJhY2NvdW50IiwKImFjY291bnRfaWQiLAoiaWJhbiIKXSwKWwoiYWNjb3VudCIsCiJjdXJyZW5jeSIKXQpd.Go3UItVuAjM0plqudAp3YK1H0A5b077sNFKZV+E0DWY=",
+            "WwpbCiJhc3BzcF9uYW1lIgpdLApbCiJhc3BzcF9jb3VudHJ5IgpdLApbCiJhY2NvdW50IiwKInJlc291cmNlX2lkIgpdCl0=.0SRUTTv1T0JeFEu7m2pPJBK9p/HpMtEFziMDaaF4Czg=",
+            "WwpbCiJhc3BzcF9uYW1lIgpdLApbCiJhc3BzcF9jb3VudHJ5IgpdLApbCiJhY2NvdW50IiwKIm5hbWUiCl0KXQ==.8+nMkR/FzUaOTCD4O0EbJaukV/eaKxzRbzOz2p38xAw="
+          ]
+        }
+      ],
+      "aspsp": {
+        "name": "Cassa di Risparmio di Bolzano",
+        "country": "IT"
+      },
+      "psu_type": "personal",
+      "access": {
+        "accounts": null,
+        "balances": true,
+        "transactions": true,
+        "valid_until": "2027-02-02T15:24:37.652000Z"
+      }
+    }
+  },
+  "selectedAccount": {
+    "account_id": {
+      "iban": "IT50Y0604558230000000402000",
+      "other": null
+    },
+    "all_account_ids": [
+      {
+        "identification": "IT50Y0604558230000000402000",
+        "scheme_name": "IBAN",
+        "issuer": null
+      }
+    ],
+    "account_servicer": null,
+    "name": "LA MENDOLA MATTEO",
+    "details": null,
+    "usage": null,
+    "cash_account_type": "CACC",
+    "product": null,
+    "currency": "EUR",
+    "psu_status": null,
+    "credit_limit": null,
+    "legal_age": null,
+    "postal_address": null,
+    "uid": "ae1a89e9-8216-497a-aae2-840cf365f72b",
+    "identification_hash": "WwpbCiJhY2NvdW50IiwKImFjY291bnRfaWQiLAoiaWJhbiIKXSwKWwoiYWNjb3VudCIsCiJjdXJyZW5jeSIKXQpd.Go3UItVuAjM0plqudAp3YK1H0A5b077sNFKZV+E0DWY=",
+    "identification_hashes": [
+      "WwpbCiJhY2NvdW50IiwKImFjY291bnRfaWQiLAoiaWJhbiIKXQpd.pGak43ZjeHYrXS803sJW/2EmH4eOIkTes4UZ9rGPKvQ=",
+      "WwpbCiJhY2NvdW50IiwKImFjY291bnRfaWQiLAoiaWJhbiIKXSwKWwoiYWNjb3VudCIsCiJjdXJyZW5jeSIKXQpd.Go3UItVuAjM0plqudAp3YK1H0A5b077sNFKZV+E0DWY=",
+      "WwpbCiJhc3BzcF9uYW1lIgpdLApbCiJhc3BzcF9jb3VudHJ5IgpdLApbCiJhY2NvdW50IiwKInJlc291cmNlX2lkIgpdCl0=.0SRUTTv1T0JeFEu7m2pPJBK9p/HpMtEFziMDaaF4Czg=",
+      "WwpbCiJhc3BzcF9uYW1lIgpdLApbCiJhc3BzcF9jb3VudHJ5IgpdLApbCiJhY2NvdW50IiwKIm5hbWUiCl0KXQ==.8+nMkR/FzUaOTCD4O0EbJaukV/eaKxzRbzOz2p38xAw="
+    ]
+  },
+  "requestedRange": {
+    "dateFrom": "2016-07-31",
+    "dateTo": "2026-08-06"
+  },
+  "balances": {
+    "normalized": {
+      "amount": 718.19,
+      "currency": "EUR"
+    },
+    "raw": {
+      "balances": [
+        {
+          "name": "Expected balance",
+          "balance_amount": {
+            "currency": "EUR",
+            "amount": "718.19"
+          },
+          "balance_type": "XPCD",
+          "last_change_date_time": null,
+          "reference_date": "2026-08-06",
+          "last_committed_transaction": null
+        },
+        {
+          "name": "Interim available balance",
+          "balance_amount": {
+            "currency": "EUR",
+            "amount": "718.19"
+          },
+          "balance_type": "ITAV",
+          "last_change_date_time": null,
+          "reference_date": "2026-08-06",
+          "last_committed_transaction": null
+        }
+      ]
+    }
+  },
+  "transactions": {
+    "normalized": [
+      {
+        "id": "bd6b76cd-f42e-4c04-ace3-6512d3386aac",
+        "date": "2026-07-10",
+        "description": "Bonifico - SEPA istantaneo PLAZA SRL Bonifico Disposto In: Internet Coor.Benef.: IT13 R089 9524 2090 0000 0045 292 Banca Destinataria: 08995/24209-ICRAITRRRN0 Data Ordine: 10/07/26 Data Regolamento: 10/07/26 Cro: 66F69C1BEFCE45839058FBF953B00FAD ACCONTO SOGGIORNO 21-23/07 SETTI Causale Movimento: W7",
+        "amount": -104,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "dd6bc753-126b-4fa1-aa38-042d7e3fab9c",
+        "date": "2025-11-07",
+        "description": "Pagamento POS CARTA 8113640 ESEGUITO IL 05/11/25 C/O SUPERMERCATI POLI 805 Causale Movimento: VH",
+        "amount": -18.73,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "db5c3e94-707e-4742-a0b2-15fb02580bb4",
+        "date": "2025-05-02",
+        "description": "Pagamento POS CARTA 8113640 ESEGUITO IL 29/04/25 C/O SEGIT 2250 Causale Movimento: VH",
+        "amount": -50.01,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "9fb97bc0-20f9-4939-b0cb-68e04b5f3981",
+        "date": "2025-02-26",
+        "description": "Pagamento POS CARTA 8113640 ESEGUITO IL 24/02/25 C/O SEGIT 2250VIA ABETONE LOC. LIROVERETO38068 I Causale Movimento: VH",
+        "amount": -49.99,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "314eea54-4eb0-447f-8791-c8d5ec506a50",
+        "date": "2023-12-05",
+        "description": "Pagamento POS CARTA 8113640 ESEGUITO IL 02/12/23 C/O IPER ORVEA Causale Movimento: VH",
+        "amount": -23.9,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "4abfb9da-9c6a-4f17-ac39-6f54efafe9e6",
+        "date": "2021-03-04",
+        "description": "ADDEBITO BONIFICO DA HOME BANKING MATTEO LA MENDOLA Bonifico Disposto in: Internet Coor.Benef.: DE74 1001 1001 2622 1813 43 Banca Destinataria: NTSBDEB1XXX Data Ordine: 04/03/21 Data Regolamento: 05/03/21 Cro: 0000028115525403485823058230IT TRASFERIMENTO Causale Movimento: J7",
+        "amount": -1600,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "296888df-fbb3-4069-9c21-ff8ff4ba1d36",
+        "date": "2021-01-08",
+        "description": "ADDEBITO BONIFICO DA HOME BANKING Matteo La Mendola Bonifico Disposto in: Internet Coor.Benef.: DE74 1001 1001 2622 1813 43 Banca Destinataria: NTSBDEB1XXX Data Ordine: 08/01/21 Data Regolamento: 11/01/21 Cro: 0000028084099001485823058230IT TRASFERIMENTO Causale Movimento: J7",
+        "amount": -1600,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "ff135383-b732-46b5-bc3c-1584a0146263",
+        "date": "2020-12-16",
+        "description": "ADDEBITO DELEGA F24 021 LMNLCU70A20C351D ADD.DELEGA F24 HB-NET Causale Movimento: QO",
+        "amount": -39.09,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "7918ca8f-eaa1-4e70-bf7e-c98b65a3371f",
+        "date": "2020-12-16",
+        "description": "ADDEBITO DELEGA F24 021 RCCNNL71D42C351D ADD.DELEGA F24 HB-NET Causale Movimento: QO",
+        "amount": -39.09,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "67073e50-6f0d-4ba0-b3bb-f516c23551f4",
+        "date": "2020-12-14",
+        "description": "ADDEBITO BONIFICO DA HOME BANKING Matteo La Mendola Bonifico Disposto in: Internet Coor.Benef.: DE74 1001 1001 2622 1813 43 Banca Destinataria: NTSBDEB1XXX Data Ordine: 14/12/20 Data Regolamento: 15/12/20 Cro: 0000028068704212485823058230IT TRASFERIMENTO Causale Movimento: J7",
+        "amount": -1600,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "65d12446-0c1a-4c8c-90af-b4f4b983f4d0",
+        "date": "2020-11-20",
+        "description": "BONIFICO A VOSTRO FAVORE OPERA UNIVERSITARIA TRENTO Data Regolamento: 20/11/20 Cod.Id.Ord: IT35 B020 0801 8200 0000 6006 809 Banca Ordinante: 01020/02080-UNCRITMM Cro: 1101203240131492 Note: PAGAMENTO BORSA DI STUDIO A A 2020 2021 RATA U NICA ANNI SUCCESSIVI Documenti BORSE-SUCC-20-RU N BO Id.Operazione: NOTPROVIDED Causale Movimento: 48",
+        "amount": 2900,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "fabca13e-374f-4820-a9d1-a7438226f7a7",
+        "date": "2020-10-26",
+        "description": "VS DISPOSIZIONE DI BONIFICO Tiozzo R&M di Tiozzo Roberto e Mirko Sn RISPARMIO ENERGETICO L. 296/06 E SS MOD PRIMO ACCONTO TENDA DA SOLE GIBUS - RIF. FATTURA 2 DATA ORDINE: 26/10/20 CRO: 28039160109 P.IVA/C.F. BENEFICIARIO: 00248670218 C.F. ORDINANTE: RCCNNL71D42C351D Causale Movimento: M4",
+        "amount": -1500,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "208fa858-b452-46e5-b723-3af3dbdc3d97",
+        "date": "2020-10-23",
+        "description": "BONIFICO A VOSTRO FAVORE ANTONELLA RICCIARDI Data Regolamento: 23/10/20 Cod.Id.Ord: IT66 M367 7222 3000 EM00 0369 975 Banca Ordinante: 36772/22300-HYEEIT22 Cro: 1046076951036772482230058230IT Note: TRASFERIMENTO Id.Operazione: NOTPROVIDED Causale Movimento: 48",
+        "amount": 1500,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "c9d1671f-8d9a-4ac5-a5e9-b6c82ec901cd",
+        "date": "2020-09-16",
+        "description": "BONIFICO A VOSTRO FAVORE Matteo La Mendola Data Regolamento: 16/09/20 Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970 Banca Ordinante: 03475/01605-INGBITD1 Cro: 07747923502 Note: Trasferimento Id.Ordinante: INGBITD1XXX Id.Operazione: NOTPROVIDED Id.Beneficiario: CRBZIT2B055 Causale Movimento: 48",
+        "amount": 1500,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "b29981e4-16fd-4080-b7e7-375aeb5a3c15",
+        "date": "2020-08-03",
+        "description": "BONIFICO A VOSTRO FAVORE OPERA UNIVERSITARIA TRENTO Data Regolamento: 03/08/20 Cod.Id.Ord: IT35 B020 0801 8200 0000 6006 809 Banca Ordinante: 01020/02080-UNCRITMM Cro: 1101202130217739 Note: pagamento seconda rata borse a a 2019 2020 MAT RICOLE Documenti BORSE--19-2R N BORSE--19-2R 12 11 1 Id.Operazione: NOTPROVIDED Causale Movimento: 48",
+        "amount": 1443,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "625e5d1e-0dd0-4f9e-8d81-40a6f1a84720",
+        "date": "2020-02-13",
+        "description": "ADDEBITO BONIFICO DA HOME BANKING Matteo La Mendola Bonifico Disposto in: Internet Coor.Benef.: IT60 J034 7501 605C C001 1934 970 Banca Destinataria: 03475/01605-INGBITD1XXX Data Ordine: 13/02/20 Data Regolamento: 14/02/20 Cro: 0000028907890006485823058230IT TRASFERIMENTO 28SSCT BE0000028907890006485823058230IT Causale Movimento: J7",
+        "amount": -743,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "3cd1ca9e-bb3a-4a20-9544-87bfcbe3bb7a",
+        "date": "2020-02-12",
+        "description": "ADDEBITO BONIFICO DA HOME BANKING Matteo La Mendola Bonifico Disposto in: Internet Coor.Benef.: IT60 J034 7501 605C C001 1934 970 Banca Destinataria: 03475/01605-INGBITD1XXX Data Ordine: 12/02/20 Data Regolamento: 13/02/20 Cro: 0000028907302507485823058230IT TRASFERIMENTO 28SSCT BE0000028907302507485823058230IT Causale Movimento: J7",
+        "amount": -1600,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "22326410-cbb2-4886-8284-0cd53cd29cd6",
+        "date": "2019-12-20",
+        "description": "ADDEBITO DELEGA F24 021 LMNLCU70A20C351D ADD.DELEGA F24 HB-NET Causale Movimento: QO",
+        "amount": -19.55,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "d2e2d388-669e-4613-ad25-01ff3460e328",
+        "date": "2019-12-20",
+        "description": "ADDEBITO DELEGA F24 021 RCCNNL71D42C351D ADD.DELEGA F24 HB-NET Causale Movimento: QO",
+        "amount": -19.55,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "e9c61677-11e7-4d70-b078-e64eb50878a3",
+        "date": "2019-12-20",
+        "description": "BONIFICO A VOSTRO FAVORE Matteo La Mendola Data Regolamento: 20/12/19 Cod.Id.Ord: DE74 1001 1001 2622 1813 43 Banca Ordinante: NTSBDEB1 Cro: 4ff3f8b3e17e4607a4ada319b60def0a Note: Trasferimento Id.Operazione: 4ff3f8b3e17e4607a4ada319b60def0a 28RSCT BE4ff3f8b3e17e4607a4ada319b60def0a Causale Movimento: 48",
+        "amount": 39.1,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "e68b2346-4ad3-47c1-bff3-a20233dbb352",
+        "date": "2019-12-16",
+        "description": "BONIFICO A VOSTRO FAVORE Matteo La Mendola Data Regolamento: 16/12/19 Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970 Banca Ordinante: 03475/01605-INGBITD1 Cro: 06613615002 Note: Trasferimento Sparkasse Id.Ordinante: INGBITD1XXX Id.Operazione: NOTPROVIDED Id.Beneficiario: CRBZIT2B055 28RSCT BE06613615002 Causale Movimento: 48",
+        "amount": 200,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "c9709b6a-ac2f-4784-a89e-f518d4a26055",
+        "date": "2019-12-09",
+        "description": "ADDEBITO BONIFICO DA HOME BANKING Matteo La Mendola Bonifico Disposto in: Internet Coor.Benef.: DE74 1001 1001 2622 1813 43 Banca Destinataria: NTSBDEB1XXX Data Ordine: 09/12/19 Data Regolamento: 10/12/19 Cro: 0000028870705008485823058230IT TRASFERIMENTO N26 28SSCT BE0000028870705008485823058230IT Causale Movimento: J7",
+        "amount": -700,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "98858bb5-ba5d-4d6d-aaa2-6fe4692696d8",
+        "date": "2019-11-27",
+        "description": "BONIFICO A VOSTRO FAVORE OPERA UNIVERSITARIA TRENTO Data Regolamento: 27/11/19 Cod.Id.Ord: IT35 B020 0801 8200 0000 6006 809 Banca Ordinante: 01020/02080-UNCRITMM Cro: 1101193300469394 Note: BORSE DI STUDIO AA 19 20 1 RATA MATRICOLE N BO RSE 19 1R 08 11 19 - MAND. 0006006-0001096-0000130 Id.Operazione: NOTPROVIDED 28RSCT BE1101193300469394 Causale Movimento: 48",
+        "amount": 1443,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "59454c35-3a39-43b7-a06d-53a149d99bd6",
+        "date": "2019-11-19",
+        "description": "BONIFICO A VOSTRO FAVORE Matteo La Mendola Data Regolamento: 19/11/19 Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970 Banca Ordinante: 03475/01605-INGBITD1 Cro: 06493110808 Note: Trasferimento Sparkasse Id.Ordinante: INGBITD1XXX Id.Operazione: NOTPROVIDED Id.Beneficiario: CRBZIT2B055 28RSCT BE06493110808 Causale Movimento: 48",
+        "amount": 200,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "d48fbb5a-a12b-496a-b21d-057345cebc39",
+        "date": "2019-10-17",
+        "description": "BONIFICO A VOSTRO FAVORE Matteo La Mendola Data Regolamento: 17/10/19 Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970 Banca Ordinante: 03475/01605-INGBITD1 Cro: 06364328605 Note: Trasferimento Sparkasse Id.Ordinante: INGBITD1XXX Id.Operazione: NOTPROVIDED Id.Beneficiario: CRBZIT2B055 28RSCT BE06364328605 Causale Movimento: 48",
+        "amount": 239.08,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "27476f90-fd5f-45f9-97fb-bd98d2c94346",
+        "date": "2019-10-15",
+        "description": "ADDEBITO DELEGA F24 021 LMNLCU70A20C351D ADD.DELEGA F24 HB-NET Causale Movimento: QO",
+        "amount": -19.54,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "40984573-ce64-46da-b274-e309d5759d26",
+        "date": "2019-10-15",
+        "description": "ADDEBITO DELEGA F24 021 RCCNNL71D42C351D ADD.DELEGA F24 HB-NET Causale Movimento: QO",
+        "amount": -19.54,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "7046b545-5d3c-4e7c-99a9-b79cfb8a5ab4",
+        "date": "2019-09-16",
+        "description": "BONIFICO A VOSTRO FAVORE Matteo La Mendola Data Regolamento: 16/09/19 Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970 Banca Ordinante: 03475/01605-INGBITD1 Cro: 06228044809 Note: Trasferimento Id.Ordinante: INGBITD1XXX Id.Operazione: NOTPROVIDED Id.Beneficiario: CRBZIT2B055 Causale Movimento: 48",
+        "amount": 250,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "dcbf9b41-f266-4089-8a05-349d578b0db6",
+        "date": "2019-08-16",
+        "description": "BONIFICO A VOSTRO FAVORE Matteo La Mendola Data Regolamento: 15/08/19 Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970 Banca Ordinante: 03475/01605-INGBITD1 Cro: 06120242801 Note: Trasferimento Id.Ordinante: INGBITD1XXX Id.Operazione: NOTPROVIDED Id.Beneficiario: CRBZIT2B055 Causale Movimento: 48",
+        "amount": 250,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "5d45d707-9fd6-43be-ac80-a3a402556b2b",
+        "date": "2019-07-16",
+        "description": "BONIFICO A VOSTRO FAVORE Matteo La Mendola Data Regolamento: 16/07/19 Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970 Banca Ordinante: 03475/01605-INGBITD1 Cro: 05999329410 Note: Trasferimento Id.Ordinante: INGBITD1XXX Id.Operazione: NOTPROVIDED Id.Beneficiario: CRBZIT2B055 Causale Movimento: 48",
+        "amount": 250,
+        "currency": "EUR",
+        "category": null
+      },
+      {
+        "id": "5553cedf-50c7-412d-8c1b-0ec727c001e8",
+        "date": "2019-06-18",
+        "description": "BONIFICO A VOSTRO FAVORE Matteo La Mendola Data Regolamento: 18/06/19 Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970 Banca Ordinante: 03475/01605-INGBITD1 Cro: 05870926012 Note: Trasferimento Id.Ordinante: INGBITD1XXX Id.Operazione: NOTPROVIDED Id.Beneficiario: CRBZIT2B055 Causale Movimento: 48",
+        "amount": 249.84,
+        "currency": "EUR",
+        "category": null
+      }
+    ],
+    "raw": {
+      "request": {
+        "dateFrom": "2016-07-31",
+        "strategy": "longest",
+        "pagesFetched": 1,
+        "duplicateCount": 0,
+        "hitPageLimit": false,
+        "stopReason": "no-continuation-key",
+        "paginationError": null
+      },
+      "pages": [
+        {
+          "transactions": [
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "249.84"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2019-06-18",
+              "value_date": "2019-06-18",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "Matteo La Mendola",
+                "Data Regolamento: 18/06/19",
+                "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+                "Banca Ordinante: 03475/01605-INGBITD1",
+                "Cro: 05870926012",
+                "Note: Trasferimento",
+                "Id.Ordinante: INGBITD1XXX",
+                "Id.Operazione: NOTPROVIDED",
+                "Id.Beneficiario: CRBZIT2B055",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "250.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2019-07-16",
+              "value_date": "2019-07-16",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "Matteo La Mendola",
+                "Data Regolamento: 16/07/19",
+                "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+                "Banca Ordinante: 03475/01605-INGBITD1",
+                "Cro: 05999329410",
+                "Note: Trasferimento",
+                "Id.Ordinante: INGBITD1XXX",
+                "Id.Operazione: NOTPROVIDED",
+                "Id.Beneficiario: CRBZIT2B055",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "250.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2019-08-16",
+              "value_date": "2019-08-15",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "Matteo La Mendola",
+                "Data Regolamento: 15/08/19",
+                "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+                "Banca Ordinante: 03475/01605-INGBITD1",
+                "Cro: 06120242801",
+                "Note: Trasferimento",
+                "Id.Ordinante: INGBITD1XXX",
+                "Id.Operazione: NOTPROVIDED",
+                "Id.Beneficiario: CRBZIT2B055",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "250.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2019-09-16",
+              "value_date": "2019-09-16",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "Matteo La Mendola",
+                "Data Regolamento: 16/09/19",
+                "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+                "Banca Ordinante: 03475/01605-INGBITD1",
+                "Cro: 06228044809",
+                "Note: Trasferimento",
+                "Id.Ordinante: INGBITD1XXX",
+                "Id.Operazione: NOTPROVIDED",
+                "Id.Beneficiario: CRBZIT2B055",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "19.54"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2019-10-15",
+              "value_date": "2019-10-14",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO DELEGA F24",
+                "021 LMNLCU70A20C351D ADD.DELEGA F24 HB-NET",
+                "Causale Movimento: QO"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "19.54"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2019-10-15",
+              "value_date": "2019-10-14",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO DELEGA F24",
+                "021 RCCNNL71D42C351D ADD.DELEGA F24 HB-NET",
+                "Causale Movimento: QO"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "239.08"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2019-10-17",
+              "value_date": "2019-10-17",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "Matteo La Mendola",
+                "Data Regolamento: 17/10/19",
+                "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+                "Banca Ordinante: 03475/01605-INGBITD1",
+                "Cro: 06364328605",
+                "Note: Trasferimento Sparkasse",
+                "Id.Ordinante: INGBITD1XXX",
+                "Id.Operazione: NOTPROVIDED",
+                "Id.Beneficiario: CRBZIT2B055",
+                "28RSCT BE06364328605",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "200.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2019-11-19",
+              "value_date": "2019-11-19",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "Matteo La Mendola",
+                "Data Regolamento: 19/11/19",
+                "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+                "Banca Ordinante: 03475/01605-INGBITD1",
+                "Cro: 06493110808",
+                "Note: Trasferimento Sparkasse",
+                "Id.Ordinante: INGBITD1XXX",
+                "Id.Operazione: NOTPROVIDED",
+                "Id.Beneficiario: CRBZIT2B055",
+                "28RSCT BE06493110808",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "1443.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2019-11-27",
+              "value_date": "2019-11-27",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "OPERA UNIVERSITARIA TRENTO",
+                "Data Regolamento: 27/11/19",
+                "Cod.Id.Ord: IT35 B020 0801 8200 0000 6006 809",
+                "Banca Ordinante: 01020/02080-UNCRITMM",
+                "Cro: 1101193300469394",
+                "Note: BORSE DI STUDIO AA 19 20 1 RATA MATRICOLE N BO",
+                "RSE 19 1R 08 11 19 - MAND. 0006006-0001096-0000130",
+                "Id.Operazione: NOTPROVIDED",
+                "28RSCT BE1101193300469394",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "700.00"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2019-12-09",
+              "value_date": "2019-12-09",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO BONIFICO DA HOME BANKING",
+                "Matteo La Mendola",
+                "Bonifico Disposto in: Internet",
+                "Coor.Benef.: DE74 1001 1001 2622 1813 43",
+                "Banca Destinataria: NTSBDEB1XXX",
+                "Data Ordine: 09/12/19 Data Regolamento: 10/12/19",
+                "Cro: 0000028870705008485823058230IT",
+                "TRASFERIMENTO N26",
+                "28SSCT BE0000028870705008485823058230IT",
+                "Causale Movimento: J7"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "200.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2019-12-16",
+              "value_date": "2019-12-16",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "Matteo La Mendola",
+                "Data Regolamento: 16/12/19",
+                "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+                "Banca Ordinante: 03475/01605-INGBITD1",
+                "Cro: 06613615002",
+                "Note: Trasferimento Sparkasse",
+                "Id.Ordinante: INGBITD1XXX",
+                "Id.Operazione: NOTPROVIDED",
+                "Id.Beneficiario: CRBZIT2B055",
+                "28RSCT BE06613615002",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "19.55"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2019-12-20",
+              "value_date": "2019-12-19",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO DELEGA F24",
+                "021 LMNLCU70A20C351D ADD.DELEGA F24 HB-NET",
+                "Causale Movimento: QO"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "19.55"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2019-12-20",
+              "value_date": "2019-12-19",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO DELEGA F24",
+                "021 RCCNNL71D42C351D ADD.DELEGA F24 HB-NET",
+                "Causale Movimento: QO"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "39.10"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2019-12-20",
+              "value_date": "2019-12-20",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "Matteo La Mendola",
+                "Data Regolamento: 20/12/19",
+                "Cod.Id.Ord: DE74 1001 1001 2622 1813 43",
+                "Banca Ordinante: NTSBDEB1",
+                "Cro: 4ff3f8b3e17e4607a4ada319b60def0a",
+                "Note: Trasferimento",
+                "Id.Operazione: 4ff3f8b3e17e4607a4ada319b60def0a",
+                "28RSCT BE4ff3f8b3e17e4607a4ada319b60def0a",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "1600.00"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2020-02-12",
+              "value_date": "2020-02-12",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO BONIFICO DA HOME BANKING",
+                "Matteo La Mendola",
+                "Bonifico Disposto in: Internet",
+                "Coor.Benef.: IT60 J034 7501 605C C001 1934 970",
+                "Banca Destinataria: 03475/01605-INGBITD1XXX",
+                "Data Ordine: 12/02/20 Data Regolamento: 13/02/20",
+                "Cro: 0000028907302507485823058230IT",
+                "TRASFERIMENTO",
+                "28SSCT BE0000028907302507485823058230IT",
+                "Causale Movimento: J7"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "743.00"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2020-02-13",
+              "value_date": "2020-02-13",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO BONIFICO DA HOME BANKING",
+                "Matteo La Mendola",
+                "Bonifico Disposto in: Internet",
+                "Coor.Benef.: IT60 J034 7501 605C C001 1934 970",
+                "Banca Destinataria: 03475/01605-INGBITD1XXX",
+                "Data Ordine: 13/02/20 Data Regolamento: 14/02/20",
+                "Cro: 0000028907890006485823058230IT",
+                "TRASFERIMENTO",
+                "28SSCT BE0000028907890006485823058230IT",
+                "Causale Movimento: J7"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "1443.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2020-08-03",
+              "value_date": "2020-08-03",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "OPERA UNIVERSITARIA TRENTO",
+                "Data Regolamento: 03/08/20",
+                "Cod.Id.Ord: IT35 B020 0801 8200 0000 6006 809",
+                "Banca Ordinante: 01020/02080-UNCRITMM",
+                "Cro: 1101202130217739",
+                "Note: pagamento seconda rata borse a a 2019 2020 MAT",
+                "RICOLE Documenti BORSE--19-2R N BORSE--19-2R 12 11 1",
+                "Id.Operazione: NOTPROVIDED",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "1500.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2020-09-16",
+              "value_date": "2020-09-16",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "Matteo La Mendola",
+                "Data Regolamento: 16/09/20",
+                "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+                "Banca Ordinante: 03475/01605-INGBITD1",
+                "Cro: 07747923502",
+                "Note: Trasferimento",
+                "Id.Ordinante: INGBITD1XXX",
+                "Id.Operazione: NOTPROVIDED",
+                "Id.Beneficiario: CRBZIT2B055",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "1500.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2020-10-23",
+              "value_date": "2020-10-23",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "ANTONELLA RICCIARDI",
+                "Data Regolamento: 23/10/20",
+                "Cod.Id.Ord: IT66 M367 7222 3000 EM00 0369 975",
+                "Banca Ordinante: 36772/22300-HYEEIT22",
+                "Cro: 1046076951036772482230058230IT",
+                "Note: TRASFERIMENTO",
+                "Id.Operazione: NOTPROVIDED",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "1500.00"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2020-10-26",
+              "value_date": "2020-10-26",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "VS DISPOSIZIONE DI BONIFICO",
+                "Tiozzo R&M di Tiozzo Roberto e Mirko Sn",
+                "RISPARMIO ENERGETICO L. 296/06 E SS MOD",
+                "PRIMO ACCONTO TENDA DA SOLE GIBUS - RIF. FATTURA 2",
+                "DATA ORDINE: 26/10/20",
+                "CRO: 28039160109",
+                "P.IVA/C.F. BENEFICIARIO: 00248670218",
+                "C.F. ORDINANTE: RCCNNL71D42C351D",
+                "Causale Movimento: M4"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "2900.00"
+              },
+              "creditor": null,
+              "creditor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": null,
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "CRDT",
+              "status": "BOOK",
+              "booking_date": "2020-11-20",
+              "value_date": "2020-11-20",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "BONIFICO A VOSTRO FAVORE",
+                "OPERA UNIVERSITARIA TRENTO",
+                "Data Regolamento: 20/11/20",
+                "Cod.Id.Ord: IT35 B020 0801 8200 0000 6006 809",
+                "Banca Ordinante: 01020/02080-UNCRITMM",
+                "Cro: 1101203240131492",
+                "Note: PAGAMENTO BORSA DI STUDIO A A 2020 2021 RATA U",
+                "NICA ANNI SUCCESSIVI Documenti BORSE-SUCC-20-RU N BO",
+                "Id.Operazione: NOTPROVIDED",
+                "Causale Movimento: 48"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "1600.00"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2020-12-14",
+              "value_date": "2020-12-14",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO BONIFICO DA HOME BANKING",
+                "Matteo La Mendola",
+                "Bonifico Disposto in: Internet",
+                "Coor.Benef.: DE74 1001 1001 2622 1813 43",
+                "Banca Destinataria: NTSBDEB1XXX",
+                "Data Ordine: 14/12/20 Data Regolamento: 15/12/20",
+                "Cro: 0000028068704212485823058230IT",
+                "TRASFERIMENTO",
+                "Causale Movimento: J7"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "39.09"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2020-12-16",
+              "value_date": "2020-12-15",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO DELEGA F24",
+                "021 LMNLCU70A20C351D ADD.DELEGA F24 HB-NET",
+                "Causale Movimento: QO"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "39.09"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2020-12-16",
+              "value_date": "2020-12-15",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO DELEGA F24",
+                "021 RCCNNL71D42C351D ADD.DELEGA F24 HB-NET",
+                "Causale Movimento: QO"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "1600.00"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2021-01-08",
+              "value_date": "2021-01-08",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO BONIFICO DA HOME BANKING",
+                "Matteo La Mendola",
+                "Bonifico Disposto in: Internet",
+                "Coor.Benef.: DE74 1001 1001 2622 1813 43",
+                "Banca Destinataria: NTSBDEB1XXX",
+                "Data Ordine: 08/01/21 Data Regolamento: 11/01/21",
+                "Cro: 0000028084099001485823058230IT",
+                "TRASFERIMENTO",
+                "Causale Movimento: J7"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "1600.00"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2021-03-04",
+              "value_date": "2021-03-04",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "ADDEBITO BONIFICO DA HOME BANKING",
+                "MATTEO LA MENDOLA",
+                "Bonifico Disposto in: Internet",
+                "Coor.Benef.: DE74 1001 1001 2622 1813 43",
+                "Banca Destinataria: NTSBDEB1XXX",
+                "Data Ordine: 04/03/21 Data Regolamento: 05/03/21",
+                "Cro: 0000028115525403485823058230IT",
+                "TRASFERIMENTO",
+                "Causale Movimento: J7"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "23.90"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2023-12-05",
+              "value_date": "2023-12-02",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "Pagamento POS CARTA 8113640",
+                "ESEGUITO IL 02/12/23",
+                "C/O IPER ORVEA",
+                "Causale Movimento: VH"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "49.99"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2025-02-26",
+              "value_date": "2025-02-24",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "Pagamento POS CARTA 8113640",
+                "ESEGUITO IL 24/02/25",
+                "C/O SEGIT 2250VIA ABETONE LOC. LIROVERETO38068 I",
+                "Causale Movimento: VH"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "50.01"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2025-05-02",
+              "value_date": "2025-04-29",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "Pagamento POS CARTA 8113640",
+                "ESEGUITO IL 29/04/25",
+                "C/O SEGIT 2250",
+                "Causale Movimento: VH"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "18.73"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2025-11-07",
+              "value_date": "2025-11-05",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "Pagamento POS CARTA 8113640",
+                "ESEGUITO IL 05/11/25",
+                "C/O SUPERMERCATI POLI 805",
+                "Causale Movimento: VH"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            },
+            {
+              "entry_reference": null,
+              "merchant_category_code": null,
+              "transaction_amount": {
+                "currency": "EUR",
+                "amount": "104.00"
+              },
+              "creditor": null,
+              "creditor_account": null,
+              "creditor_agent": null,
+              "debtor": null,
+              "debtor_account": {
+                "iban": "IT50Y0604558230000000402000",
+                "other": null
+              },
+              "debtor_agent": null,
+              "bank_transaction_code": null,
+              "credit_debit_indicator": "DBIT",
+              "status": "BOOK",
+              "booking_date": "2026-07-10",
+              "value_date": "2026-07-10",
+              "transaction_date": null,
+              "balance_after_transaction": null,
+              "reference_number": null,
+              "reference_number_schema": null,
+              "remittance_information": [
+                "Bonifico - SEPA istantaneo",
+                "PLAZA SRL",
+                "Bonifico Disposto In: Internet",
+                "Coor.Benef.: IT13 R089 9524 2090 0000 0045 292",
+                "Banca Destinataria: 08995/24209-ICRAITRRRN0",
+                "Data Ordine: 10/07/26 Data Regolamento: 10/07/26",
+                "Cro: 66F69C1BEFCE45839058FBF953B00FAD",
+                "ACCONTO SOGGIORNO 21-23/07 SETTI",
+                "Causale Movimento: W7"
+              ],
+              "debtor_account_additional_identification": null,
+              "creditor_account_additional_identification": null,
+              "exchange_rate": null,
+              "note": null,
+              "transaction_id": null
+            }
+          ],
+          "continuation_key": null
+        }
+      ],
+      "transactions": [
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "249.84"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2019-06-18",
+          "value_date": "2019-06-18",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "Matteo La Mendola",
+            "Data Regolamento: 18/06/19",
+            "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+            "Banca Ordinante: 03475/01605-INGBITD1",
+            "Cro: 05870926012",
+            "Note: Trasferimento",
+            "Id.Ordinante: INGBITD1XXX",
+            "Id.Operazione: NOTPROVIDED",
+            "Id.Beneficiario: CRBZIT2B055",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "250.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2019-07-16",
+          "value_date": "2019-07-16",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "Matteo La Mendola",
+            "Data Regolamento: 16/07/19",
+            "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+            "Banca Ordinante: 03475/01605-INGBITD1",
+            "Cro: 05999329410",
+            "Note: Trasferimento",
+            "Id.Ordinante: INGBITD1XXX",
+            "Id.Operazione: NOTPROVIDED",
+            "Id.Beneficiario: CRBZIT2B055",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "250.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2019-08-16",
+          "value_date": "2019-08-15",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "Matteo La Mendola",
+            "Data Regolamento: 15/08/19",
+            "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+            "Banca Ordinante: 03475/01605-INGBITD1",
+            "Cro: 06120242801",
+            "Note: Trasferimento",
+            "Id.Ordinante: INGBITD1XXX",
+            "Id.Operazione: NOTPROVIDED",
+            "Id.Beneficiario: CRBZIT2B055",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "250.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2019-09-16",
+          "value_date": "2019-09-16",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "Matteo La Mendola",
+            "Data Regolamento: 16/09/19",
+            "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+            "Banca Ordinante: 03475/01605-INGBITD1",
+            "Cro: 06228044809",
+            "Note: Trasferimento",
+            "Id.Ordinante: INGBITD1XXX",
+            "Id.Operazione: NOTPROVIDED",
+            "Id.Beneficiario: CRBZIT2B055",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "19.54"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2019-10-15",
+          "value_date": "2019-10-14",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO DELEGA F24",
+            "021 LMNLCU70A20C351D ADD.DELEGA F24 HB-NET",
+            "Causale Movimento: QO"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "19.54"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2019-10-15",
+          "value_date": "2019-10-14",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO DELEGA F24",
+            "021 RCCNNL71D42C351D ADD.DELEGA F24 HB-NET",
+            "Causale Movimento: QO"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "239.08"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2019-10-17",
+          "value_date": "2019-10-17",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "Matteo La Mendola",
+            "Data Regolamento: 17/10/19",
+            "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+            "Banca Ordinante: 03475/01605-INGBITD1",
+            "Cro: 06364328605",
+            "Note: Trasferimento Sparkasse",
+            "Id.Ordinante: INGBITD1XXX",
+            "Id.Operazione: NOTPROVIDED",
+            "Id.Beneficiario: CRBZIT2B055",
+            "28RSCT BE06364328605",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "200.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2019-11-19",
+          "value_date": "2019-11-19",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "Matteo La Mendola",
+            "Data Regolamento: 19/11/19",
+            "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+            "Banca Ordinante: 03475/01605-INGBITD1",
+            "Cro: 06493110808",
+            "Note: Trasferimento Sparkasse",
+            "Id.Ordinante: INGBITD1XXX",
+            "Id.Operazione: NOTPROVIDED",
+            "Id.Beneficiario: CRBZIT2B055",
+            "28RSCT BE06493110808",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "1443.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2019-11-27",
+          "value_date": "2019-11-27",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "OPERA UNIVERSITARIA TRENTO",
+            "Data Regolamento: 27/11/19",
+            "Cod.Id.Ord: IT35 B020 0801 8200 0000 6006 809",
+            "Banca Ordinante: 01020/02080-UNCRITMM",
+            "Cro: 1101193300469394",
+            "Note: BORSE DI STUDIO AA 19 20 1 RATA MATRICOLE N BO",
+            "RSE 19 1R 08 11 19 - MAND. 0006006-0001096-0000130",
+            "Id.Operazione: NOTPROVIDED",
+            "28RSCT BE1101193300469394",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "700.00"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2019-12-09",
+          "value_date": "2019-12-09",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO BONIFICO DA HOME BANKING",
+            "Matteo La Mendola",
+            "Bonifico Disposto in: Internet",
+            "Coor.Benef.: DE74 1001 1001 2622 1813 43",
+            "Banca Destinataria: NTSBDEB1XXX",
+            "Data Ordine: 09/12/19 Data Regolamento: 10/12/19",
+            "Cro: 0000028870705008485823058230IT",
+            "TRASFERIMENTO N26",
+            "28SSCT BE0000028870705008485823058230IT",
+            "Causale Movimento: J7"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "200.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2019-12-16",
+          "value_date": "2019-12-16",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "Matteo La Mendola",
+            "Data Regolamento: 16/12/19",
+            "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+            "Banca Ordinante: 03475/01605-INGBITD1",
+            "Cro: 06613615002",
+            "Note: Trasferimento Sparkasse",
+            "Id.Ordinante: INGBITD1XXX",
+            "Id.Operazione: NOTPROVIDED",
+            "Id.Beneficiario: CRBZIT2B055",
+            "28RSCT BE06613615002",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "19.55"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2019-12-20",
+          "value_date": "2019-12-19",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO DELEGA F24",
+            "021 LMNLCU70A20C351D ADD.DELEGA F24 HB-NET",
+            "Causale Movimento: QO"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "19.55"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2019-12-20",
+          "value_date": "2019-12-19",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO DELEGA F24",
+            "021 RCCNNL71D42C351D ADD.DELEGA F24 HB-NET",
+            "Causale Movimento: QO"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "39.10"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2019-12-20",
+          "value_date": "2019-12-20",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "Matteo La Mendola",
+            "Data Regolamento: 20/12/19",
+            "Cod.Id.Ord: DE74 1001 1001 2622 1813 43",
+            "Banca Ordinante: NTSBDEB1",
+            "Cro: 4ff3f8b3e17e4607a4ada319b60def0a",
+            "Note: Trasferimento",
+            "Id.Operazione: 4ff3f8b3e17e4607a4ada319b60def0a",
+            "28RSCT BE4ff3f8b3e17e4607a4ada319b60def0a",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "1600.00"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2020-02-12",
+          "value_date": "2020-02-12",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO BONIFICO DA HOME BANKING",
+            "Matteo La Mendola",
+            "Bonifico Disposto in: Internet",
+            "Coor.Benef.: IT60 J034 7501 605C C001 1934 970",
+            "Banca Destinataria: 03475/01605-INGBITD1XXX",
+            "Data Ordine: 12/02/20 Data Regolamento: 13/02/20",
+            "Cro: 0000028907302507485823058230IT",
+            "TRASFERIMENTO",
+            "28SSCT BE0000028907302507485823058230IT",
+            "Causale Movimento: J7"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "743.00"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2020-02-13",
+          "value_date": "2020-02-13",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO BONIFICO DA HOME BANKING",
+            "Matteo La Mendola",
+            "Bonifico Disposto in: Internet",
+            "Coor.Benef.: IT60 J034 7501 605C C001 1934 970",
+            "Banca Destinataria: 03475/01605-INGBITD1XXX",
+            "Data Ordine: 13/02/20 Data Regolamento: 14/02/20",
+            "Cro: 0000028907890006485823058230IT",
+            "TRASFERIMENTO",
+            "28SSCT BE0000028907890006485823058230IT",
+            "Causale Movimento: J7"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "1443.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2020-08-03",
+          "value_date": "2020-08-03",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "OPERA UNIVERSITARIA TRENTO",
+            "Data Regolamento: 03/08/20",
+            "Cod.Id.Ord: IT35 B020 0801 8200 0000 6006 809",
+            "Banca Ordinante: 01020/02080-UNCRITMM",
+            "Cro: 1101202130217739",
+            "Note: pagamento seconda rata borse a a 2019 2020 MAT",
+            "RICOLE Documenti BORSE--19-2R N BORSE--19-2R 12 11 1",
+            "Id.Operazione: NOTPROVIDED",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "1500.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2020-09-16",
+          "value_date": "2020-09-16",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "Matteo La Mendola",
+            "Data Regolamento: 16/09/20",
+            "Cod.Id.Ord: IT60 J034 7501 605C C001 1934 970",
+            "Banca Ordinante: 03475/01605-INGBITD1",
+            "Cro: 07747923502",
+            "Note: Trasferimento",
+            "Id.Ordinante: INGBITD1XXX",
+            "Id.Operazione: NOTPROVIDED",
+            "Id.Beneficiario: CRBZIT2B055",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "1500.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2020-10-23",
+          "value_date": "2020-10-23",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "ANTONELLA RICCIARDI",
+            "Data Regolamento: 23/10/20",
+            "Cod.Id.Ord: IT66 M367 7222 3000 EM00 0369 975",
+            "Banca Ordinante: 36772/22300-HYEEIT22",
+            "Cro: 1046076951036772482230058230IT",
+            "Note: TRASFERIMENTO",
+            "Id.Operazione: NOTPROVIDED",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "1500.00"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2020-10-26",
+          "value_date": "2020-10-26",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "VS DISPOSIZIONE DI BONIFICO",
+            "Tiozzo R&M di Tiozzo Roberto e Mirko Sn",
+            "RISPARMIO ENERGETICO L. 296/06 E SS MOD",
+            "PRIMO ACCONTO TENDA DA SOLE GIBUS - RIF. FATTURA 2",
+            "DATA ORDINE: 26/10/20",
+            "CRO: 28039160109",
+            "P.IVA/C.F. BENEFICIARIO: 00248670218",
+            "C.F. ORDINANTE: RCCNNL71D42C351D",
+            "Causale Movimento: M4"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "2900.00"
+          },
+          "creditor": null,
+          "creditor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": null,
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "CRDT",
+          "status": "BOOK",
+          "booking_date": "2020-11-20",
+          "value_date": "2020-11-20",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "BONIFICO A VOSTRO FAVORE",
+            "OPERA UNIVERSITARIA TRENTO",
+            "Data Regolamento: 20/11/20",
+            "Cod.Id.Ord: IT35 B020 0801 8200 0000 6006 809",
+            "Banca Ordinante: 01020/02080-UNCRITMM",
+            "Cro: 1101203240131492",
+            "Note: PAGAMENTO BORSA DI STUDIO A A 2020 2021 RATA U",
+            "NICA ANNI SUCCESSIVI Documenti BORSE-SUCC-20-RU N BO",
+            "Id.Operazione: NOTPROVIDED",
+            "Causale Movimento: 48"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "1600.00"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2020-12-14",
+          "value_date": "2020-12-14",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO BONIFICO DA HOME BANKING",
+            "Matteo La Mendola",
+            "Bonifico Disposto in: Internet",
+            "Coor.Benef.: DE74 1001 1001 2622 1813 43",
+            "Banca Destinataria: NTSBDEB1XXX",
+            "Data Ordine: 14/12/20 Data Regolamento: 15/12/20",
+            "Cro: 0000028068704212485823058230IT",
+            "TRASFERIMENTO",
+            "Causale Movimento: J7"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "39.09"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2020-12-16",
+          "value_date": "2020-12-15",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO DELEGA F24",
+            "021 LMNLCU70A20C351D ADD.DELEGA F24 HB-NET",
+            "Causale Movimento: QO"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "39.09"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2020-12-16",
+          "value_date": "2020-12-15",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO DELEGA F24",
+            "021 RCCNNL71D42C351D ADD.DELEGA F24 HB-NET",
+            "Causale Movimento: QO"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "1600.00"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2021-01-08",
+          "value_date": "2021-01-08",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO BONIFICO DA HOME BANKING",
+            "Matteo La Mendola",
+            "Bonifico Disposto in: Internet",
+            "Coor.Benef.: DE74 1001 1001 2622 1813 43",
+            "Banca Destinataria: NTSBDEB1XXX",
+            "Data Ordine: 08/01/21 Data Regolamento: 11/01/21",
+            "Cro: 0000028084099001485823058230IT",
+            "TRASFERIMENTO",
+            "Causale Movimento: J7"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "1600.00"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2021-03-04",
+          "value_date": "2021-03-04",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "ADDEBITO BONIFICO DA HOME BANKING",
+            "MATTEO LA MENDOLA",
+            "Bonifico Disposto in: Internet",
+            "Coor.Benef.: DE74 1001 1001 2622 1813 43",
+            "Banca Destinataria: NTSBDEB1XXX",
+            "Data Ordine: 04/03/21 Data Regolamento: 05/03/21",
+            "Cro: 0000028115525403485823058230IT",
+            "TRASFERIMENTO",
+            "Causale Movimento: J7"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "23.90"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2023-12-05",
+          "value_date": "2023-12-02",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "Pagamento POS CARTA 8113640",
+            "ESEGUITO IL 02/12/23",
+            "C/O IPER ORVEA",
+            "Causale Movimento: VH"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "49.99"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2025-02-26",
+          "value_date": "2025-02-24",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "Pagamento POS CARTA 8113640",
+            "ESEGUITO IL 24/02/25",
+            "C/O SEGIT 2250VIA ABETONE LOC. LIROVERETO38068 I",
+            "Causale Movimento: VH"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "50.01"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2025-05-02",
+          "value_date": "2025-04-29",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "Pagamento POS CARTA 8113640",
+            "ESEGUITO IL 29/04/25",
+            "C/O SEGIT 2250",
+            "Causale Movimento: VH"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "18.73"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2025-11-07",
+          "value_date": "2025-11-05",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "Pagamento POS CARTA 8113640",
+            "ESEGUITO IL 05/11/25",
+            "C/O SUPERMERCATI POLI 805",
+            "Causale Movimento: VH"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        },
+        {
+          "entry_reference": null,
+          "merchant_category_code": null,
+          "transaction_amount": {
+            "currency": "EUR",
+            "amount": "104.00"
+          },
+          "creditor": null,
+          "creditor_account": null,
+          "creditor_agent": null,
+          "debtor": null,
+          "debtor_account": {
+            "iban": "IT50Y0604558230000000402000",
+            "other": null
+          },
+          "debtor_agent": null,
+          "bank_transaction_code": null,
+          "credit_debit_indicator": "DBIT",
+          "status": "BOOK",
+          "booking_date": "2026-07-10",
+          "value_date": "2026-07-10",
+          "transaction_date": null,
+          "balance_after_transaction": null,
+          "reference_number": null,
+          "reference_number_schema": null,
+          "remittance_information": [
+            "Bonifico - SEPA istantaneo",
+            "PLAZA SRL",
+            "Bonifico Disposto In: Internet",
+            "Coor.Benef.: IT13 R089 9524 2090 0000 0045 292",
+            "Banca Destinataria: 08995/24209-ICRAITRRRN0",
+            "Data Ordine: 10/07/26 Data Regolamento: 10/07/26",
+            "Cro: 66F69C1BEFCE45839058FBF953B00FAD",
+            "ACCONTO SOGGIORNO 21-23/07 SETTI",
+            "Causale Movimento: W7"
+          ],
+          "debtor_account_additional_identification": null,
+          "creditor_account_additional_identification": null,
+          "exchange_rate": null,
+          "note": null,
+          "transaction_id": null
+        }
+      ]
+    }
+  }
+}

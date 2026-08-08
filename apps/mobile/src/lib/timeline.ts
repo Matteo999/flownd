@@ -45,6 +45,7 @@ function dateKey(date: Date) {
 }
 
 function addToBin(bin: TimelineBin, transaction: ExpenseDraft) {
+  if (transaction.excludedFromTotals) return;
   if (transaction.kind === 'income') {
     bin.income += transaction.amount;
   } else {
@@ -55,6 +56,7 @@ function addToBin(bin: TimelineBin, transaction: ExpenseDraft) {
 export function summarizeTransactions(transactions: ExpenseDraft[]) {
   return transactions.reduce(
     (summary, transaction) => {
+      if (transaction.excludedFromTotals) return summary;
       if (transaction.kind === 'income') {
         summary.income += transaction.amount;
       } else {
@@ -144,8 +146,11 @@ export function groupTimelineTransactions(
     const groupDate = period === 'year' ? startOfWeek(date) : startOfDay(date);
     const key = dateKey(groupDate);
     const existing = groups.get(key);
-    const signedAmount =
-      transaction.kind === 'income' ? transaction.amount : -transaction.amount;
+    const signedAmount = transaction.excludedFromTotals
+      ? 0
+      : transaction.kind === 'income'
+        ? transaction.amount
+        : -transaction.amount;
     if (existing) {
       existing.transactions.push(transaction);
       existing.total += signedAmount;

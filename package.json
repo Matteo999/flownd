@@ -17,6 +17,7 @@
     "dev:web": "npm run dev --workspace @flownd/web",
     "build:web": "npm run build --workspace @flownd/web",
     "lint": "npm run lint --workspaces --if-present",
+    "test:eb": "node --test api/eb/*.test.js",
     "preview:web": "npm run preview --workspace @flownd/web"
   },
   "devDependencies": {
@@ -25,6 +26,7 @@
     "react-dom": "19.2.3"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.110.8"
+    "@supabase/supabase-js": "^2.110.8",
+    "jose": "^6.2.3"
   }
 }

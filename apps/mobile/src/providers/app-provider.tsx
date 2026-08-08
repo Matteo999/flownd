@@ -46,6 +46,8 @@ export type FinancialAccount = {
   previousMonthBalance: number | null;
   source: 'open_banking' | 'manual';
   lastSyncedAt: string | null;
+  institutionName: string | null;
+  currency: string;
 };
 
 export type UpcomingPayment = {
@@ -114,6 +116,7 @@ type AppContextValue = {
   toggleAmountsVisible: () => Promise<void>;
   setDashboardPeriod: (period: DashboardPeriod) => void;
   clearError: () => void;
+  refreshData: () => Promise<void>;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -187,7 +190,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         .order('created_at'),
       supabase
         .from('transactions')
-        .select('id,description,amount,category,occurred_at,source,kind')
+        .select('id,description,amount,category,occurred_at,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer')
         .eq('user_id', userId)
         .gte('occurred_at', historyStart.toISOString())
         .order('occurred_at', { ascending: false }),
@@ -234,6 +237,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       occurredAt: item.occurred_at,
       source: item.source,
       kind: (item.kind ?? 'expense') as ExpenseDraft['kind'],
+      financialAccountId: item.financial_account_id,
+      bankStatus: item.bank_status,
+      excludedFromTotals: Boolean(item.excluded_from_totals),
+      internalTransfer: Boolean(item.internal_transfer),
     }));
     const hydratedGoals: Goal[] = (goalsResult.data ?? []).map((goal) => ({
       id: goal.id,
@@ -296,7 +303,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const [accountsResult, paymentsResult, insightResult] = await Promise.all([
       supabase
         .from('financial_accounts')
-        .select('id,name,current_balance,previous_month_balance,source,last_synced_at')
+        .select('id,name,current_balance,previous_month_balance,source,last_synced_at,institution_name,currency')
         .eq('user_id', userId)
         .eq('active', true)
         .order('created_at'),
@@ -331,6 +338,8 @@ export function AppProvider({ children }: PropsWithChildren) {
             : Number(account.previous_month_balance),
         source: account.source as FinancialAccount['source'],
         lastSyncedAt: account.last_synced_at,
+        institutionName: account.institution_name,
+        currency: account.currency,
       })),
     );
     setUpcomingPayments(
@@ -1006,7 +1015,24 @@ export function AppProvider({ children }: PropsWithChildren) {
       .update({ read_at: new Date().toISOString() })
       .eq('user_id', session.user.id)
       .eq('id', noticeId);
-    if (!updateError) setGoalNotice(null);
+    if (updateError) return;
+    const { data: nextNotice } = await supabase
+      .from('goal_notifications')
+      .select('id,title,body')
+      .eq('user_id', session.user.id)
+      .is('read_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setGoalNotice(
+      nextNotice
+        ? {
+            id: nextNotice.id,
+            title: nextNotice.title,
+            body: nextNotice.body,
+          }
+        : null,
+    );
   }
 
   async function toggleAmountsVisible() {
@@ -1061,6 +1087,9 @@ export function AppProvider({ children }: PropsWithChildren) {
     toggleAmountsVisible,
     setDashboardPeriod,
     clearError: () => setError(null),
+    refreshData: async () => {
+      if (session?.user.id) await hydrateUserData(session.user.id);
+    },
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

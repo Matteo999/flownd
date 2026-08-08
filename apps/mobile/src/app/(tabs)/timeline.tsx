@@ -21,6 +21,7 @@ import {
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { AppHeaderActions } from '@/components/app-header-actions';
 import { TransactionDateField } from '@/components/transaction-date-field';
 import { HIDDEN_AMOUNT, transactionsForPeriod } from '@/lib/dashboard';
 import type { ExpenseDraft } from '@/lib/onboarding';
@@ -140,25 +141,29 @@ export default function TimelineScreen() {
       <PageHeader
         title="Timeline"
         action={
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
-              filtersVisible ? 'Chiudi ricerca e filtri' : 'Apri ricerca e filtri'
+          <AppHeaderActions
+            leading={
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  filtersVisible ? 'Chiudi ricerca e filtri' : 'Apri ricerca e filtri'
+                }
+                onPress={() => setFiltersOpen((current) => !current)}
+                style={({ pressed }) => [
+                  styles.headerButton,
+                  pressed && styles.pressed,
+                ]}>
+                <Text style={[styles.materialIcon, { color: colors.text }]}>
+                  filter_list
+                </Text>
+                {categoryFilter || query ? (
+                  <View
+                    style={[styles.filterIndicator, { backgroundColor: colors.accent }]}
+                  />
+                ) : null}
+              </Pressable>
             }
-            onPress={() => setFiltersOpen((current) => !current)}
-            style={({ pressed }) => [
-              styles.headerButton,
-              pressed && styles.pressed,
-            ]}>
-            <Text style={[styles.materialIcon, { color: colors.text }]}>
-              filter_list
-            </Text>
-            {categoryFilter || query ? (
-              <View
-                style={[styles.filterIndicator, { backgroundColor: colors.accent }]}
-              />
-            ) : null}
-          </Pressable>
+          />
         }
       />
 
@@ -531,7 +536,7 @@ function TransactionRow({
           </Text>
           <View style={styles.transactionMeta}>
             <Text style={[styles.category, { color: colors.textSecondary }]}>
-              {transaction.category}
+              {transaction.internalTransfer ? 'Trasferimento interno' : transaction.category}
             </Text>
             <Text style={[styles.transactionDate, { color: colors.textSecondary }]}> 
               {new Intl.DateTimeFormat('it-IT', {
@@ -769,9 +774,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   pressed: { opacity: 0.65 },
   headerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+    width: 34,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
   },
