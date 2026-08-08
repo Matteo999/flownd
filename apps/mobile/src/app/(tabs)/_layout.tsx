@@ -31,10 +31,10 @@ const tabItems = [
     md: 'track_changes',
   },
   {
-    name: 'profile',
-    label: 'Profilo',
-    sf: { default: 'person', selected: 'person.fill' },
-    md: 'person',
+    name: 'wealth',
+    label: 'Patrimonio',
+    sf: { default: 'chart.line.uptrend.xyaxis', selected: 'chart.line.uptrend.xyaxis' },
+    md: 'account_balance_wallet',
   },
 ] as const;
 

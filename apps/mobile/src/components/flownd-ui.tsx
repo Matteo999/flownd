@@ -324,7 +324,19 @@ export function Card({
   );
 }
 
-export function PageHeader({ eyebrow, title, action }: { eyebrow?: string; title: string; action?: ReactNode }) {
+export function PageHeader({
+  eyebrow,
+  title,
+  leading,
+  action,
+  collapseInPlace = false,
+}: {
+  eyebrow?: string;
+  title: string;
+  leading?: ReactNode;
+  action?: ReactNode;
+  collapseInPlace?: boolean;
+}) {
   const { colors } = useFlowndTheme();
   const scrollContext = useContext(ScrollHeaderContext);
   const originalOpacity = scrollContext
@@ -355,7 +367,11 @@ export function PageHeader({ eyebrow, title, action }: { eyebrow?: string; title
     ? scrollContext.scrollY
     : 0;
   return (
-    <View style={styles.pageHeaderFrame}>
+    <View
+      style={[
+        styles.pageHeaderFrame,
+        collapseInPlace && styles.pageHeaderFrameCollapseInPlace,
+      ]}>
       <Animated.View
         style={[
           styles.pageHeader,
@@ -364,6 +380,7 @@ export function PageHeader({ eyebrow, title, action }: { eyebrow?: string; title
             transform: [{ translateY: originalTranslateY }],
           },
         ]}>
+        {leading ? <View style={styles.pageHeaderLeading}>{leading}</View> : null}
         <View style={styles.flex}>
           {eyebrow ? <Text style={[styles.eyebrow, { color: colors.accent }]}>{eyebrow}</Text> : null}
           <Text style={[styles.pageTitle, { color: colors.text }]}>{title}</Text>
@@ -396,6 +413,18 @@ export function PageHeader({ eyebrow, title, action }: { eyebrow?: string; title
             { transform: [{ translateY: compactTranslateY }] },
           ]}>
           {action}
+        </Animated.View>
+      ) : null}
+      {leading ? (
+        <Animated.View
+          style={[
+            styles.fixedHeaderLeading,
+            {
+              opacity: compactOpacity,
+              transform: [{ translateY: compactTranslateY }],
+            },
+          ]}>
+          {leading}
         </Animated.View>
       ) : null}
     </View>
@@ -498,7 +527,9 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   pageHeaderFrame: { minHeight: 45, marginBottom: 18, zIndex: 20 },
+  pageHeaderFrameCollapseInPlace: { marginBottom: 0 },
   pageHeader: { flexDirection: 'row', alignItems: 'center', minHeight: 45 },
+  pageHeaderLeading: { marginRight: 8 },
   flex: { flex: 1 },
   eyebrow: { fontFamily: font.bodySemiBold, fontSize: 11, letterSpacing: 1, marginBottom: 4 },
   pageTitle: {
@@ -528,6 +559,15 @@ const styles = StyleSheet.create({
   fixedHeaderAction: {
     position: 'absolute',
     right: 0,
+    top: -10,
+    height: 44,
+    justifyContent: 'center',
+    zIndex: 40,
+    elevation: 9,
+  },
+  fixedHeaderLeading: {
+    position: 'absolute',
+    left: 0,
     top: -10,
     height: 44,
     justifyContent: 'center',

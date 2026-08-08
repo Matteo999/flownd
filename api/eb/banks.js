@@ -1,25 +1,31 @@
-import { generateJWT } from './_jwt.js'
-
-const EB_BASE = 'https://api.enablebanking.com'
+import { enableBankingRequest } from './_client.js'
+import {
+  authenticateRequest,
+  paidEntitlement,
+  sendApiError,
+} from './_supabase.js'
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') return res.status(405).end()
-
-  const country = req.query.country || 'IT'
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Metodo non supportato' })
 
   try {
-    const jwt = await generateJWT()
-    const response = await fetch(`${EB_BASE}/aspsps?country=${encodeURIComponent(country)}`, {
-      headers: { Authorization: `Bearer ${jwt}` },
-    })
-
-    if (!response.ok) {
-      throw new Error(`Enable Banking error: ${response.status} ${await response.text()}`)
-    }
-
-    const data = await response.json()
-    res.status(200).json(data.aspsps || [])
+    const { user, service } = await authenticateRequest(req)
+    await paidEntitlement(service, user.id)
+    const country = String(req.query.country || 'IT').toUpperCase()
+    const data = await enableBankingRequest(
+      `/aspsps?country=${encodeURIComponent(country)}`,
+    )
+    const banks = (data?.aspsps || [])
+      .map((bank) => ({
+        name: bank.name,
+        country: bank.country || country,
+        logo: bank.logo || null,
+        psuTypes: bank.psu_types || ['personal'],
+      }))
+      .filter((bank) => bank.name)
+      .sort((first, second) => first.name.localeCompare(second.name, 'it'))
+    return res.status(200).json({ banks })
   } catch (error) {
-    res.status(500).json({ error: error.message })
+    return sendApiError(res, error)
   }
 }

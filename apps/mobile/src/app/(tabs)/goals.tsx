@@ -9,6 +9,7 @@ import {
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { AppHeaderActions } from '@/components/app-header-actions';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import type { Goal } from '@/lib/goals';
 import { formatEuro } from '@/lib/onboarding';
@@ -30,17 +31,20 @@ export default function GoalsScreen() {
       <PageHeader
         title="Obiettivi"
         action={
-          <Pressable
-            accessibilityLabel="Gestisci allocazione"
-            accessibilityRole="button"
-            onPress={() => router.push('/goal-settings' as Href)}
-            style={({ pressed }) => [
-              styles.headerAction,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-              pressed && styles.pressed,
-            ]}>
-            <Text style={[styles.materialIcon, { color: colors.text }]}>tune</Text>
-          </Pressable>
+          <AppHeaderActions
+            leading={
+              <Pressable
+                accessibilityLabel="Gestisci allocazione"
+                accessibilityRole="button"
+                onPress={() => router.push('/goal-settings' as Href)}
+                style={({ pressed }) => [
+                  styles.headerAction,
+                  pressed && styles.pressed,
+                ]}>
+                <Text style={[styles.materialIcon, { color: colors.text }]}>tune</Text>
+              </Pressable>
+            }
+          />
         }
       />
 
@@ -171,10 +175,8 @@ function GoalCard({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   headerAction: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    borderWidth: 1,
+    width: 34,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
   },

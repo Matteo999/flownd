@@ -66,6 +66,10 @@ export type ExpenseDraft = {
   occurredAt?: string;
   source?: string;
   kind?: 'expense' | 'income';
+  financialAccountId?: string | null;
+  bankStatus?: string | null;
+  excludedFromTotals?: boolean;
+  internalTransfer?: boolean;
 };
 
 export type OnboardingDraft = {

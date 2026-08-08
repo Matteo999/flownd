@@ -14,6 +14,7 @@ import {
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { AppHeaderActions } from '@/components/app-header-actions';
 import { SpendingDonutChart } from '@/components/spending-donut-chart';
 import {
   HIDDEN_AMOUNT,
@@ -83,11 +84,11 @@ export default function DashboardScreen() {
   const currentMonthTransactions = transactionsForFinancialCycle(
     transactions,
     financialCycle,
-  );
+  ).filter((transaction) => !transaction.excludedFromTotals);
   const previousCycleTransactions = transactionsForFinancialCycle(
     transactions,
     previousCycle,
-  );
+  ).filter((transaction) => !transaction.excludedFromTotals);
   const monthlyTransactions = currentMonthTransactions.filter(
     (transaction) => transaction.kind !== 'income',
   );
@@ -108,7 +109,10 @@ export default function DashboardScreen() {
   const chartTransactions = transactionsForPeriod(
     transactions,
     dashboardPeriod,
-  ).filter((transaction) => transaction.kind !== 'income');
+  ).filter(
+    (transaction) =>
+      transaction.kind !== 'income' && !transaction.excludedFromTotals,
+  );
   const monthlySpent = monthlyTransactions.reduce(
     (sum, transaction) => sum + transaction.amount,
     0,
@@ -201,22 +205,26 @@ export default function DashboardScreen() {
       <PageHeader
         title="Dashboard"
         action={
-          <Pressable
-            accessibilityRole="switch"
-            accessibilityLabel={
-              amountsVisible ? 'Nascondi tutti gli importi' : 'Mostra tutti gli importi'
+          <AppHeaderActions
+            leading={
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityLabel={
+                  amountsVisible ? 'Nascondi tutti gli importi' : 'Mostra tutti gli importi'
+                }
+                accessibilityState={{ checked: amountsVisible }}
+                hitSlop={8}
+                onPress={() => void toggleAmountsVisible()}
+                style={({ pressed }) => [
+                  styles.privacyButton,
+                  pressed && styles.iconPressed,
+                ]}>
+                <Text style={[styles.materialIcon, { color: colors.text }]}>
+                  {amountsVisible ? 'visibility' : 'visibility_off'}
+                </Text>
+              </Pressable>
             }
-            accessibilityState={{ checked: amountsVisible }}
-            hitSlop={10}
-            onPress={() => void toggleAmountsVisible()}
-            style={({ pressed }) => [
-              styles.privacyButton,
-              pressed && styles.iconPressed,
-            ]}>
-            <Text style={[styles.materialIcon, { color: colors.text }]}>
-              {amountsVisible ? 'visibility' : 'visibility_off'}
-            </Text>
-          </Pressable>
+          />
         }
       />
 
@@ -562,7 +570,7 @@ export default function DashboardScreen() {
           </Text>
           <PrimaryButton
             onPress={() =>
-              router.push('/(tabs)/profile?section=accounts' as Href)
+              router.push('/settings?section=accounts' as Href)
             }>
             {financialAccounts.length
               ? 'Importa estratto conto'
@@ -577,8 +585,8 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   privacyButton: {
-    width: 40,
-    height: 40,
+    width: 34,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
   },

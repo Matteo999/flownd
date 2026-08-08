@@ -9,6 +9,7 @@ import {
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { UserAvatar } from '@/components/app-header-actions';
 import type { ThemePreference } from '@/constants/flownd-theme';
 import { supabase } from '@/lib/supabase';
 import { useApp } from '@/providers/app-provider';
@@ -38,14 +39,22 @@ export default function ProfileScreen() {
 
   return (
     <Screen>
-      <PageHeader title="Profilo" />
+      <PageHeader
+        title="Profilo"
+        leading={
+          <Pressable
+            accessibilityLabel="Indietro"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => router.back()}
+            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+            <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
+          </Pressable>
+        }
+      />
 
       <Card style={styles.identity}>
-        <View style={[styles.avatar, { backgroundColor: colors.accentSoft }]}>
-          <Text style={[styles.avatarText, { color: colors.accent }]}>
-            {(session?.user.email?.[0] ?? 'F').toUpperCase()}
-          </Text>
-        </View>
+        <UserAvatar size={48} />
         <View style={styles.flex}>
           <Text style={[styles.email, { color: colors.text }]}>
             {session?.user.email ?? 'Account Flownd'}
@@ -116,6 +125,12 @@ export default function ProfileScreen() {
           label="Budget"
           caption="Modifica categorie e importi"
           onPress={() => router.push('/budget' as Href)}
+        />
+        <ProfileRow
+          icon="group"
+          label="Gruppi e condivisione"
+          caption="Gestisci obiettivi condivisi e partecipanti"
+          onPress={() => router.push('/goal-settings' as Href)}
         />
         <ProfileRow
           icon={amountsVisible ? 'visibility' : 'visibility_off'}
@@ -219,9 +234,13 @@ function ProfileRow({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   identity: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 48, height: 48, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontFamily: font.displayBold, fontSize: 22 },
   email: { fontFamily: font.bodySemiBold, fontSize: 14 },
   caption: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 2 },
   verified: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },

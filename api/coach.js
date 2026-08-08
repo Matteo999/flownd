@@ -290,6 +290,7 @@ async function getSpendingSummary(client, userId, period) {
       .from('transactions')
       .select('amount,kind,category,occurred_at')
       .eq('user_id', userId)
+      .eq('excluded_from_totals', false)
       .gte('occurred_at', start.toISOString()),
     client
       .from('budget_categories')
