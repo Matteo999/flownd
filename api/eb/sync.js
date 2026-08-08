@@ -445,10 +445,14 @@ export default async function handler(req, res) {
           .in('bank_account_id', accountIds)
       : { count: 0, error: null }
     if (importCountError) throw importCountError
+    const n26SinglePageImport =
+      /n26/i.test(connection.aspsp_name)
+      && (existingImportCount || 0) <= 10
     const dateFrom =
       connection.last_synced_at
       && !connection.last_error
       && (existingImportCount || 0) > 0
+      && !n26SinglePageImport
       ? shiftDate(dateOnly(connection.last_synced_at), -14)
       : shiftDate(dateTo, -370)
     const totals = { imported: 0, linked: 0, pending: 0 }
