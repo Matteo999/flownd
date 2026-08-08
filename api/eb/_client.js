@@ -66,9 +66,19 @@ async function fetchTransactionsWithStrategy(
       if (dateFrom) params.set('date_from', dateFrom)
       if (dateTo) params.set('date_to', dateTo)
     }
-    const data = await enableBankingRequest(
-      `/accounts/${encodeURIComponent(accountUid)}/transactions?${params}`,
-    )
+    let data
+    try {
+      data = await enableBankingRequest(
+        `/accounts/${encodeURIComponent(accountUid)}/transactions?${params}`,
+      )
+    } catch (error) {
+      if (!transactions.length) throw error
+      Object.defineProperty(transactions, 'partial', {
+        value: true,
+        enumerable: false,
+      })
+      break
+    }
     transactions.push(...(data?.transactions || []))
     const next = data?.continuation_key || null
     if (next && seenPageKeys.has(next)) break
