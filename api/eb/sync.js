@@ -246,16 +246,20 @@ async function markInternalTransfers(service, userId) {
 
 async function syncAccount({ service, userId, connection, savedAccount, dateFrom, dateTo }) {
   const uid = savedAccount.provider_account_uid
+  const skipN26SpaceTransactions =
+    /n26/i.test(connection.aspsp_name) && !savedAccount.iban_last4
   const [detailsResult, balancesResult, transactionsResult] = await Promise.allSettled([
     enableBankingRequest(`/accounts/${encodeURIComponent(uid)}/details`),
     enableBankingRequest(`/accounts/${encodeURIComponent(uid)}/balances`),
-    fetchAllTransactions(uid, {
-      dateFrom,
-      dateTo,
-      preferredStrategy: /n26/i.test(connection.aspsp_name)
-        ? 'longest'
-        : 'default',
-    }),
+    skipN26SpaceTransactions
+      ? Promise.resolve([])
+      : fetchAllTransactions(uid, {
+          dateFrom,
+          dateTo,
+          preferredStrategy: /n26/i.test(connection.aspsp_name)
+            ? 'longest'
+            : 'default',
+        }),
   ])
   const successfulResources = [detailsResult, balancesResult, transactionsResult]
     .filter((result) => result.status === 'fulfilled').length
@@ -379,6 +383,9 @@ async function syncAccount({ service, userId, connection, savedAccount, dateFrom
     warnings:
       3 - successfulResources
       + (rawTransactions.partial ? 1 : 0),
+    warningCodes: rawTransactions.partial
+      ? [`transactions:${rawTransactions.partialProviderStatus || 'unknown'}`]
+      : [],
   }
 }
 
@@ -424,7 +431,7 @@ export default async function handler(req, res) {
     }
     const { data: accounts, error: accountError } = await service
       .from('open_banking_accounts')
-      .select('id,provider_account_uid,identification_hash,name,currency,account_type,product')
+      .select('id,provider_account_uid,identification_hash,name,currency,account_type,product,iban_last4')
       .eq('connection_id', connection.id)
       .eq('user_id', user.id)
       .eq('active', true)
@@ -448,6 +455,7 @@ export default async function handler(req, res) {
     let syncedAccounts = 0
     let skippedAccounts = 0
     let resourceWarnings = 0
+    const warningCodes = new Set()
     const transientFailures = []
     const activeAccounts = accounts || []
     for (let index = 0; index < activeAccounts.length; index += 3) {
@@ -484,6 +492,7 @@ export default async function handler(req, res) {
           totals.linked += item.result.linked
           totals.pending += item.result.pending
           resourceWarnings += item.result.warnings
+          item.result.warningCodes.forEach((code) => warningCodes.add(code))
           syncedAccounts += 1
         }
         if (item.skipped) skippedAccounts += 1
@@ -507,7 +516,7 @@ export default async function handler(req, res) {
         last_synced_at: new Date().toISOString(),
         last_error:
           skippedAccounts || resourceWarnings || transientFailures.length
-            ? `${skippedAccounts} conti ignorati, ${resourceWarnings} risorse non disponibili, ${transientFailures.length} errori temporanei`
+            ? `${skippedAccounts} conti ignorati, ${resourceWarnings} risorse non disponibili, ${transientFailures.length} errori temporanei${warningCodes.size ? ` (${[...warningCodes].join(', ')})` : ''}`
             : null,
         updated_at: new Date().toISOString(),
       })

@@ -7,6 +7,33 @@ function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function shiftDate(value, days) {
+  return new Date(
+    new Date(`${value}T12:00:00Z`).getTime() + days * DAY_MS,
+  ).toISOString().slice(0, 10)
+}
+
+function transactionDate(transaction) {
+  return transaction.value_date
+    || transaction.transaction_date
+    || transaction.booking_date
+    || null
+}
+
+function transactionKey(transaction) {
+  return transaction.entry_reference
+    || transaction.transaction_id
+    || JSON.stringify([
+      transactionDate(transaction),
+      transaction.credit_debit_indicator,
+      transaction.transaction_amount?.amount,
+      transaction.transaction_amount?.currency,
+      transaction.remittance_information,
+    ])
+}
+
 export async function enableBankingRequest(path, options = {}) {
   let response
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -77,6 +104,10 @@ async function fetchTransactionsWithStrategy(
         value: true,
         enumerable: false,
       })
+      Object.defineProperty(transactions, 'partialProviderStatus', {
+        value: error?.providerStatus || null,
+        enumerable: false,
+      })
       break
     }
     transactions.push(...(data?.transactions || []))
@@ -90,17 +121,103 @@ async function fetchTransactionsWithStrategy(
   return transactions
 }
 
+async function fetchTransactionsByDateWindows(
+  accountUid,
+  { dateFrom, dateTo },
+) {
+  const transactions = []
+  const seen = new Set()
+  let windowEnd = dateTo
+  let windows = 0
+  let partial = false
+
+  while (windowEnd >= dateFrom && windows < 18) {
+    const proposedStart = shiftDate(windowEnd, -89)
+    const windowStart = proposedStart < dateFrom ? dateFrom : proposedStart
+    const params = new URLSearchParams({
+      strategy: 'default',
+      date_from: windowStart,
+      date_to: windowEnd,
+    })
+    let data
+    try {
+      data = await enableBankingRequest(
+        `/accounts/${encodeURIComponent(accountUid)}/transactions?${params}`,
+      )
+    } catch (error) {
+      partial = true
+      Object.defineProperty(transactions, 'partialProviderStatus', {
+        value: error?.providerStatus || null,
+        enumerable: false,
+        configurable: true,
+      })
+      break
+    }
+    const page = data?.transactions || []
+    for (const transaction of page) {
+      const key = transactionKey(transaction)
+      if (seen.has(key)) continue
+      seen.add(key)
+      transactions.push(transaction)
+    }
+    const dates = page.map(transactionDate).filter(Boolean).sort()
+    const oldest = dates[0] || null
+    windowEnd = oldest && oldest > windowStart
+      ? shiftDate(oldest, -1)
+      : shiftDate(windowStart, -1)
+    windows += 1
+  }
+  if (windowEnd >= dateFrom) partial = true
+  if (partial) {
+    Object.defineProperty(transactions, 'partial', {
+      value: true,
+      enumerable: false,
+    })
+  }
+  return transactions
+}
+
 export async function fetchAllTransactions(
   accountUid,
   { dateFrom, dateTo, preferredStrategy = 'default' },
 ) {
   const fallbackStrategy = preferredStrategy === 'longest' ? 'default' : 'longest'
   try {
-    return await fetchTransactionsWithStrategy(accountUid, {
+    const transactions = await fetchTransactionsWithStrategy(accountUid, {
       dateFrom,
       dateTo,
       strategy: preferredStrategy,
     })
+    if (!transactions.partial || preferredStrategy !== 'longest') {
+      return transactions
+    }
+    const dates = transactions.map(transactionDate).filter(Boolean).sort()
+    const oldest = dates[0] || dateTo
+    const olderDateTo = shiftDate(oldest, -1)
+    if (olderDateTo < dateFrom) return transactions
+    const olderTransactions = await fetchTransactionsByDateWindows(
+      accountUid,
+      { dateFrom, dateTo: olderDateTo },
+    )
+    const combined = []
+    const seen = new Set()
+    for (const transaction of [...transactions, ...olderTransactions]) {
+      const key = transactionKey(transaction)
+      if (seen.has(key)) continue
+      seen.add(key)
+      combined.push(transaction)
+    }
+    if (olderTransactions.partial) {
+      Object.defineProperty(combined, 'partial', {
+        value: true,
+        enumerable: false,
+      })
+      Object.defineProperty(combined, 'partialProviderStatus', {
+        value: olderTransactions.partialProviderStatus || null,
+        enumerable: false,
+      })
+    }
+    return combined
   } catch (error) {
     if (![400, 404, 409, 422].includes(Number(error?.providerStatus))) throw error
     return fetchTransactionsWithStrategy(accountUid, {
