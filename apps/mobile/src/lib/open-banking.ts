@@ -1,5 +1,7 @@
 import { Platform } from 'react-native';
 
+import { supabase } from '@/lib/supabase';
+
 export type OpenBankingBank = {
   name: string;
   country: string;
@@ -18,6 +20,26 @@ export type OpenBankingConnection = {
   currency: string;
 };
 
+export type OpenBankingResource = {
+  id: string;
+  name: string;
+  product: string | null;
+  accountType: string | null;
+  ibanLast4: string | null;
+  balance: number;
+  previousMonthBalance: number | null;
+  currency: string;
+  lastSyncedAt: string | null;
+  importedTransactions: number;
+  pendingTransactions: number;
+};
+
+export type OpenBankingConnectionDetail = OpenBankingConnection & {
+  resources: OpenBankingResource[];
+  importedTransactions: number;
+  pendingTransactions: number;
+};
+
 type ApiErrorBody = { error?: string; code?: string };
 
 function apiEndpoint(path: string) {
@@ -32,14 +54,21 @@ async function ebRequest<T>(
   accessToken: string,
   options: RequestInit = {},
 ) {
-  const response = await fetch(apiEndpoint(path), {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers,
-    },
-  });
+  const request = (token: string) =>
+    fetch(apiEndpoint(path), {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...options.headers,
+      },
+    });
+  let response = await request(accessToken);
+  if (response.status === 401) {
+    const { data, error } = await supabase.auth.refreshSession();
+    const refreshedToken = data.session?.access_token;
+    if (!error && refreshedToken) response = await request(refreshedToken);
+  }
   const text = await response.text();
   let body: (T & ApiErrorBody) | null = null;
   try {
@@ -96,6 +125,16 @@ export async function listBankConnections(accessToken: string) {
     accessToken,
   );
   return data.connections;
+}
+
+export async function getBankConnection(
+  accessToken: string,
+  connectionId: string,
+) {
+  return ebRequest<OpenBankingConnectionDetail>(
+    `connections?id=${encodeURIComponent(connectionId)}`,
+    accessToken,
+  );
 }
 
 export async function removeBankConnection(

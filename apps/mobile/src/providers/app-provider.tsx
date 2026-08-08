@@ -410,22 +410,34 @@ export function AppProvider({ children }: PropsWithChildren) {
     let mounted = true;
     supabase.auth.getSession().then(async ({ data }) => {
       if (!mounted) return;
-      activeUserId.current = data.session?.user.id ?? null;
-      setSession(data.session);
-      await readProfile(data.session);
+      let initialSession = data.session;
+      if (
+        initialSession?.expires_at
+        && initialSession.expires_at <= Math.floor(Date.now() / 1000) + 60
+      ) {
+        const refreshed = await supabase.auth.refreshSession();
+        if (!refreshed.error) initialSession = refreshed.data.session;
+      }
+      activeUserId.current = initialSession?.user.id ?? null;
+      setSession(initialSession);
+      await readProfile(initialSession);
       if (mounted) {
         setLoading(false);
         await SplashScreen.hideAsync();
       }
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       activeUserId.current = nextSession?.user.id ?? null;
-      setLoading(true);
       setSession(nextSession);
-      void readProfile(nextSession).finally(() => {
-        if (mounted) setLoading(false);
-      });
+      if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') return;
+      setLoading(true);
+      setTimeout(() => {
+        if (!mounted) return;
+        void readProfile(nextSession).finally(() => {
+          if (mounted) setLoading(false);
+        });
+      }, 0);
     });
 
     return () => {
