@@ -3,17 +3,29 @@ import { ApiError } from './_supabase.js'
 
 const EB_BASE = 'https://api.enablebanking.com'
 
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
 export async function enableBankingRequest(path, options = {}) {
-  const jwt = await generateJWT()
-  const response = await fetch(`${EB_BASE}${path}`, {
-    ...options,
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${jwt}`,
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers,
-    },
-  })
+  let response
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const jwt = await generateJWT()
+    response = await fetch(`${EB_BASE}${path}`, {
+      ...options,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${jwt}`,
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...options.headers,
+      },
+    })
+    if (![408, 429, 500, 502, 503, 504].includes(response.status) || attempt === 2) {
+      break
+    }
+    await response.arrayBuffer()
+    await wait(250 * (attempt + 1))
+  }
   const text = await response.text()
   let data = null
   try {
@@ -23,7 +35,15 @@ export async function enableBankingRequest(path, options = {}) {
   }
   if (!response.ok) {
     const providerMessage = data?.detail || data?.message || text.slice(0, 500)
-    throw new ApiError(502, `Enable Banking ${response.status}: ${providerMessage}`)
+    const error = new ApiError(
+      502,
+      `Enable Banking ${response.status}: ${providerMessage}`,
+      'ENABLE_BANKING_PROVIDER_ERROR',
+    )
+    error.providerStatus = response.status
+    error.publicMessage =
+      `Enable Banking non ha completato la richiesta (codice ${response.status}).`
+    throw error
   }
   return data
 }

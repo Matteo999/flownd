@@ -4,9 +4,37 @@ import test from 'node:test'
 
 import {
   chooseBalance,
+  normalizeAccount,
   normalizeBankTransaction,
   redactBankPayload,
 } from './_normalize.js'
+
+test('riconosce gli Space N26 disabilitati', () => {
+  assert.equal(
+    normalizeAccount(
+      {
+        uid: 'space-inattivo',
+        identification_hash: 'hash',
+        details: 'Vecchio Space',
+        psu_status: 'disabled',
+      },
+      'N26',
+    ).active,
+    false,
+  )
+  assert.equal(
+    normalizeAccount(
+      {
+        uid: 'conto-principale',
+        identification_hash: 'hash-2',
+        details: 'Conto principale',
+        psu_status: 'enabled',
+      },
+      'N26',
+    ).active,
+    true,
+  )
+})
 
 test('prioritizza il saldo disponibile e supporta ITBD di ING', () => {
   assert.equal(
