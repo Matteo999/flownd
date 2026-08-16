@@ -24,6 +24,14 @@ npm run build:web
 npm run lint
 ```
 
+## Sito pubblico in attesa del lancio
+
+Il deployment pubblico della web app espone esclusivamente la pagina “coming soon”,
+con lancio fissato al 1° ottobre 2026. Tutte le rotte dell’interfaccia operativa
+reindirizzano a quella pagina. In sviluppo locale restano disponibili automaticamente;
+per abilitarle in un deployment privato, imposta `VITE_ENABLE_INTERNAL_ROUTES=true`.
+Le funzioni serverless sotto `/api/eb/*` restano invariate per il flusso Enable Banking.
+
 ## Test locale del Money Coach su mobile
 
 Il modello AI viene chiamato soltanto dalla funzione backend `api/coach.js`: non
