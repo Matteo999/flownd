@@ -181,13 +181,6 @@ export default function DashboardScreen() {
     [chartTransactions],
   );
 
-  function openTimeline(category: string) {
-    router.push({
-      pathname: '/(tabs)/timeline',
-      params: { category, period: dashboardPeriod },
-    } as Href);
-  }
-
   return (
     <Screen
       floatingAction={
@@ -407,6 +400,7 @@ export default function DashboardScreen() {
                 key={period.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
+                hitSlop={4}
                 onPress={() => setDashboardPeriod(period.id)}
                 style={[
                   styles.periodButton,
@@ -430,7 +424,6 @@ export default function DashboardScreen() {
           <SpendingDonutChart
             amountsVisible={amountsVisible}
             transactions={chartTransactions}
-            onSelectCategory={openTimeline}
           />
         ) : (
           <View style={styles.guidedState}>
@@ -721,7 +714,7 @@ const styles = StyleSheet.create({
   },
   periodButton: {
     flex: 1,
-    minHeight: 32,
+    minHeight: 44,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
