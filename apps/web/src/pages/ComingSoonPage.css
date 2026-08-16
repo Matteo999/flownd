@@ -38,8 +38,7 @@
 .coming-soon__glow--two { bottom: -210px; left: -140px; background: var(--blue); }
 
 .coming-soon__content { width: min(100%, 720px); text-align: center; }
-.coming-soon__logo { margin-bottom: clamp(54px, 10vw, 88px); color: var(--ink); font-size: clamp(34px, 6vw, 52px); font-weight: 800; letter-spacing: -.075em; line-height: 1; }
-.coming-soon__logo span { color: var(--blue); }
+.coming-soon__logo { width: clamp(155px, 28vw, 255px); height: auto; margin-bottom: clamp(54px, 10vw, 88px); }
 .coming-soon__eyebrow { margin: 0 0 18px; color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
 .coming-soon h1 { margin: 0; font-size: clamp(52px, 10vw, 88px); line-height: .98; letter-spacing: -.055em; }
 .coming-soon__intro { max-width: 500px; margin: 26px auto 42px; color: var(--muted); font-size: clamp(16px, 2.3vw, 19px); line-height: 1.55; }

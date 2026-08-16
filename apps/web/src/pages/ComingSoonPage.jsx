@@ -38,9 +38,7 @@ export default function ComingSoonPage() {
       <div className="coming-soon__glow coming-soon__glow--one" />
       <div className="coming-soon__glow coming-soon__glow--two" />
       <section className="coming-soon__content">
-        <div className="coming-soon__logo" aria-label="Flownd">
-          <span>F</span>lownd
-        </div>
+        <img className="coming-soon__logo" src="/flownd-alpha.png" alt="Flownd" />
         <p className="coming-soon__eyebrow">Nuovo modo di gestire i tuoi soldi</p>
         <h1 id="coming-soon-title">Stiamo arrivando.</h1>
         <p className="coming-soon__intro">
