@@ -1,5 +1,12 @@
 import { Image } from 'expo-image';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import {
+  type GestureResponderEvent,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { font, useFlowndTheme } from '@/components/flownd-ui';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
@@ -10,7 +17,7 @@ const CHART_SIZE = 190;
 const CHART_CENTER = CHART_SIZE / 2;
 const CHART_RADIUS = 68;
 const CHART_STROKE = 22;
-const SEGMENT_HIT_SIZE = 44;
+const SELECTED_CHART_STROKE = 30;
 const CIRCUMFERENCE = 2 * Math.PI * CHART_RADIUS;
 const categoryColors = [
   '#256B7E',
@@ -19,18 +26,23 @@ const categoryColors = [
   '#6D75C9',
   '#D06A61',
   '#8A6E55',
+  '#2F83C5',
+  '#76A84B',
+  '#C27BAD',
+  '#B8763E',
+  '#547A66',
+  '#8A65B5',
 ];
 
 export function SpendingDonutChart({
   transactions,
   amountsVisible = true,
-  onSelectCategory,
 }: {
   transactions: ExpenseDraft[];
   amountsVisible?: boolean;
-  onSelectCategory?: (category: string) => void;
 }) {
   const { colors } = useFlowndTheme();
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const grouped = Array.from(
     transactions.reduce((categories, transaction) => {
       const category = transaction.category.trim() || 'Altro';
@@ -44,128 +56,161 @@ export function SpendingDonutChart({
     .map(([category, amount]) => ({ category, amount }))
     .sort((first, second) => second.amount - first.amount);
   const total = grouped.reduce((sum, item) => sum + item.amount, 0);
+  // Keep the combined whitespace around 2% of the ring. A fixed gap per slice
+  // can otherwise erase small categories as their number grows.
+  const gapLength =
+    grouped.length > 1 ? (CIRCUMFERENCE * 0.02) / grouped.length : 0;
   const segments = grouped.map((item, index) => {
     const share = total > 0 ? item.amount / total : 0;
-    const previousShare = grouped
+    const previousAmount = grouped
       .slice(0, index)
-      .reduce(
-        (sum, previousItem) =>
-          sum + (total > 0 ? previousItem.amount / total : 0),
-        0,
-      );
+      .reduce((sum, previousItem) => sum + previousItem.amount, 0);
+    const startShare = total > 0 ? previousAmount / total : 0;
+    const arcLength = share * CIRCUMFERENCE;
     return {
       ...item,
-      midShare: previousShare + share / 2,
-      segmentLength: Math.max(
-        0,
-        share * CIRCUMFERENCE - (grouped.length > 1 ? 3 : 0),
-      ),
-      offset: previousShare * CIRCUMFERENCE,
+      color: categoryColors[index % categoryColors.length],
+      startShare,
+      endShare: startShare + share,
+      // Never spend more than 20% of a small slice on its gap.
+      segmentLength: arcLength - Math.min(gapLength, arcLength * 0.2),
+      offset: startShare * CIRCUMFERENCE,
     };
   });
+  const selectedSegment = segments.find(
+    (item) => item.category === selectedCategory,
+  );
+  const orderedSegments = selectedSegment
+    ? [
+        ...segments.filter((item) => item.category !== selectedCategory),
+        selectedSegment,
+      ]
+    : segments;
   const chartSvg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${CHART_SIZE}" height="${CHART_SIZE}" viewBox="0 0 ${CHART_SIZE} ${CHART_SIZE}">`,
     `<circle cx="${CHART_CENTER}" cy="${CHART_CENTER}" r="${CHART_RADIUS}" fill="none" stroke="${colors.sunken}" stroke-width="${CHART_STROKE}"/>`,
-    ...segments.map(
-      (item, index) =>
-        `<circle cx="${CHART_CENTER}" cy="${CHART_CENTER}" r="${CHART_RADIUS}" fill="none" stroke="${categoryColors[index % categoryColors.length]}" stroke-width="${CHART_STROKE}" stroke-dasharray="${item.segmentLength} ${CIRCUMFERENCE - item.segmentLength}" stroke-dashoffset="${-item.offset}" stroke-linecap="butt" transform="rotate(-90 ${CHART_CENTER} ${CHART_CENTER})"/>`,
+    ...orderedSegments.map(
+      (item) =>
+        `<circle cx="${CHART_CENTER}" cy="${CHART_CENTER}" r="${CHART_RADIUS}" fill="none" stroke="${item.color}" stroke-width="${item.category === selectedCategory ? SELECTED_CHART_STROKE : CHART_STROKE}" stroke-dasharray="${item.segmentLength} ${CIRCUMFERENCE - item.segmentLength}" stroke-dashoffset="${-item.offset}" stroke-linecap="butt" transform="rotate(-90 ${CHART_CENTER} ${CHART_CENTER})"/>`,
     ),
     '</svg>',
   ].join('');
   const chartUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(chartSvg)}`;
 
+  function selectSegmentAt(event: GestureResponderEvent) {
+    const x = event.nativeEvent.locationX - CHART_CENTER;
+    const y = event.nativeEvent.locationY - CHART_CENTER;
+    const distance = Math.sqrt(x * x + y * y);
+    const innerHitRadius = CHART_RADIUS - SELECTED_CHART_STROKE / 2 - 8;
+    const outerHitRadius = CHART_RADIUS + SELECTED_CHART_STROKE / 2 + 8;
+
+    if (distance < innerHitRadius || distance > outerHitRadius) return;
+
+    const angleFromTop =
+      (Math.atan2(y, x) + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2);
+    const shareAtPress = angleFromTop / (Math.PI * 2);
+    const segment = segments.find(
+      (item) =>
+        shareAtPress >= item.startShare && shareAtPress < item.endShare,
+    );
+    if (segment) setSelectedCategory(segment.category);
+  }
+
   return (
     <View>
-      <View
-        accessibilityRole="image"
-        accessibilityLabel={
-          amountsVisible
-            ? `Totale speso ${formatEuro(total)}, suddiviso in ${grouped.length} categorie`
-            : `Spese suddivise in ${grouped.length} categorie, importi nascosti`
-        }
-        style={styles.chartWrap}>
+      <View style={styles.totalHeader}>
+        <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>
+          TOTALE SPESO
+        </Text>
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+          numberOfLines={1}
+          style={[styles.totalAmount, { color: colors.text }]}>
+          {amountsVisible ? formatEuro(total) : HIDDEN_AMOUNT}
+        </Text>
+      </View>
+
+      <Pressable
+        accessible={false}
+        onPress={selectSegmentAt}
+        style={({ pressed }) => [
+          styles.chartWrap,
+          pressed && styles.chartPressed,
+        ]}>
         <Image
           source={{ uri: chartUri }}
           contentFit="contain"
           cachePolicy="none"
           style={styles.chartImage}
         />
-        <View pointerEvents="none" style={styles.chartCenter}>
-          <Text style={[styles.centerLabel, { color: colors.textSecondary }]}>
-            TOTALE SPESO
+      </Pressable>
+
+      <View style={styles.selectionSlot}>
+        {selectedSegment ? (
+          <View
+            accessibilityLiveRegion="polite"
+            style={[styles.selectionPill, { backgroundColor: colors.sunken }]}>
+            <View
+              style={[
+                styles.selectionDot,
+                { backgroundColor: selectedSegment.color },
+              ]}
+            />
+            <Text style={[styles.selectionText, { color: colors.text }]}>
+              {selectedSegment.category}
+            </Text>
+            <Text
+              style={[styles.selectionValue, { color: colors.textSecondary }]}>
+              {amountsVisible ? formatEuro(selectedSegment.amount) : HIDDEN_AMOUNT}
+              {' · '}
+              {Math.round((selectedSegment.amount / total) * 100)}%
+            </Text>
+          </View>
+        ) : (
+          <Text style={[styles.tapHint, { color: colors.textSecondary }]}>
+            Tocca una fetta per vedere la categoria
           </Text>
-          <Text style={[styles.centerAmount, { color: colors.text }]}>
-            {amountsVisible ? formatEuro(total) : HIDDEN_AMOUNT}
-          </Text>
-        </View>
-        {onSelectCategory
-          ? segments.map((item) => {
-              const angle = item.midShare * Math.PI * 2 - Math.PI / 2;
-              const hitRadius = CHART_RADIUS;
-              return (
-                <Pressable
-                  key={item.category}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Filtra la Timeline per ${item.category}`}
-                  hitSlop={4}
-                  onPress={() => onSelectCategory(item.category)}
-                  style={({ pressed }) => [
-                    styles.segmentHit,
-                    {
-                      left:
-                        CHART_CENTER +
-                        Math.cos(angle) * hitRadius -
-                        SEGMENT_HIT_SIZE / 2,
-                      top:
-                        CHART_CENTER +
-                        Math.sin(angle) * hitRadius -
-                        SEGMENT_HIT_SIZE / 2,
-                    },
-                    pressed && styles.pressed,
-                  ]}
-                />
-              );
-            })
-          : null}
+        )}
       </View>
 
       {grouped.length ? (
         <View style={styles.legend}>
-          {grouped.map((item, index) => (
-            <Pressable
-              key={item.category}
-              accessibilityRole={onSelectCategory ? 'button' : undefined}
-              onPress={
-                onSelectCategory
-                  ? () => onSelectCategory(item.category)
-                  : undefined
-              }
-              style={({ pressed }) => [
-                styles.legendRow,
-                pressed && styles.pressed,
-              ]}>
-              <View
-                style={[
-                  styles.legendDot,
-                  {
-                    backgroundColor:
-                      categoryColors[index % categoryColors.length],
-                  },
-                ]}
-              />
-              <Text style={[styles.legendLabel, { color: colors.text }]}>
-                {item.category}
-              </Text>
-              <Text
-                style={[styles.legendValue, { color: colors.textSecondary }]}>
-                {amountsVisible ? formatEuro(item.amount) : HIDDEN_AMOUNT}
-              </Text>
-              <Text
-                style={[styles.legendPercent, { color: colors.textSecondary }]}>
-                {Math.round((item.amount / total) * 100)}%
-              </Text>
-            </Pressable>
-          ))}
+          {segments.map((item) => {
+            const selected = item.category === selectedCategory;
+            return (
+              <Pressable
+                key={item.category}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`Seleziona ${item.category}, ${Math.round((item.amount / total) * 100)} per cento`}
+                hitSlop={4}
+                onPress={() => setSelectedCategory(item.category)}
+                style={({ pressed }) => [
+                  styles.legendRow,
+                  selected && { backgroundColor: colors.sunken },
+                  pressed && styles.pressed,
+                ]}>
+                <View
+                  style={[styles.legendDot, { backgroundColor: item.color }]}
+                />
+                <Text style={[styles.legendLabel, { color: colors.text }]}>
+                  {item.category}
+                </Text>
+                <Text
+                  style={[styles.legendValue, { color: colors.textSecondary }]}>
+                  {amountsVisible ? formatEuro(item.amount) : HIDDEN_AMOUNT}
+                </Text>
+                <Text
+                  style={[
+                    styles.legendPercent,
+                    { color: colors.textSecondary },
+                  ]}>
+                  {Math.round((item.amount / total) * 100)}%
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       ) : (
         <Text style={[styles.empty, { color: colors.textSecondary }]}>
@@ -177,6 +222,21 @@ export function SpendingDonutChart({
 }
 
 const styles = StyleSheet.create({
+  totalHeader: { alignItems: 'center', marginBottom: 2 },
+  totalLabel: {
+    fontFamily: font.bodySemiBold,
+    fontSize: 9,
+    letterSpacing: 0.8,
+  },
+  totalAmount: {
+    alignSelf: 'stretch',
+    fontFamily: font.dataMedium,
+    fontSize: 22,
+    lineHeight: 29,
+    marginTop: 2,
+    paddingHorizontal: 12,
+    textAlign: 'center',
+  },
   chartWrap: {
     width: CHART_SIZE,
     height: CHART_SIZE,
@@ -185,35 +245,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   chartImage: { width: CHART_SIZE, height: CHART_SIZE },
-  segmentHit: {
-    position: 'absolute',
-    width: SEGMENT_HIT_SIZE,
-    height: SEGMENT_HIT_SIZE,
-    borderRadius: 22,
-  },
-  chartCenter: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+  chartPressed: { opacity: 0.92 },
+  selectionSlot: {
+    minHeight: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 50,
+    marginTop: 1,
   },
-  centerLabel: {
+  selectionPill: {
+    minHeight: 30,
+    maxWidth: '100%',
+    borderRadius: 15,
+    paddingHorizontal: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  selectionDot: { width: 8, height: 8, borderRadius: 4, marginRight: 7 },
+  selectionText: {
+    flexShrink: 1,
     fontFamily: font.bodySemiBold,
-    fontSize: 9,
-    letterSpacing: 0.8,
+    fontSize: 11,
+    textTransform: 'capitalize',
   },
-  centerAmount: {
+  selectionValue: {
     fontFamily: font.dataMedium,
-    fontSize: 18,
-    lineHeight: 24,
-    marginTop: 3,
+    fontSize: 10,
+    marginLeft: 7,
   },
-  legend: { gap: 10, marginTop: 10 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', minHeight: 24 },
+  tapHint: { fontFamily: font.body, fontSize: 10 },
+  legend: { gap: 4, marginTop: 8 },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 36,
+    borderRadius: 8,
+    paddingHorizontal: 7,
+  },
   legendDot: { width: 9, height: 9, borderRadius: 5, marginRight: 9 },
   legendLabel: {
     flex: 1,
