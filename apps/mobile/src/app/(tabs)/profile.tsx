@@ -123,7 +123,7 @@ export default function ProfileScreen() {
         <ProfileRow
           icon="account_balance_wallet"
           label="Budget"
-          caption="Modifica categorie e importi"
+          caption="Allocazione, categorie e mese finanziario"
           onPress={() => router.push('/budget' as Href)}
         />
         <ProfileRow

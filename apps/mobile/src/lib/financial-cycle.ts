@@ -48,6 +48,41 @@ export function transactionsForFinancialCycle(
   });
 }
 
+export function incomeCandidatesForFinancialCycle(
+  transactions: ExpenseDraft[],
+  cycle: FinancialCycle,
+) {
+  const earlySalaryStart = new Date(cycle.start);
+  earlySalaryStart.setDate(earlySalaryStart.getDate() - 4);
+  const nextCycleEarlySalaryStart = new Date(cycle.end);
+  nextCycleEarlySalaryStart.setDate(nextCycleEarlySalaryStart.getDate() - 4);
+
+  return transactions.filter((transaction) => {
+    if (transaction.kind !== 'income' || !transaction.occurredAt) {
+      return false;
+    }
+    const occurredAt = new Date(transaction.occurredAt);
+    if (Number.isNaN(occurredAt.getTime())) return false;
+    const salary =
+      transaction.incomeType === 'salary' ||
+      transaction.category === 'Stipendio';
+    if (!salary) return occurredAt >= cycle.start && occurredAt < cycle.end;
+    return (
+      (occurredAt >= earlySalaryStart && occurredAt < cycle.start) ||
+      (occurredAt >= cycle.start && occurredAt < nextCycleEarlySalaryStart)
+    );
+  });
+}
+
+export function budgetIncomeForFinancialCycle(
+  transactions: ExpenseDraft[],
+  cycle: FinancialCycle,
+) {
+  return incomeCandidatesForFinancialCycle(transactions, cycle).filter(
+    (transaction) => !transaction.excludedFromBudget,
+  );
+}
+
 export function formatFinancialCycle(cycle: FinancialCycle) {
   const lastDay = new Date(cycle.end);
   lastDay.setDate(lastDay.getDate() - 1);

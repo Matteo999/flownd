@@ -28,6 +28,7 @@ export default function GoalSettingsScreen() {
     goals,
     loans,
     draft,
+    budgetMonthlyIncome,
     amountsVisible,
     goalAllocationMode,
     setGoalAllocationMode,
@@ -37,11 +38,12 @@ export default function GoalSettingsScreen() {
   const activeGoals = [...goals]
     .filter((goal) => goal.status === 'active' || goal.status === 'free_savings')
     .sort((first, second) => first.priority - second.priority);
-  const savingsPool =
-    draft.budgets.find((item) => item.id === 'savings')?.amount ??
-    draft.budgets
-      .filter((item) => item.parentId === 'savings')
-      .reduce((sum, item) => sum + item.amount, 0);
+  const savingsMacro = draft.budgets.find((item) => item.id === 'savings');
+  const savingsPool = savingsMacro
+    ? (budgetMonthlyIncome * savingsMacro.percentage) / 100
+    : draft.budgets
+        .filter((item) => item.parentId === 'savings')
+        .reduce((sum, item) => sum + item.amount, 0);
   const requested = activeGoals.reduce(
     (sum, goal) => sum + goal.monthlyContribution,
     0,

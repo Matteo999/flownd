@@ -17,7 +17,7 @@ const CHART_SIZE = 190;
 const CHART_CENTER = CHART_SIZE / 2;
 const CHART_RADIUS = 68;
 const CHART_STROKE = 22;
-const SELECTED_CHART_STROKE = 30;
+const SELECTED_CHART_STROKE = 38;
 const CIRCUMFERENCE = 2 * Math.PI * CHART_RADIUS;
 const categoryColors = [
   '#256B7E',
@@ -33,6 +33,18 @@ const categoryColors = [
   '#547A66',
   '#8A65B5',
 ];
+
+function percentageLabel(amount: number, total: number) {
+  const percentage = total > 0 ? (amount / total) * 100 : 0;
+  if (percentage > 0 && percentage < 1) return '<1%';
+  return `${Math.round(percentage)}%`;
+}
+
+function percentageAccessibilityLabel(amount: number, total: number) {
+  const percentage = total > 0 ? (amount / total) * 100 : 0;
+  if (percentage > 0 && percentage < 1) return 'meno dell’uno per cento';
+  return `${Math.round(percentage)} per cento`;
+}
 
 export function SpendingDonutChart({
   transactions,
@@ -98,13 +110,17 @@ export function SpendingDonutChart({
   const chartUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(chartSvg)}`;
 
   function selectSegmentAt(event: GestureResponderEvent) {
+    event.stopPropagation();
     const x = event.nativeEvent.locationX - CHART_CENTER;
     const y = event.nativeEvent.locationY - CHART_CENTER;
     const distance = Math.sqrt(x * x + y * y);
     const innerHitRadius = CHART_RADIUS - SELECTED_CHART_STROKE / 2 - 8;
     const outerHitRadius = CHART_RADIUS + SELECTED_CHART_STROKE / 2 + 8;
 
-    if (distance < innerHitRadius || distance > outerHitRadius) return;
+    if (distance < innerHitRadius || distance > outerHitRadius) {
+      setSelectedCategory(null);
+      return;
+    }
 
     const angleFromTop =
       (Math.atan2(y, x) + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2);
@@ -113,11 +129,21 @@ export function SpendingDonutChart({
       (item) =>
         shareAtPress >= item.startShare && shareAtPress < item.endShare,
     );
-    if (segment) setSelectedCategory(segment.category);
+    if (!segment) {
+      setSelectedCategory(null);
+      return;
+    }
+
+    const distanceFromSegmentStart =
+      (shareAtPress - segment.startShare) * CIRCUMFERENCE;
+    const pressedVisibleArc = distanceFromSegmentStart <= segment.segmentLength;
+    setSelectedCategory(pressedVisibleArc ? segment.category : null);
   }
 
   return (
-    <View>
+    <Pressable
+      accessible={false}
+      onPress={() => setSelectedCategory(null)}>
       <View style={styles.totalHeader}>
         <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>
           TOTALE SPESO
@@ -164,14 +190,10 @@ export function SpendingDonutChart({
               style={[styles.selectionValue, { color: colors.textSecondary }]}>
               {amountsVisible ? formatEuro(selectedSegment.amount) : HIDDEN_AMOUNT}
               {' · '}
-              {Math.round((selectedSegment.amount / total) * 100)}%
+              {percentageLabel(selectedSegment.amount, total)}
             </Text>
           </View>
-        ) : (
-          <Text style={[styles.tapHint, { color: colors.textSecondary }]}>
-            Tocca una fetta per vedere la categoria
-          </Text>
-        )}
+        ) : null}
       </View>
 
       {grouped.length ? (
@@ -183,9 +205,12 @@ export function SpendingDonutChart({
                 key={item.category}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={`Seleziona ${item.category}, ${Math.round((item.amount / total) * 100)} per cento`}
+                accessibilityLabel={`Seleziona ${item.category}, ${percentageAccessibilityLabel(item.amount, total)}`}
                 hitSlop={4}
-                onPress={() => setSelectedCategory(item.category)}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  setSelectedCategory(item.category);
+                }}
                 style={({ pressed }) => [
                   styles.legendRow,
                   selected && { backgroundColor: colors.sunken },
@@ -206,7 +231,7 @@ export function SpendingDonutChart({
                     styles.legendPercent,
                     { color: colors.textSecondary },
                   ]}>
-                  {Math.round((item.amount / total) * 100)}%
+                  {percentageLabel(item.amount, total)}
                 </Text>
               </Pressable>
             );
@@ -217,7 +242,7 @@ export function SpendingDonutChart({
           Aggiungi una spesa per visualizzare la distribuzione per categoria.
         </Text>
       )}
-    </View>
+    </Pressable>
   );
 }
 
@@ -272,7 +297,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginLeft: 7,
   },
-  tapHint: { fontFamily: font.body, fontSize: 10 },
   legend: { gap: 4, marginTop: 8 },
   legendRow: {
     flexDirection: 'row',

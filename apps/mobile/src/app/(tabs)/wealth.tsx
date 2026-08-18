@@ -1,6 +1,6 @@
 import { type Href, router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppHeaderActions } from '@/components/app-header-actions';
 import {
@@ -33,6 +33,7 @@ export default function WealthScreen() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [connections, setConnections] = useState<OpenBankingConnection[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(true);
   const netWorth = financialAccounts.reduce(
     (sum, account) => sum + account.balance,
     0,
@@ -54,8 +55,12 @@ export default function WealthScreen() {
   const accessToken = session?.access_token;
 
   useFocusEffect(useCallback(() => {
-    if (!accessToken) return;
+    if (!accessToken) {
+      setConnectionsLoading(false);
+      return;
+    }
     let active = true;
+    setConnectionsLoading(true);
     listBankConnections(accessToken)
       .then((items) => {
         if (active) setConnections(items);
@@ -65,6 +70,9 @@ export default function WealthScreen() {
         setSyncError(
           reason instanceof Error ? reason.message : 'Collegamenti non disponibili.',
         );
+      })
+      .finally(() => {
+        if (active) setConnectionsLoading(false);
       });
     return () => {
       active = false;
@@ -182,7 +190,9 @@ export default function WealthScreen() {
         )}
       </Card>
 
-      {authorizedConnections.length ? (
+      {connectionsLoading && !connections.length ? (
+        <ConnectedAccountsSkeleton />
+      ) : authorizedConnections.length ? (
         <>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Conti collegati</Text>
@@ -232,6 +242,60 @@ export default function WealthScreen() {
         </Card>
       ) : null}
     </Screen>
+  );
+}
+
+function ConnectedAccountsSkeleton() {
+  const { colors } = useFlowndTheme();
+  const [opacity] = useState(() => new Animated.Value(0.45));
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.45,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [opacity]);
+
+  return (
+    <View
+      accessibilityLabel="Caricamento conti collegati"
+      accessibilityRole="progressbar">
+      <View style={styles.sectionHeader}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Conti collegati</Text>
+      </View>
+      <Animated.View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.accountList, { opacity }]}>
+        {[0, 1].map((index) => (
+          <Card key={index} style={styles.accountRow}>
+            <View style={[styles.accountIcon, { backgroundColor: colors.sunken }]} />
+            <View style={styles.flex}>
+              <View
+                style={[
+                  styles.skeletonName,
+                  { backgroundColor: colors.sunken, width: index ? '42%' : '55%' },
+                ]}
+              />
+              <View style={[styles.skeletonMeta, { backgroundColor: colors.sunken }]} />
+            </View>
+            <View style={[styles.skeletonBalance, { backgroundColor: colors.sunken }]} />
+          </Card>
+        ))}
+      </Animated.View>
+    </View>
   );
 }
 
@@ -314,6 +378,9 @@ const styles = StyleSheet.create({
   accountName: { fontFamily: font.bodySemiBold, fontSize: 13 },
   accountMeta: { fontFamily: font.body, fontSize: 9, marginTop: 2 },
   accountBalance: { fontFamily: font.dataMedium, fontSize: 12 },
+  skeletonName: { height: 12, borderRadius: 6 },
+  skeletonMeta: { width: '32%', height: 8, borderRadius: 4, marginTop: 6 },
+  skeletonBalance: { width: 66, height: 12, borderRadius: 6 },
   chevron: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 19 },
   pressed: { opacity: 0.7 },
   planHint: { marginTop: 20 },

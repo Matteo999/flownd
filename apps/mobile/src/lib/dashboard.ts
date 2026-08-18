@@ -1,5 +1,6 @@
-import type { DashboardPeriod } from '@/providers/app-provider';
 import type { ExpenseDraft } from '@/lib/onboarding';
+
+export type DashboardPeriod = 'week' | 'month' | 'year';
 
 export const HIDDEN_AMOUNT = '•••••';
 
@@ -28,9 +29,10 @@ export function isInPeriod(
 export function transactionsForPeriod(
   transactions: ExpenseDraft[],
   period: DashboardPeriod,
+  now = new Date(),
 ) {
   return transactions.filter((transaction) =>
-    isInPeriod(transaction.occurredAt, period),
+    isInPeriod(transaction.occurredAt, period, now),
   );
 }
 

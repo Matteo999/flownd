@@ -36,6 +36,7 @@ export default function AddGoalScreen() {
     clearError,
     goals,
     draft,
+    budgetMonthlyIncome,
     goalAllocationMode,
   } = useApp();
   const existingGoal = goals.find((goal) => goal.id === params.goalId);
@@ -47,11 +48,12 @@ export default function AddGoalScreen() {
     existingGoal?.deadline ?? params.deadline ?? '',
   );
   const targetAmount = Number(target.replace(',', '.')) || 0;
-  const savingsPool =
-    draft.budgets.find((item) => item.id === 'savings')?.amount ??
-    draft.budgets
-      .filter((item) => item.parentId === 'savings')
-      .reduce((sum, item) => sum + item.amount, 0);
+  const savingsMacro = draft.budgets.find((item) => item.id === 'savings');
+  const savingsPool = savingsMacro
+    ? (budgetMonthlyIncome * savingsMacro.percentage) / 100
+    : draft.budgets
+        .filter((item) => item.parentId === 'savings')
+        .reduce((sum, item) => sum + item.amount, 0);
   const usedPercentage = goals
     .filter((goal) => goal.id !== existingGoal?.id)
     .reduce((sum, goal) => sum + goal.allocationPercentage, 0);

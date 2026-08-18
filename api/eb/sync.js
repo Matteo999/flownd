@@ -12,6 +12,7 @@ import {
   paidEntitlement,
   sendApiError,
 } from './_supabase.js'
+import { nextAutomaticSyncAt } from './_sync-schedule.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -179,6 +180,19 @@ async function reconcileTransaction({
       occurred_at: occurredAt(normalized.occurredOn),
       source: 'open_banking',
       kind: normalized.kind,
+      income_type:
+        normalized.kind !== 'income'
+          ? null
+          : normalized.refundHint
+            ? 'reimbursement'
+            : normalized.category === 'Tredicesima'
+              ? 'extra_salary'
+              : normalized.category === 'Stipendio'
+                ? 'salary'
+                : 'other_income',
+      excluded_from_budget:
+        normalized.kind === 'income' &&
+        (normalized.refundHint || normalized.category === 'Tredicesima'),
       financial_account_id: financialAccountId,
       bank_status: 'booked',
     })
@@ -237,7 +251,12 @@ async function markInternalTransfers(service, userId) {
     if (links?.length !== 2) continue
     const { error: updateError } = await service
       .from('transactions')
-      .update({ internal_transfer: true, excluded_from_totals: true })
+      .update({
+        internal_transfer: true,
+        excluded_from_totals: true,
+        excluded_from_budget: true,
+        income_type: 'internal_transfer',
+      })
       .in('id', links.map((item) => item.transaction_id))
     if (updateError) throw updateError
   }
@@ -408,18 +427,17 @@ async function deactivateAccount(service, accountId) {
   if (financialError) throw financialError
 }
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Metodo non supportato' })
-  try {
-    const { user, service } = await authenticateRequest(req)
-    await paidEntitlement(service, user.id)
-    const connectionId = String(req.body?.connectionId || '')
-    if (!connectionId) throw new ApiError(400, 'Connessione bancaria mancante')
+export async function syncConnection({
+  service,
+  userId,
+  connectionId,
+  automatic = false,
+}) {
     const { data: connection, error } = await service
       .from('open_banking_connections')
-      .select('id,provider_session_id,aspsp_name,aspsp_country,status,valid_until,last_synced_at')
+      .select('id,provider_session_id,aspsp_name,aspsp_country,status,valid_until,last_synced_at,last_error')
       .eq('id', connectionId)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .single()
     if (error || !connection) throw new ApiError(404, 'Connessione bancaria non trovata')
     if (connection.status !== 'authorized' || new Date(connection.valid_until).getTime() <= Date.now()) {
@@ -433,7 +451,7 @@ export default async function handler(req, res) {
       .from('open_banking_accounts')
       .select('id,provider_account_uid,identification_hash,name,currency,account_type,product,iban_last4')
       .eq('connection_id', connection.id)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('active', true)
     if (accountError) throw accountError
     const dateTo = dateOnly()
@@ -448,13 +466,16 @@ export default async function handler(req, res) {
     const n26SinglePageImport =
       /n26/i.test(connection.aspsp_name)
       && (existingImportCount || 0) <= 10
-    const dateFrom =
+    const incrementalSync =
       connection.last_synced_at
       && !connection.last_error
       && (existingImportCount || 0) > 0
       && !n26SinglePageImport
-      ? shiftDate(dateOnly(connection.last_synced_at), -14)
-      : shiftDate(dateTo, -370)
+    const dateFrom = automatic && !connection.last_synced_at
+      ? shiftDate(dateTo, -14)
+      : incrementalSync
+        ? shiftDate(dateOnly(connection.last_synced_at), -14)
+        : shiftDate(dateTo, -370)
     const totals = { imported: 0, linked: 0, pending: 0 }
     let syncedAccounts = 0
     let skippedAccounts = 0
@@ -468,7 +489,7 @@ export default async function handler(req, res) {
           try {
             const result = await syncAccount({
               service,
-              userId: user.id,
+              userId,
               connection,
               savedAccount: account,
               dateFrom,
@@ -513,26 +534,85 @@ export default async function handler(req, res) {
         'La banca non ha restituito alcuna risorsa sincronizzabile. Riprova tra poco o rimuovi e ricollega il conto.'
       throw unavailable
     }
-    const internalTransfers = await markInternalTransfers(service, user.id)
-    await service
+    const internalTransfers = await markInternalTransfers(service, userId)
+    const syncedAt = new Date()
+    const { error: connectionUpdateError } = await service
       .from('open_banking_connections')
       .update({
-        last_synced_at: new Date().toISOString(),
+        last_synced_at: syncedAt.toISOString(),
+        ...(automatic ? { last_auto_sync_at: syncedAt.toISOString() } : {}),
+        next_sync_at: nextAutomaticSyncAt(connection.id, syncedAt).toISOString(),
+        sync_locked_until: null,
         last_error:
           skippedAccounts || resourceWarnings || transientFailures.length
             ? `${skippedAccounts} conti ignorati, ${resourceWarnings} risorse non disponibili, ${transientFailures.length} errori temporanei${warningCodes.size ? ` (${[...warningCodes].join(', ')})` : ''}`
             : null,
-        updated_at: new Date().toISOString(),
+        updated_at: syncedAt.toISOString(),
       })
       .eq('id', connection.id)
-    return res.status(200).json({
+    if (connectionUpdateError) throw connectionUpdateError
+    return {
       accounts: syncedAccounts,
       skippedAccounts,
       warnings: resourceWarnings + transientFailures.length,
       ...totals,
       internalTransfers,
+    }
+}
+
+async function claimManualSync(service, userId, connectionId) {
+  const { data, error } = await service.rpc('claim_open_banking_connection_sync', {
+    p_connection_id: connectionId,
+    p_user_id: userId,
+    p_lock_minutes: 15,
+  })
+  if (error) throw error
+  return Boolean(data)
+}
+
+async function releaseFailedSync(service, connectionId, error) {
+  const now = new Date()
+  const nextSync = nextAutomaticSyncAt(connectionId, now)
+  const { error: updateError } = await service
+    .from('open_banking_connections')
+    .update({
+      sync_locked_until: null,
+      next_sync_at: nextSync.toISOString(),
+      last_error: error?.code || `provider:${error?.providerStatus || 'unknown'}`,
+      updated_at: now.toISOString(),
     })
+    .eq('id', connectionId)
+  if (updateError) throw updateError
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Metodo non supportato' })
+  let service = null
+  let connectionId = ''
+  try {
+    const authenticated = await authenticateRequest(req)
+    service = authenticated.service
+    await paidEntitlement(service, authenticated.user.id)
+    connectionId = String(req.body?.connectionId || '')
+    if (!connectionId) throw new ApiError(400, 'Connessione bancaria mancante')
+    const claimed = await claimManualSync(service, authenticated.user.id, connectionId)
+    if (!claimed) {
+      throw new ApiError(409, 'Sincronizzazione già in corso.', 'SYNC_IN_PROGRESS')
+    }
+    const result = await syncConnection({
+      service,
+      userId: authenticated.user.id,
+      connectionId,
+    })
+    return res.status(200).json(result)
   } catch (error) {
+    if (service && connectionId && error?.code !== 'SYNC_IN_PROGRESS') {
+      try {
+        await releaseFailedSync(service, connectionId, error)
+      } catch (releaseError) {
+        console.error('Flownd sync lock release failed', releaseError)
+      }
+    }
     console.error('Enable Banking connection sync failed', {
       code: error?.code || null,
       status: error?.status || null,

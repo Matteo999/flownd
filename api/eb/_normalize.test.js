@@ -87,3 +87,37 @@ test('oscura gli IBAN anche dentro payload annidati', () => {
     { debtor_account: { iban: '••••4970' } },
   )
 })
+
+test('distingue tredicesima e rimborso dalle entrate ordinarie', () => {
+  const base = {
+    transaction_amount: { amount: '1000', currency: 'EUR' },
+    credit_debit_indicator: 'CRDT',
+    status: 'BOOK',
+    booking_date: '2026-12-18',
+  }
+  const thirteenth = normalizeBankTransaction(
+    { ...base, remittance_information: ['Erogazione tredicesima'] },
+    'conto',
+  )
+  const reimbursement = normalizeBankTransaction(
+    { ...base, remittance_information: ['Rimborso spese trasferta'] },
+    'conto',
+  )
+  assert.equal(thirteenth.category, 'Tredicesima')
+  assert.equal(reimbursement.category, 'Rimborso spese')
+  assert.equal(reimbursement.refundHint, true)
+})
+
+test('riconosce i supermercati presenti negli import reali', () => {
+  const transaction = normalizeBankTransaction(
+    {
+      transaction_amount: { amount: '34.20', currency: 'EUR' },
+      credit_debit_indicator: 'DBIT',
+      status: 'BOOK',
+      booking_date: '2026-08-10',
+      remittance_information: ['Pagamento POS supermercati Orvea'],
+    },
+    'conto',
+  )
+  assert.equal(transaction.category, 'Cibo e Spesa')
+})

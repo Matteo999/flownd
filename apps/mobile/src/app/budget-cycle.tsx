@@ -1,10 +1,9 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
-  PrimaryButton,
   Screen,
   font,
   uiStyles,
@@ -53,8 +52,17 @@ export default function BudgetCycleScreen() {
   const [startDay, setStartDay] = useState(budgetCycleStartDay);
   const [rolloverMode, setRolloverMode] =
     useState<BudgetRolloverMode>(budgetRolloverMode);
+  const startDayRef = useRef(startDay);
+  const rolloverModeRef = useRef(rolloverMode);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const [daysOpen, setDaysOpen] = useState(false);
   const cycle = financialCycleForDate(new Date(), startDay);
+
+  function saveSettings(day: number, mode: BudgetRolloverMode) {
+    saveQueue.current = saveQueue.current.then(async () => {
+      await updateBudgetCycleSettings(day, mode);
+    });
+  }
 
   return (
     <Screen>
@@ -102,8 +110,11 @@ export default function BudgetCycleScreen() {
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
                   onPress={() => {
+                    clearError();
+                    startDayRef.current = day;
                     setStartDay(day);
                     setDaysOpen(false);
+                    saveSettings(day, rolloverModeRef.current);
                   }}
                   style={[
                     styles.day,
@@ -137,7 +148,9 @@ export default function BudgetCycleScreen() {
               accessibilityState={{ checked: selected }}
               onPress={() => {
                 clearError();
+                rolloverModeRef.current = option.id;
                 setRolloverMode(option.id);
+                saveSettings(startDayRef.current, option.id);
               }}
               style={({ pressed }) => [
                 styles.option,
@@ -162,14 +175,9 @@ export default function BudgetCycleScreen() {
       </View>
 
       {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
-      <PrimaryButton
-        loading={saving}
-        onPress={async () => {
-          const saved = await updateBudgetCycleSettings(startDay, rolloverMode);
-          if (saved) router.back();
-        }}>
-        Salva impostazioni
-      </PrimaryButton>
+      <Text style={[styles.saveStatus, { color: colors.textSecondary }]}>
+        {saving ? 'Salvataggio…' : 'Le modifiche vengono salvate automaticamente.'}
+      </Text>
     </Screen>
   );
 }
@@ -243,5 +251,6 @@ const styles = StyleSheet.create({
   radioDot: { width: 10, height: 10, borderRadius: 5 },
   optionTitle: { fontFamily: font.bodySemiBold, fontSize: 13 },
   optionDescription: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  saveStatus: { fontFamily: font.body, fontSize: 10, textAlign: 'center', marginTop: 14 },
   pressed: { opacity: 0.68 },
 });

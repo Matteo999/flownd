@@ -105,18 +105,25 @@ function status(value) {
 function categoryFor({ description, remittance, direction, bankCode, bankSubCode }) {
   const text = normalized(`${description} ${remittance} ${bankCode} ${bankSubCode}`)
   if (direction === 'credit') {
-    return /stipend|salary|emolument|retribuzion/.test(text) ? 'Stipendio' : 'Entrata'
+    if (/rimborso|storno|refund/.test(text)) return 'Rimborso spese'
+    if (/tredicesima|13ma|13esima/.test(text)) return 'Tredicesima'
+    return /stipend|salary|emolument|retribuzion/.test(text)
+      ? 'Stipendio'
+      : 'Altra entrata'
   }
   if (/preliev|atm|cash withdrawal/.test(text)) return 'ATM (prelievo contante)'
-  if (/supermerc|alimentar|grocery|interspar|poli\b/.test(text)) return 'Cibo e Spesa'
-  if (/bar\b|ristor|mcdonald|sushi|pizzeria|caffe|caffè/.test(text)) return 'Bar e ristoranti'
+  if (/supermerc|alimentar|grocery|interspar|poli\b|orvea|coop\b|esselunga|conad|lidl|carrefour|eurospin/.test(text)) return 'Cibo e Spesa'
+  if (/bar\b|ristor|mcdonald|burger king|sushi|pizzeria|caffe|caffè|deliveroo|glovo|just eat/.test(text)) return 'Bar e ristoranti'
   if (/farmac|medical|sanitar|dentist/.test(text)) return 'Cure sanitarie e Farmacia'
   if (/f24|impost|tass|multa|pagopa/.test(text)) return 'Tasse e Multe'
-  if (/benzina|carbur|trasport|autostr|parchegg|taxi|trenitalia/.test(text)) return 'Trasporti e Auto'
-  if (/netflix|spotify|abbonament|subscription|iscrizione/.test(text)) return 'Sottoscrizioni e donazioni'
-  if (/eurobrico|utenza|energia|elettric|gas\b|acqua\b|affitto/.test(text)) return 'Casa e utenze'
-  if (/kiko|amazon|shopping|negozio/.test(text)) return 'Shopping'
-  if (/viaggio|hotel|booking|airbnb|aereo/.test(text)) return 'Viaggi e Vacanze'
+  if (/benzina|carbur|distributore|\bq8\b|\beni\b|tamoil|esso|trasport|autostr|telepass|parchegg|taxi|trenitalia|italo|officina|gommista/.test(text)) return 'Trasporti e Auto'
+  if (/netflix|spotify|disney|prime video|abbonament|subscription|iscrizione|donazione|patreon/.test(text)) return 'Sottoscrizioni e donazioni'
+  if (/eurobrico|leroy merlin|ikea|brico|utenza|energia|elettric|gas\b|acqua\b|affitto|condominio/.test(text)) return 'Casa e utenze'
+  if (/mediaworld|unieuro|euronics|apple store|elettronica|computer|smartphone/.test(text)) return 'Multimedia e Elettronica'
+  if (/universit|scuola|formazione|udemy|coursera|libreria/.test(text)) return 'Educazione'
+  if (/cinema|teatro|concerto|museo|palestra|ticketone|steam|playstation|xbox/.test(text)) return 'Tempo libero e intrattenimento'
+  if (/kiko|amazon|zara|zalando|h&m|abbigliamento|scarpe|shopping|negozio|decathlon/.test(text)) return 'Shopping'
+  if (/viaggio|hotel|albergo|booking|airbnb|aereo|ryanair|easyjet|aeroporto/.test(text)) return 'Viaggi e Vacanze'
   if (/commission|canone|fees?\b/.test(text)) return 'Assicurazioni e Finanza'
   return 'Altro'
 }

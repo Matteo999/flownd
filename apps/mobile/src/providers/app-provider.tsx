@@ -7,15 +7,21 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 
 import {
+  BudgetCategory,
   BudgetGroupKey,
   ExpenseDraft,
+  IncomeBandId,
+  incomeReferenceForBand,
   initialDraft,
+  materializeBudgetAmounts,
   OnboardingDraft,
+  updateAllocation,
 } from '@/lib/onboarding';
 import {
   calculateMonthlyPayment,
@@ -26,10 +32,16 @@ import {
   type LoanDraft,
 } from '@/lib/goals';
 import { supabase } from '@/lib/supabase';
-import { normalizeTransactionCategory } from '@/lib/transaction-categories';
-import type { BudgetRolloverMode } from '@/lib/financial-cycle';
-
-export type DashboardPeriod = 'week' | 'month' | 'year';
+import {
+  incomeTreatmentForCategory,
+  normalizeTransactionCategory,
+} from '@/lib/transaction-categories';
+import {
+  type BudgetRolloverMode,
+  financialCycleForDate,
+  budgetIncomeForFinancialCycle,
+  incomeCandidatesForFinancialCycle,
+} from '@/lib/financial-cycle';
 
 export type TransactionUpdate = {
   description: string;
@@ -81,9 +93,9 @@ type AppContextValue = {
   upcomingPayments: UpcomingPayment[];
   coachInsight: CoachInsight | null;
   amountsVisible: boolean;
-  dashboardPeriod: DashboardPeriod;
   budgetCycleStartDay: number;
   budgetRolloverMode: BudgetRolloverMode;
+  budgetMonthlyIncome: number;
   error: string | null;
   updateDraft: (next: Partial<OnboardingDraft>) => void;
   completeOnboarding: () => Promise<boolean>;
@@ -91,6 +103,16 @@ type AppContextValue = {
   updateTransaction: (
     transactionId: string,
     transaction: TransactionUpdate,
+  ) => Promise<boolean>;
+  categorizeTransactions: (
+    transactionIds: string[],
+    category: string,
+    rememberSimilar: boolean,
+  ) => Promise<boolean>;
+  deleteTransaction: (transactionId: string) => Promise<boolean>;
+  setTransactionBudgetInclusion: (
+    transactionId: string,
+    included: boolean,
   ) => Promise<boolean>;
   createGoal: (goal: OnboardingDraft['goal']) => Promise<boolean>;
   updateGoal: (
@@ -108,13 +130,21 @@ type AppContextValue = {
   createLoan: (loan: LoanDraft) => Promise<boolean>;
   dismissGoalNotice: (noticeId: string) => Promise<void>;
   updateBudgetAmount: (id: string, amount: number) => Promise<boolean>;
+  saveBudgetAllocations: (
+    budgets: BudgetCategory[],
+    plannedMonthlyIncome: number,
+  ) => Promise<boolean>;
+  createBudgetSubcategory: (
+    parentId: BudgetGroupKey,
+    name: string,
+    percentage: number,
+  ) => Promise<BudgetCategory | null>;
   updateBudgetCycleSettings: (
     startDay: number,
     rolloverMode: BudgetRolloverMode,
   ) => Promise<boolean>;
   dismissFirstVisit: () => void;
   toggleAmountsVisible: () => Promise<void>;
-  setDashboardPeriod: (period: DashboardPeriod) => void;
   clearError: () => void;
   refreshData: () => Promise<void>;
 };
@@ -139,7 +169,6 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [upcomingPayments, setUpcomingPayments] = useState<UpcomingPayment[]>([]);
   const [coachInsight, setCoachInsight] = useState<CoachInsight | null>(null);
   const [amountsVisible, setAmountsVisible] = useState(true);
-  const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>('month');
   const [budgetCycleStartDay, setBudgetCycleStartDay] = useState(1);
   const [budgetRolloverMode, setBudgetRolloverMode] =
     useState<BudgetRolloverMode>('savings');
@@ -178,7 +207,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     ] = await Promise.all([
       supabase
         .from('budget_categories')
-        .select('category_key,name,emoji,monthly_limit,parent_key,is_macro')
+        .select('category_key,name,emoji,monthly_limit,allocation_percentage,parent_key,is_macro')
         .eq('user_id', userId)
         .order('created_at'),
       supabase
@@ -190,13 +219,13 @@ export function AppProvider({ children }: PropsWithChildren) {
         .order('created_at'),
       supabase
         .from('transactions')
-        .select('id,description,amount,category,occurred_at,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer')
+        .select('id,description,amount,category,occurred_at,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type')
         .eq('user_id', userId)
         .gte('occurred_at', historyStart.toISOString())
         .order('occurred_at', { ascending: false }),
       supabase
         .from('profiles')
-        .select('goal_allocation_mode,plan_tier,budget_cycle_start_day,budget_rollover_mode')
+        .select('goal_allocation_mode,plan_tier,budget_cycle_start_day,budget_rollover_mode,planned_monthly_income,income_band')
         .eq('id', userId)
         .single(),
       supabase
@@ -241,7 +270,26 @@ export function AppProvider({ children }: PropsWithChildren) {
       bankStatus: item.bank_status,
       excludedFromTotals: Boolean(item.excluded_from_totals),
       internalTransfer: Boolean(item.internal_transfer),
+      excludedFromBudget: Boolean(item.excluded_from_budget),
+      incomeType: item.income_type as ExpenseDraft['incomeType'],
     }));
+    const incomeBand = goalSettingsResult.data.income_band as IncomeBandId | null;
+    const plannedMonthlyIncome = incomeReferenceForBand(incomeBand);
+    const hydratedBudgets: BudgetCategory[] = (budgetsResult.data ?? []).map(
+      (item) => ({
+        id: item.category_key,
+        name: item.name,
+        emoji: item.emoji ?? '◦',
+        amount: Number(item.monthly_limit),
+        percentage: Number(item.allocation_percentage),
+        selected: true,
+        parentId: item.parent_key as BudgetGroupKey | undefined,
+        isMacro: Boolean(item.is_macro),
+      }),
+    );
+    const hydratedAllocation = (group: BudgetGroupKey) =>
+      hydratedBudgets.find((item) => item.isMacro && item.parentId === group)
+        ?.percentage;
     const hydratedGoals: Goal[] = (goalsResult.data ?? []).map((goal) => ({
       id: goal.id,
       name: goal.name,
@@ -283,17 +331,16 @@ export function AppProvider({ children }: PropsWithChildren) {
     setGoalNotice(goalNoticeResult.data ?? null);
     setDraft((current) => ({
       ...current,
-      budgets: budgetsResult.data?.length
-        ? budgetsResult.data.map((item) => ({
-            id: item.category_key,
-            name: item.name,
-            emoji: item.emoji ?? '◦',
-            amount: Number(item.monthly_limit),
-            selected: true,
-            parentId: item.parent_key as BudgetGroupKey | undefined,
-            isMacro: Boolean(item.is_macro),
-          }))
-        : current.budgets,
+      incomeBand,
+      monthlyReference: plannedMonthlyIncome,
+      allocation: hydratedBudgets.length
+        ? {
+            needs: hydratedAllocation('needs') ?? current.allocation.needs,
+            wants: hydratedAllocation('wants') ?? current.allocation.wants,
+            savings: hydratedAllocation('savings') ?? current.allocation.savings,
+          }
+        : current.allocation,
+      budgets: hydratedBudgets.length ? hydratedBudgets : current.budgets,
       goal: hydratedGoals[0] ?? current.goal,
       expense:
         monthlyTransactions.find((transaction) => transaction.kind !== 'income')
@@ -471,6 +518,20 @@ export function AppProvider({ children }: PropsWithChildren) {
     };
   }, [hydrateUserData, onboardingComplete, session?.user.id]);
 
+  const budgetMonthlyIncome = useMemo(() => {
+    const cycle = financialCycleForDate(new Date(), budgetCycleStartDay);
+    const incomeCandidates = incomeCandidatesForFinancialCycle(transactions, cycle);
+    const currentCycleIncome = budgetIncomeForFinancialCycle(transactions, cycle)
+      .reduce((sum, transaction) => sum + transaction.amount, 0);
+    return incomeCandidates.length
+      ? currentCycleIncome
+      : incomeReferenceForBand(draft.incomeBand);
+  }, [
+    budgetCycleStartDay,
+    draft.incomeBand,
+    transactions,
+  ]);
+
   async function completeOnboarding() {
     if (!session) {
       setError('Completa prima l’accesso.');
@@ -483,10 +544,12 @@ export function AppProvider({ children }: PropsWithChildren) {
       .filter((item) => item.selected)
       .map(({ id, name, emoji, amount }) => ({ id, name, emoji, amount }));
 
-    const { error: saveError } = await supabase.rpc('complete_flownd_onboarding', {
+    const { error: saveError } = await supabase.rpc('complete_flownd_onboarding_v2', {
       p_budgets: selectedBudgets,
       p_goal: draft.goal,
       p_transaction: draft.expense,
+      p_income_band: draft.incomeBand,
+      p_planned_monthly_income: draft.monthlyReference,
     });
 
     setSaving(false);
@@ -526,6 +589,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     const occurredAt = transaction.occurredAt ?? new Date().toISOString();
     const kind = transaction.kind ?? 'expense';
     const category = normalizeTransactionCategory(transaction.category, kind);
+    const incomeTreatment =
+      kind === 'income' ? incomeTreatmentForCategory(category) : null;
     const { data, error: insertError } = await supabase
       .from('transactions')
       .insert({
@@ -535,6 +600,8 @@ export function AppProvider({ children }: PropsWithChildren) {
         category,
         source: 'manual',
         kind,
+        income_type: incomeTreatment?.incomeType ?? null,
+        excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
         occurred_at: occurredAt,
       })
       .select('id,description,amount,category,source,kind,occurred_at')
@@ -555,6 +622,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       occurredAt: data.occurred_at,
       source: data.source,
       kind: data.kind,
+      incomeType: incomeTreatment?.incomeType,
+      excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
     };
     if (recordedTransaction.kind !== 'income') {
       setDraft((current) => ({ ...current, expense: recordedTransaction }));
@@ -573,24 +642,113 @@ export function AppProvider({ children }: PropsWithChildren) {
       return false;
     }
 
-    setError(null);
-    const { error: updateError } = await supabase
-      .from('budget_categories')
-      .update({ monthly_limit: amount })
-      .eq('user_id', session.user.id)
-      .eq('category_key', id);
+    const target = draft.budgets.find((item) => item.id === id);
+    if (!target) return false;
+    let nextBudgets = draft.budgets;
+    if (target.isMacro) {
+      const currentAllocation = {
+        needs:
+          draft.budgets.find((item) => item.isMacro && item.parentId === 'needs')
+            ?.percentage ?? draft.allocation.needs,
+        wants:
+          draft.budgets.find((item) => item.isMacro && item.parentId === 'wants')
+            ?.percentage ?? draft.allocation.wants,
+        savings:
+          draft.budgets.find((item) => item.isMacro && item.parentId === 'savings')
+            ?.percentage ?? draft.allocation.savings,
+      };
+      const group = target.parentId ?? (target.id as BudgetGroupKey);
+      const allocation = updateAllocation(
+        currentAllocation,
+        group,
+        (amount / draft.monthlyReference) * 100,
+      );
+      nextBudgets = draft.budgets.map((item) =>
+        item.isMacro
+          ? {
+              ...item,
+              percentage:
+                allocation[item.parentId ?? (item.id as BudgetGroupKey)],
+            }
+          : item,
+      );
+    } else {
+      const parent = draft.budgets.find(
+        (item) => item.isMacro && item.parentId === target.parentId,
+      );
+      const siblingPercentage = draft.budgets
+        .filter(
+          (item) =>
+            !item.isMacro &&
+            item.id !== id &&
+            item.parentId === target.parentId,
+        )
+        .reduce((sum, item) => sum + item.percentage, 0);
+      const percentage = parent?.amount
+        ? Math.max(
+            1,
+            Math.min(
+              100 - siblingPercentage,
+              Math.round((amount / parent.amount) * 100),
+            ),
+          )
+        : target.percentage;
+      nextBudgets = draft.budgets.map((item) =>
+        item.id === id ? { ...item, percentage } : item,
+      );
+    }
+    return saveBudgetAllocations(nextBudgets, draft.monthlyReference);
+  }
 
-    if (updateError) {
-      if (__DEV__) console.error('Flownd budget update failed', updateError);
-      setError('Non siamo riusciti ad aggiornare il budget. Riprova.');
+  async function saveBudgetAllocations(
+    budgets: BudgetCategory[],
+    plannedMonthlyIncome: number,
+  ) {
+    if (!session || plannedMonthlyIncome <= 0) {
+      setError(
+        !session
+          ? 'La sessione è scaduta. Accedi di nuovo.'
+          : 'Il reddito mensile pianificato deve essere maggiore di zero.',
+      );
       return false;
     }
 
+    setSaving(true);
+    setError(null);
+    const selectedBudgets = budgets.filter((item) => item.selected);
+    const { error: updateError } = await supabase.rpc('save_budget_allocations', {
+      p_planned_monthly_income: plannedMonthlyIncome,
+      p_allocations: selectedBudgets.map((item) => ({
+        id: item.id,
+        percentage: item.percentage,
+        isMacro: Boolean(item.isMacro),
+        parentId: item.parentId,
+      })),
+    });
+    setSaving(false);
+
+    if (updateError) {
+      if (__DEV__) console.error('Flownd budget allocation update failed', updateError);
+      setError('Non siamo riusciti ad aggiornare il piano budget. Riprova.');
+      return false;
+    }
+
+    const materialized = materializeBudgetAmounts(
+      selectedBudgets,
+      plannedMonthlyIncome,
+    );
+    const macroPercentage = (group: BudgetGroupKey) =>
+      materialized.find((item) => item.isMacro && item.parentId === group)
+        ?.percentage ?? 0;
     setDraft((current) => ({
       ...current,
-      budgets: current.budgets.map((item) =>
-        item.id === id ? { ...item, amount } : item,
-      ),
+      monthlyReference: plannedMonthlyIncome,
+      allocation: {
+        needs: macroPercentage('needs'),
+        wants: macroPercentage('wants'),
+        savings: macroPercentage('savings'),
+      },
+      budgets: materialized,
     }));
     return true;
   }
@@ -640,6 +798,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       transaction.category,
       transaction.kind,
     );
+    const incomeTreatment =
+      transaction.kind === 'income'
+        ? incomeTreatmentForCategory(nextCategory)
+        : null;
     if (!nextDescription || !nextCategory || transaction.amount <= 0) return false;
 
     setSaving(true);
@@ -651,6 +813,8 @@ export function AppProvider({ children }: PropsWithChildren) {
         amount: transaction.amount,
         category: nextCategory,
         kind: transaction.kind,
+        income_type: incomeTreatment?.incomeType ?? null,
+        excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
         occurred_at: transaction.occurredAt,
       })
       .eq('id', transactionId)
@@ -668,6 +832,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       amount: transaction.amount,
       category: nextCategory,
       kind: transaction.kind,
+      incomeType: incomeTreatment?.incomeType,
+      excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
       occurredAt: transaction.occurredAt,
     };
 
@@ -686,6 +852,222 @@ export function AppProvider({ children }: PropsWithChildren) {
           : current.expense,
     }));
     return true;
+  }
+
+  async function categorizeTransactions(
+    transactionIds: string[],
+    category: string,
+    rememberSimilar: boolean,
+  ) {
+    if (!session) {
+      setError('La sessione è scaduta. Accedi di nuovo.');
+      return false;
+    }
+    const uniqueIds = [...new Set(transactionIds)];
+    const selectedTransactions = transactions.filter(
+      (transaction) => transaction.id && uniqueIds.includes(transaction.id),
+    );
+    const kinds = new Set(
+      selectedTransactions.map((transaction) => transaction.kind ?? 'expense'),
+    );
+    if (!selectedTransactions.length || kinds.size !== 1) {
+      setError('Seleziona movimenti tutti dello stesso tipo.');
+      return false;
+    }
+    if (selectedTransactions.some((transaction) => transaction.internalTransfer)) {
+      setError('I trasferimenti interni non possono essere categorizzati in blocco.');
+      return false;
+    }
+
+    const kind = (selectedTransactions[0].kind ?? 'expense') as
+      | 'expense'
+      | 'income';
+    const nextCategory = normalizeTransactionCategory(category, kind);
+    const incomeTreatment =
+      kind === 'income' ? incomeTreatmentForCategory(nextCategory) : null;
+    const updatedFields: Partial<ExpenseDraft> = {
+      category: nextCategory,
+      incomeType: incomeTreatment?.incomeType,
+      excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
+    };
+
+    setSaving(true);
+    setError(null);
+    const { data: updatedCount, error: updateError } = await supabase.rpc(
+      'categorize_transactions_bulk',
+      {
+        p_transaction_ids: uniqueIds,
+        p_category: nextCategory,
+        p_remember_similar: rememberSimilar && kind === 'expense',
+      },
+    );
+    if (updateError) {
+      setSaving(false);
+      if (__DEV__) console.error('Flownd bulk category update failed', updateError);
+      setError('Non siamo riusciti a categorizzare i movimenti selezionati.');
+      return false;
+    }
+    setSaving(false);
+    if (Number(updatedCount) !== selectedTransactions.length) {
+      setError('Alcuni movimenti non sono più disponibili. Aggiorna e riprova.');
+      return false;
+    }
+
+    setTransactions((current) =>
+      current.map((transaction) =>
+        transaction.id && uniqueIds.includes(transaction.id)
+          ? { ...transaction, ...updatedFields }
+          : transaction,
+      ),
+    );
+    setDraft((current) =>
+      current.expense.id && uniqueIds.includes(current.expense.id)
+        ? {
+            ...current,
+            expense: { ...current.expense, ...updatedFields },
+          }
+        : current,
+    );
+    return true;
+  }
+
+  async function deleteTransaction(transactionId: string) {
+    if (!session) {
+      setError('La sessione è scaduta. Accedi di nuovo.');
+      return false;
+    }
+    const transaction = transactions.find((item) => item.id === transactionId);
+    if (!transaction || !['manual', 'onboarding'].includes(transaction.source ?? '')) {
+      setError('I movimenti bancari non possono essere eliminati. Puoi riclassificarli.');
+      return false;
+    }
+    setSaving(true);
+    setError(null);
+    const { error: deleteError } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', transactionId)
+      .eq('user_id', session.user.id)
+      .in('source', ['manual', 'onboarding']);
+    setSaving(false);
+    if (deleteError) {
+      if (__DEV__) console.error('Flownd transaction delete failed', deleteError);
+      setError('Non siamo riusciti a eliminare la transazione.');
+      return false;
+    }
+    setTransactions((current) =>
+      current.filter((item) => item.id !== transactionId),
+    );
+    return true;
+  }
+
+  async function setTransactionBudgetInclusion(
+    transactionId: string,
+    included: boolean,
+  ) {
+    if (!session) {
+      setError('La sessione è scaduta. Accedi di nuovo.');
+      return false;
+    }
+    setError(null);
+    setTransactions((current) =>
+      current.map((transaction) =>
+        transaction.id === transactionId
+          ? { ...transaction, excludedFromBudget: !included }
+          : transaction,
+      ),
+    );
+    const { error: updateError } = await supabase
+      .from('transactions')
+      .update({ excluded_from_budget: !included })
+      .eq('id', transactionId)
+      .eq('user_id', session.user.id)
+      .eq('kind', 'income');
+    if (updateError) {
+      if (__DEV__) console.error('Flownd budget income update failed', updateError);
+      setError('Non siamo riusciti ad aggiornare questa entrata.');
+      setTransactions((current) =>
+        current.map((transaction) =>
+          transaction.id === transactionId
+            ? { ...transaction, excludedFromBudget: included }
+            : transaction,
+        ),
+      );
+      return false;
+    }
+    return true;
+  }
+
+  async function createBudgetSubcategory(
+    parentId: BudgetGroupKey,
+    name: string,
+    percentage: number,
+  ) {
+    if (!session) {
+      setError('La sessione è scaduta. Accedi di nuovo.');
+      return null;
+    }
+    const trimmedName = name.trim();
+    const safePercentage = Math.round(percentage);
+    const siblingTotal = draft.budgets
+      .filter((item) => !item.isMacro && item.parentId === parentId)
+      .reduce((sum, item) => sum + item.percentage, 0);
+    if (!trimmedName || safePercentage < 1 || siblingTotal + safePercentage > 100) {
+      setError('La sottocategoria deve lasciare il totale della macro entro il 100%.');
+      return null;
+    }
+    const parent = draft.budgets.find(
+      (item) => item.isMacro && item.parentId === parentId,
+    );
+    if (!parent) return null;
+    const normalizedName = trimmedName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('it')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 32);
+    const categoryKey = `${parentId}-${normalizedName || 'categoria'}-${Date.now().toString(36)}`;
+    const amount = Math.round(
+      (budgetMonthlyIncome * parent.percentage * safePercentage) / 10000,
+    );
+    setSaving(true);
+    setError(null);
+    const { data, error: insertError } = await supabase
+      .from('budget_categories')
+      .insert({
+        user_id: session.user.id,
+        category_key: categoryKey,
+        name: trimmedName,
+        emoji: null,
+        monthly_limit: Math.max(1, amount),
+        allocation_percentage: safePercentage,
+        parent_key: parentId,
+        is_macro: false,
+      })
+      .select('category_key,name,emoji,monthly_limit,allocation_percentage,parent_key,is_macro')
+      .single();
+    setSaving(false);
+    if (insertError) {
+      if (__DEV__) console.error('Flownd budget subcategory insert failed', insertError);
+      setError('Non siamo riusciti a creare la sottocategoria.');
+      return null;
+    }
+    const created: BudgetCategory = {
+      id: data.category_key,
+      name: data.name,
+      emoji: data.emoji ?? '◦',
+      amount: Number(data.monthly_limit),
+      percentage: Number(data.allocation_percentage),
+      selected: true,
+      parentId: data.parent_key as BudgetGroupKey,
+      isMacro: Boolean(data.is_macro),
+    };
+    setDraft((current) => ({
+      ...current,
+      budgets: [...current.budgets, created],
+    }));
+    return created;
   }
 
   async function createGoal(goal: OnboardingDraft['goal']) {
@@ -1076,14 +1458,17 @@ export function AppProvider({ children }: PropsWithChildren) {
     upcomingPayments,
     coachInsight,
     amountsVisible,
-    dashboardPeriod,
     budgetCycleStartDay,
     budgetRolloverMode,
+    budgetMonthlyIncome,
     error,
     updateDraft: (next) => setDraft((current) => ({ ...current, ...next })),
     completeOnboarding,
     addTransaction,
     updateTransaction,
+    categorizeTransactions,
+    deleteTransaction,
+    setTransactionBudgetInclusion,
     createGoal,
     updateGoal,
     setGoalAllocationMode,
@@ -1094,10 +1479,11 @@ export function AppProvider({ children }: PropsWithChildren) {
     createLoan,
     dismissGoalNotice,
     updateBudgetAmount,
+    saveBudgetAllocations,
+    createBudgetSubcategory,
     updateBudgetCycleSettings,
     dismissFirstVisit: () => setFirstDashboardVisit(false),
     toggleAmountsVisible,
-    setDashboardPeriod,
     clearError: () => setError(null),
     refreshData: async () => {
       if (session?.user.id) await hydrateUserData(session.user.id);

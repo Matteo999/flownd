@@ -2,6 +2,7 @@ import http from 'node:http'
 
 import coachHandler from './coach.js'
 import ebAuthHandler from './eb/auth.js'
+import ebAutoSyncHandler from './eb/auto-sync.js'
 import ebBanksHandler from './eb/banks.js'
 import ebCallbackHandler from './eb/callback.js'
 import ebConnectionsHandler from './eb/connections.js'
@@ -11,6 +12,7 @@ const port = Number(process.env.API_PORT || 3000)
 const handlers = new Map([
   ['/api/coach', coachHandler],
   ['/api/eb/auth', ebAuthHandler],
+  ['/api/eb/auto-sync', ebAutoSyncHandler],
   ['/api/eb/banks', ebBanksHandler],
   ['/api/eb/callback', ebCallbackHandler],
   ['/api/eb/connections', ebConnectionsHandler],
