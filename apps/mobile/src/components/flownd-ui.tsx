@@ -69,10 +69,12 @@ export { font, useFlowndTheme };
 export function Screen({
   children,
   scroll = true,
+  scrollHeaderWithContent = false,
   style,
   floatingAction,
 }: PropsWithChildren<{
   scroll?: boolean;
+  scrollHeaderWithContent?: boolean;
   style?: StyleProp<ViewStyle>;
   floatingAction?: ReactNode;
 }>) {
@@ -108,8 +110,13 @@ export function Screen({
     return () => animation.stop();
   }, [headerCollapsed, headerProgress]);
   const headerContext = useMemo(
-    () => ({ scrollY, headerProgress, scrollsWithContent: scroll, onScroll }),
-    [headerProgress, onScroll, scroll, scrollY],
+    () => ({
+      scrollY,
+      headerProgress,
+      scrollsWithContent: scroll || scrollHeaderWithContent,
+      onScroll,
+    }),
+    [headerProgress, onScroll, scroll, scrollHeaderWithContent, scrollY],
   );
   const content = <View style={[styles.screenContent, style]}>{children}</View>;
   return (

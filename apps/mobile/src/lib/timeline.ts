@@ -1,5 +1,5 @@
 import type { ExpenseDraft } from '@/lib/onboarding';
-import type { DashboardPeriod } from '@/providers/app-provider';
+import type { DashboardPeriod } from '@/lib/dashboard';
 
 export type TimelineBin = {
   key: string;
@@ -97,10 +97,17 @@ export function buildTimelineBins(
   }
 
   if (period === 'month') {
-    const weeksInMonth = Math.ceil(now.getDate() / 7);
+    const today = new Date();
+    const isCurrentMonth =
+      now.getFullYear() === today.getFullYear() &&
+      now.getMonth() === today.getMonth();
+    const visibleLastDay = isCurrentMonth
+      ? today.getDate()
+      : new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const weeksInMonth = Math.ceil(visibleLastDay / 7);
     const bins = Array.from({ length: weeksInMonth }, (_, index) => ({
       key: `week-${index}`,
-      label: `${index * 7 + 1}–${Math.min((index + 1) * 7, now.getDate())}`,
+      label: `${index * 7 + 1}–${Math.min((index + 1) * 7, visibleLastDay)}`,
       income: 0,
       expense: 0,
     }));

@@ -15,7 +15,14 @@ function numberValue(value: string) {
 
 export default function AddLoanScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const { draft, transactions, createLoan, saving, error } = useApp();
+  const {
+    draft,
+    transactions,
+    createLoan,
+    saving,
+    error,
+    budgetMonthlyIncome,
+  } = useApp();
   const [name, setName] = useState('');
   const [financed, setFinanced] = useState('');
   const [downPayment, setDownPayment] = useState('0');
@@ -36,14 +43,21 @@ export default function AddLoanScreen() {
   };
   const calculatedPayment =
     draftLoan.monthlyPayment || calculateMonthlyPayment(draftLoan);
-  const needsBudget =
-    draft.budgets.find((item) => item.id === 'needs')?.amount ??
-    draft.budgets.filter((item) => item.parentId === 'needs').reduce((sum, item) => sum + item.amount, 0);
+  const needsMacro = draft.budgets.find((item) => item.id === 'needs');
+  const needsBudget = needsMacro
+    ? (budgetMonthlyIncome * needsMacro.percentage) / 100
+    : draft.budgets
+        .filter((item) => item.parentId === 'needs')
+        .reduce((sum, item) => sum + item.amount, 0);
   const needsSpent = transactionsForPeriod(transactions, 'month')
     .filter((transaction) => transaction.kind !== 'income' && categoryToBudgetGroup(transaction.category) === 'needs')
     .reduce((sum, transaction) => sum + transaction.amount, 0);
   const availableNeeds = Math.max(0, needsBudget - needsSpent);
-  const sustainability = loanSustainability(calculatedPayment, draft.monthlyReference, availableNeeds);
+  const sustainability = loanSustainability(
+    calculatedPayment,
+    budgetMonthlyIncome,
+    availableNeeds,
+  );
   const levelColor = sustainability.level === 'low' ? colors.positive : sustainability.level === 'medium' ? colors.warning : colors.negative;
   const levelLabel = sustainability.level === 'low' ? 'Sostenibile' : sustainability.level === 'medium' ? 'Da valutare' : 'Impegnativo';
   const valid = Boolean(name.trim()) && draftLoan.financedAmount > 0 && draftLoan.installmentCount > 0 && calculatedPayment > 0;

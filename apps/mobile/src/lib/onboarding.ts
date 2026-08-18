@@ -3,6 +3,7 @@ export type BudgetCategory = {
   name: string;
   emoji: string;
   amount: number;
+  percentage: number;
   selected: boolean;
   parentId?: BudgetGroupKey;
   isMacro?: boolean;
@@ -13,12 +14,43 @@ export type BudgetGroupKey = 'needs' | 'wants' | 'savings';
 export const budgetGroups: {
   id: BudgetGroupKey;
   name: string;
-  emoji: string;
+  icon: string;
 }[] = [
-  { id: 'needs', name: 'Necessità', emoji: '🏠' },
-  { id: 'wants', name: 'Desideri', emoji: '🧳' },
-  { id: 'savings', name: 'Risparmi', emoji: '🐷' },
+  { id: 'needs', name: 'Necessità', icon: 'home' },
+  { id: 'wants', name: 'Desideri', icon: 'luggage' },
+  { id: 'savings', name: 'Risparmi', icon: 'savings' },
 ];
+
+const budgetCategoryIcons: [string[], string][] = [
+  [['needs', 'necessità'], 'home'],
+  [['wants', 'desideri'], 'luggage'],
+  [['savings', 'risparmi', 'fondo emergenza'], 'savings'],
+  [['spesa', 'alimentari', 'cibo', 'supermercato'], 'shopping_cart'],
+  [['casa', 'affitto', 'mutuo'], 'home_work'],
+  [['bollette', 'utenze'], 'receipt_long'],
+  [['trasporti', 'auto', 'carburante'], 'directions_car'],
+  [['salute', 'farmacia', 'cure'], 'medical_services'],
+  [['ristoranti', 'bar'], 'restaurant'],
+  [['shopping', 'abbigliamento'], 'shopping_bag'],
+  [['tempo libero', 'intrattenimento', 'cinema'], 'local_activity'],
+  [['viaggi', 'vacanze'], 'flight'],
+  [['abbonamenti'], 'subscriptions'],
+  [['educazione', 'formazione'], 'school'],
+  [['assicurazioni'], 'verified_user'],
+  [['investimenti'], 'trending_up'],
+  [['regali'], 'redeem'],
+];
+
+export function budgetCategoryIcon(category: { id?: string; name: string }) {
+  const normalized = `${category.id ?? ''} ${category.name}`
+    .trim()
+    .toLocaleLowerCase('it');
+  return (
+    budgetCategoryIcons.find(([names]) =>
+      names.some((name) => normalized.includes(name)),
+    )?.[1] ?? 'category'
+  );
+}
 
 export type IncomeBandId =
   | 'under-1000'
@@ -46,6 +78,10 @@ export const incomeBands: {
   { id: 'over-2500', label: 'Più di 2.500 €', shortLabel: '> 2.500 €', monthlyReference: 2750 },
 ];
 
+export function incomeReferenceForBand(id: IncomeBandId | null | undefined) {
+  return incomeBands.find((band) => band.id === id)?.monthlyReference ?? 1250;
+}
+
 export type GoalDraft = {
   id?: string;
   name: string;
@@ -70,6 +106,13 @@ export type ExpenseDraft = {
   bankStatus?: string | null;
   excludedFromTotals?: boolean;
   internalTransfer?: boolean;
+  excludedFromBudget?: boolean;
+  incomeType?:
+    | 'salary'
+    | 'extra_salary'
+    | 'reimbursement'
+    | 'internal_transfer'
+    | 'other_income';
 };
 
 export type OnboardingDraft = {
@@ -93,6 +136,7 @@ export function createBudgetCategories(
       name: 'Necessità',
       emoji: '🏠',
       amount: Math.round((monthlyReference * allocation.needs) / 100),
+      percentage: allocation.needs,
       selected: true,
       parentId: 'needs',
       isMacro: true,
@@ -102,6 +146,7 @@ export function createBudgetCategories(
       name: 'Desideri',
       emoji: '🧳',
       amount: Math.round((monthlyReference * allocation.wants) / 100),
+      percentage: allocation.wants,
       selected: true,
       parentId: 'wants',
       isMacro: true,
@@ -111,11 +156,39 @@ export function createBudgetCategories(
       name: 'Risparmi',
       emoji: '🐷',
       amount: Math.round((monthlyReference * allocation.savings) / 100),
+      percentage: allocation.savings,
       selected: true,
       parentId: 'savings',
       isMacro: true,
     },
   ];
+}
+
+export function materializeBudgetAmounts(
+  items: BudgetCategory[],
+  plannedMonthlyIncome: number,
+) {
+  const macroAmounts = new Map<BudgetGroupKey, number>();
+  for (const item of items) {
+    if (!item.isMacro) continue;
+    const group = item.parentId ?? (item.id as BudgetGroupKey);
+    macroAmounts.set(
+      group,
+      Math.round((plannedMonthlyIncome * item.percentage) / 100),
+    );
+  }
+
+  return items.map((item) => {
+    const parentAmount = macroAmounts.get(
+      item.parentId ?? categoryToBudgetGroup(item.name),
+    ) ?? 0;
+    return {
+      ...item,
+      amount: item.isMacro
+        ? Math.round((plannedMonthlyIncome * item.percentage) / 100)
+        : Math.round((parentAmount * item.percentage) / 100),
+    };
+  });
 }
 
 export function formatDateISO(date: Date) {
@@ -258,24 +331,73 @@ export function summarizeBudgets(items: BudgetCategory[]) {
     return {
       ...group,
       amount: macro?.amount ?? children.reduce((sum, item) => sum + item.amount, 0),
+      percentage: macro?.percentage ?? 0,
       macro,
       children,
     };
   });
 }
 
-const categoryRules: [string, string[]][] = [
-  ['Spesa', ['coop', 'esselunga', 'conad', 'supermercato', 'spesa', 'lidl', 'carrefour']],
-  ['Ristoranti', ['ristorante', 'pizza', 'bar', 'caffè', 'pranzo', 'cena', 'deliveroo']],
-  ['Trasporti', ['benzina', 'q8', 'eni', 'treno', 'metro', 'taxi', 'bus', 'uber']],
-  ['Tempo libero', ['cinema', 'netflix', 'spotify', 'teatro', 'concerto']],
-  ['Shopping', ['amazon', 'zara', 'scarpe', 'vestiti', 'negozio']],
+const categoryRules: [string, RegExp][] = [
+  ['ATM (prelievo contante)', /\b(atm|bancomat|prelievo|cash withdrawal)\b/],
+  [
+    'Cibo e Spesa',
+    /\b(coop|esselunga|conad|lidl|carrefour|aldi|despar|interspar|eurospin|pam|poli|orvea|iper|supermercato|supermarket|alimentari|grocery)\b/,
+  ],
+  [
+    'Bar e ristoranti',
+    /\b(bar|ristorante|ristorazione|pizzeria|pizza|sushi|caffe|caffè|pub|osteria|trattoria|mcdonald|burger king|deliveroo|glovo|just eat)\b/,
+  ],
+  [
+    'Trasporti e Auto',
+    /\b(benzina|carburante|q8|eni|ip|tamoil|esso|treno|trenitalia|italo|metro|taxi|uber|parcheggio|autostrade|telepass|officina|gommista)\b/,
+  ],
+  [
+    'Casa e utenze',
+    /\b(affitto|condominio|utenza|energia|elettricita|elettricità|gas|acqua|enel|a2a|dolomiti energia|eurobrico|leroy merlin|ikea|brico)\b/,
+  ],
+  [
+    'Cure sanitarie e Farmacia',
+    /\b(farmacia|parafarmacia|medico|dentista|sanitario|ospedale|clinica|ottica|fisioterapia|analisi)\b/,
+  ],
+  [
+    'Tasse e Multe',
+    /\b(f24|pagopa|imposta|tassa|tributo|multa|sanzione|agenzia entrate|comune)\b/,
+  ],
+  [
+    'Sottoscrizioni e donazioni',
+    /\b(netflix|spotify|disney|prime video|now tv|abbonamento|subscription|donazione|patreon)\b/,
+  ],
+  [
+    'Tempo libero e intrattenimento',
+    /\b(cinema|teatro|concerto|museo|evento|palestra|sport|ticketone|steam|playstation|xbox)\b/,
+  ],
+  [
+    'Multimedia e Elettronica',
+    /\b(mediaworld|unieuro|euronics|apple store|elettronica|computer|smartphone)\b/,
+  ],
+  [
+    'Educazione',
+    /\b(universita|università|scuola|corso|formazione|udemy|coursera|libreria|libri scolastici)\b/,
+  ],
+  [
+    'Viaggi e Vacanze',
+    /\b(booking|airbnb|hotel|albergo|volo|ryanair|easyjet|aeroporto|vacanza|viaggio)\b/,
+  ],
+  [
+    'Assicurazioni e Finanza',
+    /\b(assicurazione|polizza|commissione|canone conto|interessi|banca|finanziamento)\b/,
+  ],
+  [
+    'Shopping',
+    /\b(amazon|zara|h&m|zalando|abbigliamento|scarpe|negozio|shopping|decathlon)\b/,
+  ],
 ];
 
 export function categorizeExpense(description: string) {
   const normalized = description.toLocaleLowerCase('it');
   return (
-    categoryRules.find(([, keywords]) => keywords.some((keyword) => normalized.includes(keyword)))?.[0] ??
+    categoryRules.find(([, pattern]) => pattern.test(normalized))?.[0] ??
     'Altro'
   );
 }

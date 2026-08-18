@@ -2,7 +2,7 @@ import PagerView, {
   type PagerViewRef,
 } from '@expo/ui/community/pager-view';
 import { router, type Href } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useTransition } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -18,6 +18,7 @@ import { AppHeaderActions } from '@/components/app-header-actions';
 import { SpendingDonutChart } from '@/components/spending-donut-chart';
 import {
   HIDDEN_AMOUNT,
+  type DashboardPeriod,
   formatDueDate,
   isRecentSource,
   transactionsForPeriod,
@@ -33,10 +34,7 @@ import {
   formatEuro,
   summarizeBudgets,
 } from '@/lib/onboarding';
-import {
-  type DashboardPeriod,
-  useApp,
-} from '@/providers/app-provider';
+import { useApp } from '@/providers/app-provider';
 
 const periodLabels: { id: DashboardPeriod; label: string }[] = [
   { id: 'week', label: 'Settimana' },
@@ -49,7 +47,7 @@ function sensitiveEuro(value: number, visible: boolean) {
 }
 
 export default function DashboardScreen() {
-  const { colors } = useFlowndTheme();
+  const { colors, isDark } = useFlowndTheme();
   const {
     draft,
     transactions,
@@ -58,24 +56,25 @@ export default function DashboardScreen() {
     upcomingPayments,
     coachInsight,
     amountsVisible,
-    dashboardPeriod,
     budgetCycleStartDay,
     budgetRolloverMode,
+    budgetMonthlyIncome,
     firstDashboardVisit,
     dismissFirstVisit,
     toggleAmountsVisible,
-    setDashboardPeriod,
   } = useApp();
   const overviewPager = useRef<PagerViewRef>(null);
   const [overviewPage, setOverviewPage] = useState(0);
+  const [selectedPeriod, setSelectedPeriod] =
+    useState<DashboardPeriod>('month');
+  const [chartPeriod, setChartPeriod] = useState<DashboardPeriod>('month');
+  const [periodPending, startPeriodTransition] = useTransition();
+  const overviewForeground = isDark ? colors.background : colors.onAccent;
+  const overviewSecondaryForeground = overviewForeground;
 
   const selectedBudgets = draft.budgets.filter((item) => item.selected);
   const budgetSummary = summarizeBudgets(selectedBudgets).filter(
     (item) => item.amount > 0,
-  );
-  const allocationReferenceTotal = budgetSummary.reduce(
-    (sum, item) => sum + item.amount,
-    0,
   );
   const financialCycle = financialCycleForDate(
     new Date(),
@@ -93,9 +92,6 @@ export default function DashboardScreen() {
   const monthlyTransactions = currentMonthTransactions.filter(
     (transaction) => transaction.kind !== 'income',
   );
-  const monthlyIncome = currentMonthTransactions
-    .filter((transaction) => transaction.kind === 'income')
-    .reduce((sum, transaction) => sum + transaction.amount, 0);
   const previousIncome = previousCycleTransactions
     .filter((transaction) => transaction.kind === 'income')
     .reduce((sum, transaction) => sum + transaction.amount, 0);
@@ -106,13 +102,14 @@ export default function DashboardScreen() {
     budgetRolloverMode === 'reset'
       ? 0
       : Math.max(0, previousIncome - previousSpent);
-  const monthlyBudget = monthlyIncome + rolloverAmount;
-  const chartTransactions = transactionsForPeriod(
-    transactions,
-    dashboardPeriod,
-  ).filter(
-    (transaction) =>
-      transaction.kind !== 'income' && !transaction.excludedFromTotals,
+  const monthlyBudget = budgetMonthlyIncome + rolloverAmount;
+  const chartTransactions = useMemo(
+    () =>
+      transactionsForPeriod(transactions, chartPeriod).filter(
+        (transaction) =>
+          transaction.kind !== 'income' && !transaction.excludedFromTotals,
+      ),
+    [chartPeriod, transactions],
   );
   const monthlySpent = monthlyTransactions.reduce(
     (sum, transaction) => sum + transaction.amount,
@@ -128,11 +125,9 @@ export default function DashboardScreen() {
     { needs: 0, wants: 0, savings: 0 },
   );
   const budgetRows = budgetSummary.map((budget) => {
-    const allocationShare = allocationReferenceTotal
-      ? budget.amount / allocationReferenceTotal
-      : 1 / Math.max(1, budgetSummary.length);
+    const allocationShare = budget.percentage / 100;
     const effectiveAmount =
-      monthlyIncome * allocationShare +
+      budgetMonthlyIncome * allocationShare +
       (budgetRolloverMode === 'carry'
         ? rolloverAmount * allocationShare
         : budgetRolloverMode === 'savings' && budget.id === 'savings'
@@ -226,7 +221,7 @@ export default function DashboardScreen() {
         style={[
           styles.overviewCard,
           {
-            backgroundColor: colors.accentSoft,
+            backgroundColor: colors.accent,
             borderColor: colors.accent,
           },
         ]}>
@@ -239,22 +234,28 @@ export default function DashboardScreen() {
           style={styles.overviewPager}>
           <View key="budget" style={styles.overviewPage}>
             <Pressable
-              accessibilityHint="Apre le impostazioni del ciclo e del residuo"
-              accessibilityLabel="Impostazioni del mese finanziario"
+              accessibilityHint="Apre la distribuzione tra macro-categorie e categorie"
+              accessibilityLabel="Modifica l’allocazione del budget"
               accessibilityRole="button"
-              onPress={() => router.push('/budget-cycle' as Href)}
+              onPress={() => router.push('/budget' as Href)}
               style={({ pressed }) => [
                 styles.budgetPageButton,
                 pressed && styles.iconPressed,
               ]}>
               <View style={styles.overviewLabelRow}>
                 <Text
-                  style={[styles.overviewLabel, { color: colors.textSecondary }]}> 
+                  style={[
+                    styles.overviewLabel,
+                    { color: overviewSecondaryForeground, opacity: 0.82 },
+                  ]}>
                   BUDGET · {formatFinancialCycle(financialCycle).toLocaleUpperCase('it-IT')}
                 </Text>
                 <Text
                   accessibilityElementsHidden
-                  style={[styles.budgetSettingsIcon, { color: colors.textSecondary }]}> 
+                  style={[
+                    styles.budgetSettingsIcon,
+                    { color: overviewSecondaryForeground, opacity: 0.82 },
+                  ]}>
                   tune
                 </Text>
               </View>
@@ -264,12 +265,15 @@ export default function DashboardScreen() {
                     ? `${formatEuro(monthlyRemaining)} su ${formatEuro(monthlyBudget)}`
                     : 'Importi nascosti'
                 }
-                style={[styles.primaryAmount, { color: colors.text }]}> 
+                style={[styles.primaryAmount, { color: overviewForeground }]}>
                 {amountsVisible ? (
                   <>
                     {formatEuro(monthlyRemaining)}
                     <Text
-                      style={[styles.totalAmount, { color: colors.textSecondary }]}> 
+                      style={[
+                        styles.totalAmount,
+                        { color: overviewSecondaryForeground, opacity: 0.82 },
+                      ]}>
                       {' '} su {formatEuro(monthlyBudget)}
                     </Text>
                   </>
@@ -280,12 +284,26 @@ export default function DashboardScreen() {
               <View style={styles.budgetSummary}>
                 {budgetRows.map((budget) => (
                   <View key={budget.id} style={styles.budgetSummaryItem}>
+                    <View style={styles.budgetSummaryNameRow}>
+                      <Text
+                        accessibilityElementsHidden
+                        style={[
+                          styles.budgetSummaryIcon,
+                          { color: overviewSecondaryForeground, opacity: 0.82 },
+                        ]}>
+                        {budget.icon}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.budgetSummaryName,
+                          { color: overviewSecondaryForeground, opacity: 0.82 },
+                        ]}>
+                        {budget.name}
+                      </Text>
+                    </View>
                     <Text
-                      numberOfLines={1}
-                      style={[styles.budgetSummaryName, { color: colors.textSecondary }]}> 
-                      {budget.name}
-                    </Text>
-                    <Text style={[styles.budgetSummaryValue, { color: colors.text }]}> 
+                      style={[styles.budgetSummaryValue, { color: overviewForeground }]}>
                       {sensitiveEuro(
                         Math.max(0, budget.amount - budget.spent),
                         amountsVisible,
@@ -298,10 +316,14 @@ export default function DashboardScreen() {
           </View>
 
           <View key="net-worth" style={styles.overviewPage}>
-            <Text style={[styles.overviewLabel, { color: colors.textSecondary }]}>
+            <Text
+              style={[
+                styles.overviewLabel,
+                { color: overviewSecondaryForeground, opacity: 0.82 },
+              ]}>
               PATRIMONIO AGGREGATO
             </Text>
-            <Text style={[styles.primaryAmount, { color: colors.text }]}>
+            <Text style={[styles.primaryAmount, { color: overviewForeground }]}>
               {financialAccounts.length
                 ? sensitiveEuro(aggregatedNetWorth, amountsVisible)
                 : 'Non disponibile'}
@@ -310,17 +332,18 @@ export default function DashboardScreen() {
               <Text
                 style={[
                   styles.delta,
-                  {
-                    color:
-                      netWorthDelta >= 0 ? colors.positive : colors.negative,
-                  },
+                  { color: overviewForeground },
                 ]}>
                 {amountsVisible
                   ? `${netWorthDelta >= 0 ? '+' : '−'} ${formatEuro(Math.abs(netWorthDelta))} rispetto al mese scorso`
                   : `${HIDDEN_AMOUNT} rispetto al mese scorso`}
               </Text>
             ) : (
-              <Text style={[styles.overviewHint, { color: colors.textSecondary }]}>
+              <Text
+                style={[
+                  styles.overviewHint,
+                  { color: overviewSecondaryForeground, opacity: 0.82 },
+                ]}>
                 {financialAccounts.length
                   ? 'Saldi bancari aggregati'
                   : 'Collega un conto o aggiungi un saldo manuale.'}
@@ -342,15 +365,17 @@ export default function DashboardScreen() {
                 onPress={() => overviewPager.current?.setPage(index)}
                 style={[
                   styles.pageDotHit,
-                  selected && { backgroundColor: colors.accentSoft },
+                  selected && {
+                    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+                  },
                 ]}>
                 <View
                   style={[
                     styles.pageDot,
                     {
                       backgroundColor: selected
-                        ? colors.accent
-                        : colors.border,
+                        ? colors.onAccent
+                        : 'rgba(255, 255, 255, 0.45)',
                     },
                   ]}
                 />
@@ -394,14 +419,17 @@ export default function DashboardScreen() {
         </Text>
         <View style={[styles.periodControl, { backgroundColor: colors.sunken }]}>
           {periodLabels.map((period) => {
-            const selected = dashboardPeriod === period.id;
+            const selected = selectedPeriod === period.id;
             return (
               <Pressable
                 key={period.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
                 hitSlop={4}
-                onPress={() => setDashboardPeriod(period.id)}
+                onPress={() => {
+                  setSelectedPeriod(period.id);
+                  startPeriodTransition(() => setChartPeriod(period.id));
+                }}
                 style={[
                   styles.periodButton,
                   selected && { backgroundColor: colors.surface },
@@ -419,26 +447,28 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <Card style={styles.chartCard}>
-        {chartCategoryCount >= 2 ? (
-          <SpendingDonutChart
-            amountsVisible={amountsVisible}
-            transactions={chartTransactions}
-          />
-        ) : (
-          <View style={styles.guidedState}>
-            <Text style={[styles.guidedIcon, { color: colors.accent }]}>
-              donut_small
-            </Text>
-            <Text style={[styles.guidedTitle, { color: colors.text }]}>
-              La distribuzione si compone con le tue spese.
-            </Text>
-            <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
-              Servono movimenti in almeno due categorie per mostrare un confronto utile.
-            </Text>
-          </View>
-        )}
-      </Card>
+      <View accessibilityState={{ busy: periodPending }}>
+        <Card style={styles.chartCard}>
+          {chartCategoryCount >= 2 ? (
+            <SpendingDonutChart
+              amountsVisible={amountsVisible}
+              transactions={chartTransactions}
+            />
+          ) : (
+            <View style={styles.guidedState}>
+              <Text style={[styles.guidedIcon, { color: colors.accent }]}>
+                donut_small
+              </Text>
+              <Text style={[styles.guidedTitle, { color: colors.text }]}>
+                La distribuzione si compone con le tue spese.
+              </Text>
+              <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
+                Servono movimenti in almeno due categorie per mostrare un confronto utile.
+              </Text>
+            </View>
+          )}
+        </Card>
+      </View>
 
       {coachInsight ? (
         <Card style={[styles.contentCard, { backgroundColor: colors.accentSoft }]}>
@@ -628,7 +658,17 @@ const styles = StyleSheet.create({
   delta: { fontFamily: font.dataMedium, fontSize: 11, lineHeight: 16, marginTop: 18 },
   budgetSummary: { flexDirection: 'row', gap: 5, marginTop: 18 },
   budgetSummaryItem: { flex: 1 },
-  budgetSummaryName: { fontFamily: font.bodyMedium, fontSize: 9 },
+  budgetSummaryNameRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  budgetSummaryIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 12,
+    lineHeight: 14,
+  },
+  budgetSummaryName: {
+    flexShrink: 1,
+    fontFamily: font.bodyMedium,
+    fontSize: 9,
+  },
   budgetSummaryValue: {
     fontFamily: font.dataMedium,
     fontSize: 10,

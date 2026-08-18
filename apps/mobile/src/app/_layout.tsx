@@ -74,6 +74,9 @@ function RootNavigation() {
           <Stack.Screen name="add-goal-contribution" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="add-loan" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="budget-cycle" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="budget-income" />
+          <Stack.Screen name="budget-allocation" />
+          <Stack.Screen name="budget-subcategory" />
           <Stack.Screen name="connect-bank" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="bank-connection" />
           <Stack.Screen name="goal-settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />

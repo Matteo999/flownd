@@ -1,6 +1,17 @@
 {
   "buildCommand": "npm run build:web",
   "outputDirectory": "apps/web/dist",
+  "functions": {
+    "api/eb/auto-sync.js": {
+      "maxDuration": 300
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/eb/auto-sync",
+      "schedule": "*/15 * * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }

@@ -34,6 +34,10 @@ function transactionKey(transaction) {
     ])
 }
 
+export function shouldRetryEnableBankingStatus(status) {
+  return [408, 500, 502, 503, 504].includes(Number(status))
+}
+
 export async function enableBankingRequest(path, options = {}) {
   let response
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -47,7 +51,9 @@ export async function enableBankingRequest(path, options = {}) {
         ...options.headers,
       },
     })
-    if (![408, 429, 500, 502, 503, 504].includes(response.status) || attempt === 2) {
+    // I 429 degli ASPSP richiedono in genere di attendere il prossimo slot
+    // background; ritentare dopo pochi millisecondi consuma soltanto altre chiamate.
+    if (!shouldRetryEnableBankingStatus(response.status) || attempt === 2) {
       break
     }
     await response.arrayBuffer()
@@ -68,6 +74,7 @@ export async function enableBankingRequest(path, options = {}) {
       'ENABLE_BANKING_PROVIDER_ERROR',
     )
     error.providerStatus = response.status
+    error.retryAfter = response.headers.get('retry-after') || null
     error.publicMessage =
       `Enable Banking non ha completato la richiesta (codice ${response.status}).`
     throw error

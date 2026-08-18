@@ -20,7 +20,13 @@ export const expenseTransactionCategories = [
   'Viaggi e Vacanze',
 ] as const;
 
-export const incomeTransactionCategories = ['Entrata', 'Stipendio'] as const;
+export const incomeTransactionCategories = [
+  'Stipendio',
+  'Tredicesima',
+  'Altra entrata',
+  'Rimborso spese',
+  'Giroconto',
+] as const;
 
 export const transactionCategories = [
   ...expenseTransactionCategories,
@@ -31,6 +37,16 @@ export function categoriesForTransactionKind(kind: 'expense' | 'income') {
   return kind === 'income'
     ? incomeTransactionCategories
     : expenseTransactionCategories;
+}
+
+export function normalizeTransactionDescription(description: string) {
+  return description
+    .trim()
+    .toLocaleLowerCase('it')
+    .replace(/[0-9]{4,}/g, ' ')
+    .replace(/[-_/.,*]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 const legacyCategoryMap: Record<string, (typeof expenseTransactionCategories)[number]> = {
@@ -48,9 +64,16 @@ export function suggestTransactionCategory(
   description: string,
   kind: 'expense' | 'income',
 ) {
-  if (kind === 'income') return 'Entrata';
-  const legacyCategory = categorizeExpense(description);
-  return legacyCategoryMap[legacyCategory] ?? 'Altro';
+  if (kind === 'income') return 'Altra entrata';
+  const suggestedCategory = categorizeExpense(description);
+  if (
+    expenseTransactionCategories.some(
+      (option) => option === suggestedCategory,
+    )
+  ) {
+    return suggestedCategory as (typeof expenseTransactionCategories)[number];
+  }
+  return legacyCategoryMap[suggestedCategory] ?? 'Altro';
 }
 
 export function normalizeTransactionCategory(
@@ -59,10 +82,28 @@ export function normalizeTransactionCategory(
 ) {
   const trimmed = category.trim();
   if (kind === 'income') {
-    return trimmed === 'Stipendio' ? 'Stipendio' : 'Entrata';
+    if (incomeTransactionCategories.some((option) => option === trimmed)) {
+      return trimmed;
+    }
+    return 'Altra entrata';
   }
   if (expenseTransactionCategories.some((option) => option === trimmed)) {
     return trimmed;
   }
   return legacyCategoryMap[trimmed] ?? 'Altro';
+}
+
+export function incomeTreatmentForCategory(category: string) {
+  switch (category) {
+    case 'Stipendio':
+      return { incomeType: 'salary' as const, excludedFromBudget: false };
+    case 'Tredicesima':
+      return { incomeType: 'extra_salary' as const, excludedFromBudget: true };
+    case 'Rimborso spese':
+      return { incomeType: 'reimbursement' as const, excludedFromBudget: true };
+    case 'Giroconto':
+      return { incomeType: 'internal_transfer' as const, excludedFromBudget: true };
+    default:
+      return { incomeType: 'other_income' as const, excludedFromBudget: false };
+  }
 }

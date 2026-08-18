@@ -162,6 +162,12 @@ export default function AddTransactionScreen() {
             </View>
           ) : null}
         </View>
+        {kind === 'income' ? (
+          <Text style={[styles.categoryHint, { color: colors.textSecondary }]}>
+            Tredicesima, rimborsi e giroconti restano visibili ma non aumentano
+            il budget mensile.
+          </Text>
+        ) : null}
         {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
         <PrimaryButton
           disabled={!description.trim() || numericAmount <= 0}
@@ -239,6 +245,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   categoryOptionText: { flex: 1, fontFamily: font.body, fontSize: 12 },
+  categoryHint: {
+    fontFamily: font.body,
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 8,
+  },
   optionCheck: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 18,
