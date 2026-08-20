@@ -32,6 +32,16 @@ reindirizzano a quella pagina. In sviluppo locale restano disponibili automatica
 per abilitarle in un deployment privato, imposta `VITE_ENABLE_INTERNAL_ROUTES=true`.
 Le funzioni serverless sotto `/api/eb/*` restano invariate per il flusso Enable Banking.
 
+## Sincronizzazione bancaria automatica
+
+Il cron di produzione controlla ogni 15 minuti le connessioni bancarie e avvia
+solo quelle la cui ultima sincronizzazione risale ad almeno 6 ore prima. In
+Vercel configura `CRON_SECRET` per l'ambiente Production usando una stringa
+casuale, per esempio generata con `openssl rand -hex 32`. Inserisci soltanto il
+valore prodotto, senza il prefisso `Bearer`: Vercel aggiunge automaticamente
+l'header di autorizzazione alle richieste del cron. Dopo aver modificato la
+variabile esegui un nuovo deployment perché la configurazione diventi attiva.
+
 ## Test locale del Money Coach su mobile
 
 Il modello AI viene chiamato soltanto dalla funzione backend `api/coach.js`: non

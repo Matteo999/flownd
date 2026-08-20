@@ -1,4 +1,5 @@
 import { categorizeExpense } from '@/lib/onboarding';
+import type { ExpenseDraft } from '@/lib/onboarding';
 
 export const expenseTransactionCategories = [
   'ATM (prelievo contante)',
@@ -64,7 +65,16 @@ export function suggestTransactionCategory(
   description: string,
   kind: 'expense' | 'income',
 ) {
-  if (kind === 'income') return 'Altra entrata';
+  if (kind === 'income') {
+    const normalized = normalizeTransactionDescription(description);
+    if (/\b(tredicesima|13ma|13esima)\b/.test(normalized)) return 'Tredicesima';
+    if (/\b(rimborso|storno|refund)\b/.test(normalized)) return 'Rimborso spese';
+    if (/\b(giroconto|trasferimento|transfer)\b/.test(normalized)) return 'Giroconto';
+    if (/\b(stipendio|salary|retribuzione|emolumento)\b/.test(normalized)) {
+      return 'Stipendio';
+    }
+    return 'Altra entrata';
+  }
   const suggestedCategory = categorizeExpense(description);
   if (
     expenseTransactionCategories.some(
@@ -74,6 +84,58 @@ export function suggestTransactionCategory(
     return suggestedCategory as (typeof expenseTransactionCategories)[number];
   }
   return legacyCategoryMap[suggestedCategory] ?? 'Altro';
+}
+
+export function suggestPersonalizedTransactionCategory(
+  description: string,
+  kind: 'expense' | 'income',
+  transactions: ExpenseDraft[],
+) {
+  const fallback = suggestTransactionCategory(description, kind);
+  const descriptionKey = normalizeTransactionDescription(description);
+  if (descriptionKey.length < 3) return fallback;
+
+  const allowedCategories = new Set<string>(categoriesForTransactionKind(kind));
+  const inputTokens = new Set(descriptionKey.split(' ').filter(Boolean));
+  const categoryScores = new Map<string, { score: number; matches: number }>();
+
+  for (const transaction of transactions) {
+    if ((transaction.kind ?? 'expense') !== kind) continue;
+    if (!allowedCategories.has(transaction.category)) continue;
+    const candidateKey = normalizeTransactionDescription(transaction.description);
+    if (!candidateKey) continue;
+
+    let score = 0;
+    if (candidateKey === descriptionKey) score = 1;
+    else if (
+      candidateKey.startsWith(descriptionKey) ||
+      descriptionKey.startsWith(candidateKey)
+    ) score = 0.9;
+    else {
+      const candidateTokens = new Set(candidateKey.split(' ').filter(Boolean));
+      const overlap = [...inputTokens].filter((token) =>
+        [...candidateTokens].some(
+          (candidate) => candidate.startsWith(token) || token.startsWith(candidate),
+        ),
+      ).length;
+      score = overlap / Math.max(inputTokens.size, candidateTokens.size);
+    }
+    if (score < 0.5) continue;
+
+    const current = categoryScores.get(transaction.category);
+    categoryScores.set(transaction.category, {
+      score: Math.max(current?.score ?? 0, score),
+      matches: (current?.matches ?? 0) + 1,
+    });
+  }
+
+  const learned = [...categoryScores.entries()]
+    .map(([category, value]) => ({
+      category,
+      score: value.score + Math.min(0.08, value.matches * 0.01),
+    }))
+    .sort((first, second) => second.score - first.score)[0];
+  return learned?.category ?? fallback;
 }
 
 export function normalizeTransactionCategory(

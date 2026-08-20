@@ -70,6 +70,8 @@ function RootNavigation() {
           <Stack.Screen name="register" />
           <Stack.Screen name="auth/callback" />
           <Stack.Screen name="add-transaction" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="timeline-filters" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="add-manual-account" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="add-goal" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="add-goal-contribution" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="add-loan" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
@@ -79,6 +81,7 @@ function RootNavigation() {
           <Stack.Screen name="budget-subcategory" />
           <Stack.Screen name="connect-bank" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="bank-connection" />
+          <Stack.Screen name="manual-account" />
           <Stack.Screen name="goal-settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="goal-detail" />
           <Stack.Screen name="financing" />

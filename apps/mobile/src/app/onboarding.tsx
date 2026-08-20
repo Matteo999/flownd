@@ -1,13 +1,10 @@
-import { DateTimePicker } from '@expo/ui/community/datetime-picker';
 import { Slider } from '@expo/ui/community/slider';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { Redirect, router, Stack, type Href, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { SymbolView } from 'expo-symbols';
 import { PropsWithChildren, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -16,6 +13,7 @@ import {
 } from 'react-native';
 
 import { BrandLogo } from '@/components/brand-logo';
+import { GoalDateField } from '@/components/goal-date-field';
 import {
   Card,
   Field,
@@ -32,13 +30,9 @@ import {
   BudgetAllocation,
   categorizeExpense,
   createBudgetCategories,
-  defaultGoalDeadline,
-  formatDateISO,
-  formatDateItalian,
   formatEuro,
   incomeBands,
   monthsUntil,
-  parseDraftDate,
 } from '@/lib/onboarding';
 import { useApp } from '@/providers/app-provider';
 
@@ -730,103 +724,6 @@ function GlassBudgetCard({ children }: PropsWithChildren) {
   );
 }
 
-function GoalDateField({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const { colors, isDark } = useFlowndTheme();
-  const [showPicker, setShowPicker] = useState(false);
-  const selectedDate =
-    parseDraftDate(value) ??
-    parseDraftDate(defaultGoalDeadline()) ??
-    new Date();
-
-  return (
-    <View style={styles.dateFieldWrap}>
-      <Text style={[styles.dateLabel, { color: colors.text }]}>Scadenza</Text>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Scadenza ${formatDateItalian(formatDateISO(selectedDate))}`}
-        onPress={() => setShowPicker(true)}
-        style={({ pressed }) => [
-          styles.dateField,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-          pressed && styles.pressed,
-        ]}>
-        <Text style={[styles.dateValue, { color: colors.text }]}>
-          {formatDateItalian(formatDateISO(selectedDate))}
-        </Text>
-        <SymbolView
-          name={{ ios: 'calendar', android: 'calendar_month', web: 'calendar_month' }}
-          size={19}
-          tintColor={colors.accent}
-        />
-      </Pressable>
-      {showPicker && Platform.OS === 'android' ? (
-        <DateTimePicker
-          value={selectedDate}
-          mode="date"
-          display="default"
-          presentation="dialog"
-          minimumDate={new Date()}
-          accentColor={colors.accent}
-          positiveButton={{ label: 'Conferma' }}
-          negativeButton={{ label: 'Annulla' }}
-          onValueChange={(_event, date) => {
-            onChange(formatDateISO(date));
-            setShowPicker(false);
-          }}
-          onDismiss={() => setShowPicker(false)}
-        />
-      ) : null}
-      {Platform.OS === 'ios' ? (
-        <Modal
-          visible={showPicker}
-          transparent
-          animationType="fade"
-          presentationStyle="overFullScreen"
-          onRequestClose={() => setShowPicker(false)}>
-          <View style={styles.dateModalOverlay}>
-            <View
-              style={[
-                styles.dateModalCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}>
-              <View style={styles.dateModalHeader}>
-                <Text style={[styles.dateModalTitle, { color: colors.text }]}>
-                  Scegli la scadenza
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setShowPicker(false)}
-                  style={styles.dateModalDone}>
-                  <Text style={[styles.dateModalDoneText, { color: colors.accent }]}>
-                    Fatto
-                  </Text>
-                </Pressable>
-              </View>
-              <DateTimePicker
-                value={selectedDate}
-                mode="date"
-                display="inline"
-                locale="it_IT"
-                minimumDate={new Date()}
-                accentColor={colors.accent}
-                themeVariant={isDark ? 'dark' : 'light'}
-                onValueChange={(_event, date) => onChange(formatDateISO(date))}
-                style={styles.inlineDatePicker}
-              />
-            </View>
-          </View>
-        </Modal>
-      ) : null}
-    </View>
-  );
-}
-
 function SummaryRow({
   icon,
   label,
@@ -963,38 +860,6 @@ const styles = StyleSheet.create({
   sliderValue: { fontFamily: font.dataMedium, fontSize: 17 },
   nativeSliderTouchArea: { marginTop: 7, marginHorizontal: -3 },
   nativeSlider: { width: '100%', height: 34 },
-  dateFieldWrap: { marginTop: 16 },
-  dateLabel: { fontFamily: font.bodyMedium, fontSize: 13, marginBottom: 7 },
-  dateField: {
-    minHeight: 52,
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-  },
-  dateValue: { flex: 1, fontFamily: font.data, fontSize: 15 },
-  dateModalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    backgroundColor: 'rgba(5, 14, 10, 0.48)',
-  },
-  dateModalCard: {
-    borderRadius: 24,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
-  },
-  dateModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  dateModalTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
-  dateModalDone: { paddingHorizontal: 8, paddingVertical: 7 },
-  dateModalDoneText: { fontFamily: font.bodySemiBold, fontSize: 14 },
-  inlineDatePicker: { width: '100%', minHeight: 330 },
   sustainabilityCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',

@@ -44,6 +44,12 @@ function dateKey(date: Date) {
   ].join('-');
 }
 
+function calendarDayNumber(date: Date) {
+  return Math.floor(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000,
+  );
+}
+
 function addToBin(bin: TimelineBin, transaction: ExpenseDraft) {
   if (transaction.excludedFromTotals) return;
   if (transaction.kind === 'income') {
@@ -132,6 +138,90 @@ export function buildTimelineBins(
   transactions.forEach((transaction) => {
     const date = transactionDate(transaction);
     const bin = bins[date.getMonth()];
+    if (bin) addToBin(bin, transaction);
+  });
+  return bins;
+}
+
+export function buildTimelineRangeBins(
+  transactions: ExpenseDraft[],
+  rangeStart: Date,
+  rangeEnd: Date,
+) {
+  const start = startOfDay(rangeStart);
+  const end = startOfDay(rangeEnd);
+  const dayCount = Math.max(
+    1,
+    calendarDayNumber(end) - calendarDayNumber(start) + 1,
+  );
+
+  if (dayCount <= 14) {
+    const bins = Array.from({ length: dayCount }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      return {
+        key: dateKey(date),
+        label: new Intl.DateTimeFormat('it-IT', {
+          day: 'numeric',
+          month: 'short',
+        }).format(date),
+        income: 0,
+        expense: 0,
+      };
+    });
+    const byKey = new Map(bins.map((bin) => [bin.key, bin]));
+    transactions.forEach((transaction) => {
+      const bin = byKey.get(dateKey(transactionDate(transaction)));
+      if (bin) addToBin(bin, transaction);
+    });
+    return bins;
+  }
+
+  if (dayCount <= 90) {
+    const binCount = Math.ceil(dayCount / 7);
+    const bins = Array.from({ length: binCount }, (_, index) => {
+      const binStart = new Date(start);
+      binStart.setDate(start.getDate() + index * 7);
+      return {
+        key: `range-week-${index}`,
+        label: new Intl.DateTimeFormat('it-IT', {
+          day: 'numeric',
+          month: 'short',
+        }).format(binStart),
+        income: 0,
+        expense: 0,
+      };
+    });
+    transactions.forEach((transaction) => {
+      const date = startOfDay(transactionDate(transaction));
+      const index = Math.floor(
+        (calendarDayNumber(date) - calendarDayNumber(start)) / 7,
+      );
+      const bin = bins[index];
+      if (bin) addToBin(bin, transaction);
+    });
+    return bins;
+  }
+
+  const monthStarts: Date[] = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  while (cursor <= end) {
+    monthStarts.push(new Date(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  const bins = monthStarts.map((date) => ({
+    key: `${date.getFullYear()}-${date.getMonth()}`,
+    label: new Intl.DateTimeFormat('it-IT', {
+      month: 'short',
+      year: monthStarts.length > 12 ? '2-digit' : undefined,
+    }).format(date),
+    income: 0,
+    expense: 0,
+  }));
+  const byKey = new Map(bins.map((bin) => [bin.key, bin]));
+  transactions.forEach((transaction) => {
+    const date = transactionDate(transaction);
+    const bin = byKey.get(`${date.getFullYear()}-${date.getMonth()}`);
     if (bin) addToBin(bin, transaction);
   });
   return bins;

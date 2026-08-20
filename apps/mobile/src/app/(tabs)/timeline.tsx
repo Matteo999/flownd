@@ -1,10 +1,10 @@
-import { router, useLocalSearchParams, type Href } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
 import {
   memo,
   useCallback,
   useMemo,
+  useRef,
   useState,
-  useTransition,
 } from 'react';
 import {
   Animated,
@@ -14,11 +14,16 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import {
+  initialWindowMetrics,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
 import {
   Card,
@@ -45,6 +50,7 @@ import {
 } from '@/lib/transaction-categories';
 import {
   buildTimelineBins,
+  buildTimelineRangeBins,
   groupTimelineTransactions,
   summarizeTransactions,
   type TimelineGroup,
@@ -89,6 +95,21 @@ function isCurrentTimelinePeriod(date: Date, period: DashboardPeriod) {
     periodStart(new Date(), period).getTime();
 }
 
+function anchorForTimelinePeriod(date: Date, period: DashboardPeriod) {
+  const now = new Date();
+  if (isCurrentTimelinePeriod(date, period)) return now;
+  if (period === 'week') {
+    const end = periodStart(date, 'week');
+    end.setDate(end.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return end;
+  }
+  if (period === 'month') {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+  }
+  return new Date(date.getFullYear(), 11, 31, 23, 59, 59, 999);
+}
+
 function shiftTimelinePeriod(
   date: Date,
   period: DashboardPeriod,
@@ -131,15 +152,51 @@ function formatPeriodAnchor(date: Date, period: DashboardPeriod) {
   return `${formatter.format(start)} – ${formatter.format(end)}`;
 }
 
+function calendarDayNumber(date: Date) {
+  return Math.floor(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000,
+  );
+}
+
+function customRangeDayCount(range: { start: Date; end: Date }) {
+  return Math.max(
+    1,
+    calendarDayNumber(range.end) - calendarDayNumber(range.start) + 1,
+  );
+}
+
+function formatCustomDateRange(range: { start: Date; end: Date }) {
+  const startFormatter = new Intl.DateTimeFormat('it-IT', {
+    day: 'numeric',
+    month: 'short',
+    year:
+      range.start.getFullYear() === range.end.getFullYear()
+        ? undefined
+        : 'numeric',
+  });
+  const endFormatter = new Intl.DateTimeFormat('it-IT', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  return `${startFormatter.format(range.start)} – ${endFormatter.format(range.end)}`;
+}
+
 export default function TimelineScreen() {
   const { colors } = useFlowndTheme();
   const params = useLocalSearchParams<{
     category?: string | string[];
     period?: string | string[];
+    filterToken?: string | string[];
+    filterQuery?: string | string[];
+    filterCategories?: string | string[];
+    filterStart?: string | string[];
+    filterEnd?: string | string[];
   }>();
   const {
     transactions,
     amountsVisible,
+    planTier,
     categorizeTransactions,
     updateTransaction,
     deleteTransaction,
@@ -154,8 +211,14 @@ export default function TimelineScreen() {
     ? params.period[0]
     : params.period;
   const initialPeriod = dashboardPeriod(requestedPeriod) ?? 'month';
-  const [filtersOpen, setFiltersOpen] = useState(Boolean(paramCategory));
   const [query, setQuery] = useState('');
+  const [categoryFilters, setCategoryFilters] = useState<string[]>(
+    paramCategory ? [paramCategory] : [],
+  );
+  const [customDateRange, setCustomDateRange] = useState<{
+    start: Date;
+    end: Date;
+  } | null>(null);
   const [editingTransaction, setEditingTransaction] =
     useState<ExpenseDraft | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -165,42 +228,126 @@ export default function TimelineScreen() {
   const [bulkCategoryVisible, setBulkCategoryVisible] = useState(false);
   const [selectedPeriod, setSelectedPeriod] =
     useState<DashboardPeriod>(initialPeriod);
-  const [contentPeriod, setContentPeriod] =
-    useState<DashboardPeriod>(initialPeriod);
   const [periodAnchor, setPeriodAnchor] = useState(() => new Date());
-  const [periodPending, startPeriodTransition] = useTransition();
+  const [timelineRevision, setTimelineRevision] = useState(0);
 
-  const selectPeriod = useCallback(
-    (period: DashboardPeriod) => {
-      setSelectedPeriod(period);
-      setPeriodAnchor(new Date());
-      startPeriodTransition(() => setContentPeriod(period));
-    },
-    [startPeriodTransition],
+  useFocusEffect(
+    useCallback(() => {
+      // Le tab native possono rimanere congelate mentre il form è sopra lo stack.
+      // Una revisione al focus forza SectionList a ricevere subito i nuovi dati.
+      setTimelineRevision((current) => current + 1);
+    }, []),
   );
+
+  const appliedFilterToken = Array.isArray(params.filterToken)
+    ? params.filterToken[0]
+    : params.filterToken;
+  const appliedFilterTokenRef = useRef<string | undefined>(undefined);
+  const appliedFilterQuery = Array.isArray(params.filterQuery)
+    ? params.filterQuery[0]
+    : params.filterQuery;
+  const appliedFilterCategories = Array.isArray(params.filterCategories)
+    ? params.filterCategories[0]
+    : params.filterCategories;
+  const appliedFilterStart = Array.isArray(params.filterStart)
+    ? params.filterStart[0]
+    : params.filterStart;
+  const appliedFilterEnd = Array.isArray(params.filterEnd)
+    ? params.filterEnd[0]
+    : params.filterEnd;
+  useFocusEffect(
+    useCallback(() => {
+      if (
+        !appliedFilterToken ||
+        appliedFilterTokenRef.current === appliedFilterToken
+      ) return;
+      appliedFilterTokenRef.current = appliedFilterToken;
+      setQuery(appliedFilterQuery ?? '');
+      try {
+        const parsed = JSON.parse(appliedFilterCategories ?? '[]');
+        setCategoryFilters(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        setCategoryFilters([]);
+      }
+      if (appliedFilterStart && appliedFilterEnd) {
+        const start = new Date(appliedFilterStart);
+        const end = new Date(appliedFilterEnd);
+        setCustomDateRange(
+          Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())
+            ? null
+            : { start, end },
+        );
+      } else {
+        setCustomDateRange(null);
+      }
+      router.setParams({ category: undefined });
+    }, [
+      appliedFilterCategories,
+      appliedFilterEnd,
+      appliedFilterQuery,
+      appliedFilterStart,
+      appliedFilterToken,
+    ]),
+  );
+
+  function openFiltersScreen() {
+    const fallbackStart = periodStart(periodAnchor, selectedPeriod);
+    const fallbackEnd = new Date(periodAnchor);
+    router.push({
+      pathname: '/timeline-filters',
+      params: {
+        query,
+        categories: JSON.stringify(categoryFilters),
+        start: customDateRange?.start.toISOString() ?? '',
+        end: customDateRange?.end.toISOString() ?? '',
+        fallbackStart: fallbackStart.toISOString(),
+        fallbackEnd: fallbackEnd.toISOString(),
+      },
+    } as Href);
+  }
+
+  function selectPeriod(period: DashboardPeriod) {
+    setSelectedPeriod(period);
+    setPeriodAnchor((current) => anchorForTimelinePeriod(current, period));
+  }
 
   const periodLabel = useMemo(
-    () => formatPeriodAnchor(periodAnchor, contentPeriod),
-    [contentPeriod, periodAnchor],
+    () => formatPeriodAnchor(periodAnchor, selectedPeriod),
+    [periodAnchor, selectedPeriod],
   );
-  const currentPeriod = isCurrentTimelinePeriod(periodAnchor, contentPeriod);
+  const currentPeriod = isCurrentTimelinePeriod(periodAnchor, selectedPeriod);
 
-  const categoryFilter = paramCategory ?? '';
-  const filtersVisible = filtersOpen || Boolean(categoryFilter);
+  const hasActiveFilters = Boolean(
+    query.trim() || categoryFilters.length || customDateRange,
+  );
+  const customRangeDays = customDateRange
+    ? customRangeDayCount(customDateRange)
+    : 0;
+  const customRangeGranularity =
+    customRangeDays <= 14
+      ? 'giornaliero'
+      : customRangeDays <= 90
+        ? 'settimanale'
+        : 'mensile';
 
   const { summary, bins, groups, visibleTransactions } = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('it');
-    const normalizedCategory = categoryFilter.toLocaleLowerCase('it');
-    const visibleTransactions = transactionsForPeriod(
-      transactions,
-      contentPeriod,
-      periodAnchor,
-    ).filter((transaction) => {
+    const normalizedCategories = new Set(
+      categoryFilters.map((category) => category.toLocaleLowerCase('it')),
+    );
+    const periodTransactions = customDateRange
+      ? transactions.filter((transaction) => {
+          if (!transaction.occurredAt) return false;
+          const occurredAt = new Date(transaction.occurredAt);
+          return occurredAt >= customDateRange.start && occurredAt <= customDateRange.end;
+        })
+      : transactionsForPeriod(transactions, selectedPeriod, periodAnchor);
+    const visibleTransactions = periodTransactions.filter((transaction) => {
       const category = transaction.category.trim() || 'Altro';
       const normalizedTransactionCategory = category.toLocaleLowerCase('it');
       const matchesCategory =
-        !normalizedCategory ||
-        normalizedTransactionCategory === normalizedCategory;
+        !normalizedCategories.size ||
+        normalizedCategories.has(normalizedTransactionCategory);
       const matchesQuery =
         !normalizedQuery ||
         transaction.description
@@ -211,30 +358,36 @@ export default function TimelineScreen() {
     });
     return {
       summary: summarizeTransactions(visibleTransactions),
-      bins: buildTimelineBins(visibleTransactions, contentPeriod, periodAnchor),
-      groups: groupTimelineTransactions(visibleTransactions, contentPeriod),
+      bins: customDateRange
+        ? buildTimelineRangeBins(
+            visibleTransactions,
+            customDateRange.start,
+            customDateRange.end,
+          )
+        : buildTimelineBins(visibleTransactions, selectedPeriod, periodAnchor),
+      groups: groupTimelineTransactions(
+        visibleTransactions,
+        customDateRange && customRangeDayCount(customDateRange) > 90
+          ? 'year'
+          : customDateRange
+            ? 'month'
+            : selectedPeriod,
+        customDateRange?.end ?? periodAnchor,
+      ),
       visibleTransactions,
     };
-  }, [categoryFilter, contentPeriod, periodAnchor, query, transactions]);
+  }, [categoryFilters, customDateRange, periodAnchor, query, selectedPeriod, transactions]);
   const sections = useMemo<TimelineSection[]>(
     () => groups.map((group) => ({ ...group, data: group.transactions })),
     [groups],
   );
-  const categories = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          transactions.map(
-            (transaction) => transaction.category.trim() || 'Altro',
-          ),
-        ),
-      ).sort((first, second) => first.localeCompare(second, 'it')),
-    [transactions],
-  );
   const selectableTransactions = useMemo(
     () =>
       visibleTransactions.filter(
-        (transaction) => transaction.id && !transaction.internalTransfer,
+        (transaction) =>
+          transaction.id &&
+          !transaction.internalTransfer &&
+          transaction.source !== 'manual_balance_adjustment',
       ),
     [visibleTransactions],
   );
@@ -314,32 +467,115 @@ export default function TimelineScreen() {
   }
   function clearFilters() {
     setQuery('');
-    router.setParams({ category: undefined, period: undefined });
+    setCategoryFilters([]);
+    setCustomDateRange(null);
+    router.setParams({ category: undefined });
   }
 
   return (
     <Screen
       scroll={false}
-      scrollHeaderWithContent
       style={styles.virtualizedScreen}
-      floatingAction={selectionMode ? undefined :
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Aggiungi una transazione"
-          onPress={() => router.push('/add-transaction' as Href)}
-          style={({ pressed }) => [
-            styles.fab,
-            { backgroundColor: colors.accent },
-            pressed && styles.fabPressed,
-          ]}>
-          <Text style={styles.fabIcon}>add</Text>
-        </Pressable>
+      floatingActionPosition={selectionMode ? 'center' : 'right'}
+      floatingAction={
+        selectionMode ? (
+          selectedTransactions.length ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Categorizza ${selectedTransactions.length} movimenti`}
+              onPress={() => setBulkCategoryVisible(true)}
+              style={({ pressed }) => [
+                styles.categorizeFloatingAction,
+                { backgroundColor: colors.accent },
+                pressed && styles.fabPressed,
+              ]}>
+              <Text style={[styles.categorizeFloatingIcon, { color: colors.onAccent }]}>category</Text>
+              <Text style={[styles.categorizeFloatingText, { color: colors.onAccent }]}>
+                Categorizza · {selectedTransactions.length}
+              </Text>
+            </Pressable>
+          ) : undefined
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Aggiungi una transazione"
+            onPress={() => router.push('/add-transaction' as Href)}
+            style={({ pressed }) => [
+              styles.fab,
+              { backgroundColor: colors.accent },
+              pressed && styles.fabPressed,
+            ]}>
+            <Text style={styles.fabIcon}>add</Text>
+          </Pressable>
+        )
       }>
+      <View
+        style={[
+          styles.timelineHeaderLayer,
+          { backgroundColor: colors.background },
+        ]}>
+        <PageHeader
+          collapseInPlace
+          compactBorderless
+          title="Timeline"
+          action={
+            <AppHeaderActions
+              leading={
+                <View style={styles.headerTools}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      selectionMode
+                        ? 'Chiudi selezione multipla'
+                        : 'Seleziona più movimenti'
+                    }
+                    onPress={() =>
+                      selectionMode
+                        ? closeSelectionMode()
+                        : setSelectionMode(true)
+                    }
+                    style={({ pressed }) => [
+                      styles.headerButton,
+                      pressed && styles.pressed,
+                    ]}>
+                    <Text style={[styles.materialIcon, { color: colors.text }]}>
+                      {selectionMode ? 'close' : 'checklist'}
+                    </Text>
+                  </Pressable>
+                  {!selectionMode ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Apri filtri"
+                      onPress={openFiltersScreen}
+                      style={({ pressed }) => [
+                        styles.headerButton,
+                        pressed && styles.pressed,
+                      ]}>
+                      <Text style={[styles.materialIcon, { color: colors.text }]}>
+                        discover_tune
+                      </Text>
+                      {hasActiveFilters ? (
+                        <View
+                          style={[
+                            styles.filterIndicator,
+                            { backgroundColor: colors.accent },
+                          ]}
+                        />
+                      ) : null}
+                    </Pressable>
+                  ) : null}
+                </View>
+              }
+            />
+          }
+        />
+      </View>
       <ScreenScrollBridge>
         {(onScroll) => (
           <Animated.SectionList<ExpenseDraft, TimelineSection>
-            accessibilityState={{ busy: periodPending }}
+            style={styles.timelineList}
             sections={sections}
+            extraData={timelineRevision}
             keyExtractor={(transaction, index) =>
               transaction.id ??
               `${transaction.occurredAt ?? 'undated'}-${transaction.description}-${index}`
@@ -355,68 +591,6 @@ export default function TimelineScreen() {
             contentContainerStyle={styles.timelineContent}
             ListHeaderComponent={
               <>
-                <PageHeader
-                  title="Timeline"
-                  action={
-                    <AppHeaderActions
-                      leading={
-                        <View style={styles.headerTools}>
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={
-                              selectionMode
-                                ? 'Chiudi selezione multipla'
-                                : 'Seleziona più movimenti'
-                            }
-                            onPress={() =>
-                              selectionMode
-                                ? closeSelectionMode()
-                                : setSelectionMode(true)
-                            }
-                            style={({ pressed }) => [
-                              styles.headerButton,
-                              pressed && styles.pressed,
-                            ]}>
-                            <Text
-                              style={[styles.materialIcon, { color: colors.text }]}>
-                              {selectionMode ? 'close' : 'checklist'}
-                            </Text>
-                          </Pressable>
-                          {!selectionMode ? (
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={
-                                filtersVisible
-                                  ? 'Chiudi ricerca e filtri'
-                                  : 'Apri ricerca e filtri'
-                              }
-                              onPress={() =>
-                                setFiltersOpen((current) => !current)
-                              }
-                              style={({ pressed }) => [
-                                styles.headerButton,
-                                pressed && styles.pressed,
-                              ]}>
-                              <Text
-                                style={[styles.materialIcon, { color: colors.text }]}>
-                                filter_list
-                              </Text>
-                              {categoryFilter || query ? (
-                                <View
-                                  style={[
-                                    styles.filterIndicator,
-                                    { backgroundColor: colors.accent },
-                                  ]}
-                                />
-                              ) : null}
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      }
-                    />
-                  }
-                />
-
                 {selectionMode ? (
                   <Card
                     style={[
@@ -456,185 +630,154 @@ export default function TimelineScreen() {
                           onPress={selectSimilarTransactions}
                         />
                       ) : null}
-                      <BulkAction
-                        accent
-                        disabled={!selectedTransactions.length}
-                        label="Categorizza"
-                        onPress={() => setBulkCategoryVisible(true)}
-                      />
                     </View>
                   </Card>
                 ) : null}
 
-                <View
-                  style={[
-                    styles.periodControl,
-                    { backgroundColor: colors.sunken },
-                  ]}>
-                  {periods.map((period) => {
-                    const selected = selectedPeriod === period.id;
-                    return (
-                      <Pressable
-                        key={period.id}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                        hitSlop={4}
-                        onPress={() => selectPeriod(period.id)}
-                        style={[
-                          styles.periodButton,
-                          selected && { backgroundColor: colors.surface },
-                        ]}>
-                        <Text
-                          style={[
-                            styles.periodText,
-                            {
-                              color: selected
-                                ? colors.text
-                                : colors.textSecondary,
-                            },
-                          ]}>
-                          {period.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                <View style={styles.periodNavigator}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Periodo precedente"
-                    hitSlop={8}
-                    onPress={() =>
-                      setPeriodAnchor((date) =>
-                        shiftTimelinePeriod(date, contentPeriod, -1),
-                      )
-                    }
-                    style={({ pressed }) => [
-                      styles.periodArrow,
-                      pressed && styles.pressed,
-                    ]}>
-                    <Text style={[styles.materialIcon, { color: colors.text }]}>
-                      chevron_left
-                    </Text>
-                  </Pressable>
-                  <Text style={[styles.periodRange, { color: colors.text }]}>
-                    {periodLabel}
-                  </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Periodo successivo"
-                    accessibilityState={{ disabled: currentPeriod }}
-                    disabled={currentPeriod}
-                    hitSlop={8}
-                    onPress={() =>
-                      setPeriodAnchor((date) =>
-                        shiftTimelinePeriod(date, contentPeriod, 1),
-                      )
-                    }
-                    style={({ pressed }) => [
-                      styles.periodArrow,
-                      currentPeriod && styles.periodArrowDisabled,
-                      pressed && styles.pressed,
+                {customDateRange ? (
+                  <View
+                    style={[
+                      styles.customRangeBanner,
+                      { backgroundColor: colors.accentSoft },
                     ]}>
                     <Text
-                      style={[
-                        styles.materialIcon,
-                        { color: colors.text },
-                      ]}>
-                      chevron_right
+                      style={[styles.customRangeIcon, { color: colors.accent }]}>
+                      date_range
                     </Text>
-                  </Pressable>
-                </View>
-
-                {filtersVisible ? (
-                  <Card style={styles.filterPanel}>
-                    <View
-                      style={[
-                        styles.searchField,
-                        {
-                          backgroundColor: colors.sunken,
-                          borderColor: colors.border,
-                        },
+                    <View style={styles.flex}>
+                      <Text
+                        style={[styles.customRangeTitle, { color: colors.text }]}>
+                        Intervallo personalizzato
+                      </Text>
+                      <Text
+                        style={[
+                          styles.customRangeCopy,
+                          { color: colors.textSecondary },
+                        ]}>
+                        {formatCustomDateRange(customDateRange)} · {customRangeDays}{' '}
+                        giorni · grafico {customRangeGranularity}
+                      </Text>
+                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Modifica intervallo personalizzato"
+                      onPress={openFiltersScreen}
+                      style={({ pressed }) => [
+                        styles.customRangeEdit,
+                        pressed && styles.pressed,
                       ]}>
                       <Text
                         style={[
-                          styles.searchIcon,
-                          { color: colors.textSecondary },
+                          styles.customRangeEditText,
+                          { color: colors.accent },
                         ]}>
-                        search
+                        Modifica
                       </Text>
-                      <TextInput
-                        accessibilityLabel="Cerca movimenti"
-                        value={query}
-                        onChangeText={setQuery}
-                        placeholder="Cerca descrizione o categoria"
-                        placeholderTextColor={colors.textSecondary}
-                        selectionColor={colors.accent}
-                        style={[styles.searchInput, { color: colors.text }]}
-                      />
-                    </View>
-                    <Text
+                    </Pressable>
+                  </View>
+                ) : (
+                  <>
+                    <View
                       style={[
-                        styles.filterLabel,
-                        { color: colors.textSecondary },
+                        styles.periodControl,
+                        { backgroundColor: colors.sunken },
                       ]}>
-                      CATEGORIA
-                    </Text>
-                    <View style={styles.categoryChips}>
-                      {categories.map((category) => {
-                        const selected = categoryFilter === category;
+                      {periods.map((period) => {
+                        const selected = selectedPeriod === period.id;
                         return (
                           <Pressable
-                            key={category}
+                            key={period.id}
                             accessibilityRole="button"
                             accessibilityState={{ selected }}
-                            onPress={() =>
-                              router.setParams({
-                                category: selected ? undefined : category,
-                              })
-                            }
+                            hitSlop={4}
+                            onPress={() => selectPeriod(period.id)}
                             style={[
-                              styles.categoryChip,
-                              {
-                                backgroundColor: selected
-                                  ? colors.accentSoft
-                                  : colors.sunken,
-                              },
+                              styles.periodButton,
+                              selected && { backgroundColor: colors.surface },
                             ]}>
                             <Text
                               style={[
-                                styles.categoryChipText,
+                                styles.periodText,
                                 {
                                   color: selected
-                                    ? colors.accent
+                                    ? colors.text
                                     : colors.textSecondary,
                                 },
                               ]}>
-                              {category}
+                              {period.label}
                             </Text>
                           </Pressable>
                         );
                       })}
                     </View>
-                    {categoryFilter || query ? (
+
+                    <View style={styles.periodNavigator}>
                       <Pressable
                         accessibilityRole="button"
-                        onPress={clearFilters}
+                        accessibilityLabel="Periodo precedente"
+                        hitSlop={8}
+                        onPress={() =>
+                          setPeriodAnchor((date) =>
+                            shiftTimelinePeriod(date, selectedPeriod, -1),
+                          )
+                        }
                         style={({ pressed }) => [
-                          styles.clearFilters,
+                          styles.periodArrow,
+                          pressed && styles.pressed,
+                        ]}>
+                        <Text
+                          style={[styles.materialIcon, { color: colors.text }]}>
+                          chevron_left
+                        </Text>
+                      </Pressable>
+                      <Text style={[styles.periodRange, { color: colors.text }]}>
+                        {periodLabel}
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Periodo successivo"
+                        accessibilityState={{ disabled: currentPeriod }}
+                        disabled={currentPeriod}
+                        hitSlop={8}
+                        onPress={() =>
+                          setPeriodAnchor((date) =>
+                            shiftTimelinePeriod(date, selectedPeriod, 1),
+                          )
+                        }
+                        style={({ pressed }) => [
+                          styles.periodArrow,
+                          currentPeriod && styles.periodArrowDisabled,
                           pressed && styles.pressed,
                         ]}>
                         <Text
                           style={[
-                            styles.clearFiltersText,
-                            { color: colors.accent },
+                            styles.materialIcon,
+                            { color: colors.text },
                           ]}>
-                          Rimuovi filtri
+                          chevron_right
                         </Text>
                       </Pressable>
-                    ) : null}
-                  </Card>
+                    </View>
+                  </>
+                )}
+
+                {hasActiveFilters ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Rimuovi tutti i filtri"
+                    onPress={clearFilters}
+                    style={({ pressed }) => [
+                      styles.quickClearFilters,
+                      { backgroundColor: colors.sunken },
+                      pressed && styles.pressed,
+                    ]}>
+                    <Text style={[styles.quickClearIcon, { color: colors.accent }]}>
+                      filter_alt_off
+                    </Text>
+                    <Text style={[styles.quickClearText, { color: colors.accent }]}>
+                      Azzera filtri
+                    </Text>
+                  </Pressable>
                 ) : null}
 
                 <Card style={styles.chartCard}>
@@ -678,17 +821,17 @@ export default function TimelineScreen() {
                   </Text>
                 </View>
                 <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                  {categoryFilter || query
+                  {hasActiveFilters
                     ? 'Nessun movimento corrisponde ai filtri.'
                     : 'Qui appariranno i tuoi movimenti.'}
                 </Text>
                 <Text
                   style={[styles.emptyText, { color: colors.textSecondary }]}>
-                  {categoryFilter || query
+                  {hasActiveFilters
                     ? 'Modifica la ricerca, la categoria o il periodo.'
                     : 'Aggiungine uno manualmente o importa un estratto conto.'}
                 </Text>
-                {categoryFilter || query ? (
+                {hasActiveFilters ? (
                   <PrimaryButton onPress={clearFilters}>
                     Rimuovi filtri
                   </PrimaryButton>
@@ -805,6 +948,7 @@ export default function TimelineScreen() {
           transactions={selectedTransactions}
           saving={saving}
           error={error}
+          allowRemember={planTier !== 'free'}
           onClose={() => {
             clearError();
             setBulkCategoryVisible(false);
@@ -984,6 +1128,7 @@ const TransactionRow = memo(function TransactionRow({
 }) {
   const { colors } = useFlowndTheme();
   const income = transaction.kind === 'income';
+  const balanceAdjustment = transaction.source === 'manual_balance_adjustment';
   const occurredAt = transaction.occurredAt
     ? new Date(transaction.occurredAt)
     : new Date();
@@ -993,10 +1138,16 @@ const TransactionRow = memo(function TransactionRow({
       accessibilityLabel={
         selectionMode
           ? `${selected ? 'Deseleziona' : 'Seleziona'} ${transaction.description}`
-          : `Modifica transazione ${transaction.description}`
+          : balanceAdjustment
+            ? transaction.description
+            : `Modifica transazione ${transaction.description}`
       }
       accessibilityState={{ selected: selectionMode ? selected : undefined }}
-      disabled={!transaction.id || (selectionMode && transaction.internalTransfer)}
+      disabled={
+        !transaction.id ||
+        balanceAdjustment ||
+        (selectionMode && transaction.internalTransfer)
+      }
       onPress={() =>
         selectionMode ? onSelect(transaction) : onEdit(transaction)
       }
@@ -1039,7 +1190,7 @@ const TransactionRow = memo(function TransactionRow({
                 styles.materialIcon,
                 { color: income ? colors.positive : colors.accent },
               ]}>
-              {income ? 'south_west' : 'north_east'}
+              {balanceAdjustment ? 'tune' : income ? 'south_west' : 'north_east'}
             </Text>
           </View>
         )}
@@ -1070,16 +1221,334 @@ const TransactionRow = memo(function TransactionRow({
   );
 });
 
+// Conservato temporaneamente per compatibilità con presentazioni già montate.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function TimelineFiltersModal({
+  categories,
+  selectedCategories,
+  customDateRange,
+  fallbackDateRange,
+  query,
+  onClose,
+  onApply,
+}: {
+  categories: string[];
+  selectedCategories: string[];
+  customDateRange: { start: Date; end: Date } | null;
+  fallbackDateRange: { start: Date; end: Date };
+  query: string;
+  onClose: () => void;
+  onApply: (
+    query: string,
+    categories: string[],
+    dateRange: { start: Date; end: Date } | null,
+  ) => void;
+}) {
+  const { colors } = useFlowndTheme();
+  const insets = useSafeAreaInsets();
+  const initialInsets = initialWindowMetrics?.insets;
+  const topInset = Math.max(
+    insets.top,
+    initialInsets?.top ?? 0,
+    Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 20,
+  );
+  const leftInset = Math.max(insets.left, initialInsets?.left ?? 0);
+  const rightInset = Math.max(insets.right, initialInsets?.right ?? 0);
+  const [draftQuery, setDraftQuery] = useState(query);
+  const [draftCategories, setDraftCategories] =
+    useState<string[]>(selectedCategories);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [customDatesEnabled, setCustomDatesEnabled] = useState(
+    Boolean(customDateRange),
+  );
+  const [draftStart, setDraftStart] = useState(
+    customDateRange?.start ?? fallbackDateRange.start,
+  );
+  const [draftEnd, setDraftEnd] = useState(
+    customDateRange?.end ?? fallbackDateRange.end,
+  );
+
+  function toggleCategory(category: string) {
+    setDraftCategories((current) =>
+      current.includes(category)
+        ? current.filter((item) => item !== category)
+        : [...current, category],
+    );
+  }
+
+  return (
+    <Modal
+      animationType="slide"
+      presentationStyle="fullScreen"
+      statusBarTranslucent={false}
+      navigationBarTranslucent={false}
+      visible
+      onRequestClose={onClose}>
+      <View
+        style={[
+          styles.fullFilterRoot,
+          {
+            backgroundColor: colors.background,
+            paddingLeft: leftInset,
+            paddingRight: rightInset,
+          },
+        ]}>
+          <View
+            style={[
+              styles.fullFilterHeader,
+              {
+                borderBottomColor: colors.border,
+                paddingTop: topInset + 8,
+              },
+            ]}>
+            <View style={styles.flex}>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>Filtri</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Chiudi filtri"
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.sheetClose,
+                { backgroundColor: colors.sunken },
+                pressed && styles.pressed,
+              ]}>
+              <Text style={[styles.sheetCloseText, { color: colors.text }]}>×</Text>
+            </Pressable>
+          </View>
+
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.fullFilterBody}>
+          <View style={styles.fullFilterContent}>
+            <Text style={[styles.filterModalLabel, { color: colors.textSecondary }]}>
+              RICERCA
+            </Text>
+            <View
+              style={[
+                styles.searchField,
+                { backgroundColor: colors.sunken, borderColor: colors.border },
+              ]}>
+              <Text style={[styles.searchIcon, { color: colors.textSecondary }]}>search</Text>
+              <TextInput
+                accessibilityLabel="Cerca movimenti"
+                value={draftQuery}
+                onChangeText={setDraftQuery}
+                placeholder="Descrizione o categoria"
+                placeholderTextColor={colors.textSecondary}
+                selectionColor={colors.accent}
+                style={[styles.searchInput, { color: colors.text }]}
+              />
+            </View>
+
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: customDatesEnabled }}
+              onPress={() => setCustomDatesEnabled((current) => !current)}
+              style={styles.customDateToggle}>
+              <View
+                style={[
+                  styles.filterCheckbox,
+                  {
+                    backgroundColor: customDatesEnabled
+                      ? colors.accent
+                      : colors.surface,
+                    borderColor: customDatesEnabled
+                      ? colors.accent
+                      : colors.border,
+                  },
+                ]}>
+                {customDatesEnabled ? (
+                  <Text style={[styles.selectionCheck, { color: colors.onAccent }]}>
+                    check
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.flex}>
+                <Text style={[styles.customDateTitle, { color: colors.text }]}>
+                  Usa un intervallo di date
+                </Text>
+                <Text style={[styles.customDateCopy, { color: colors.textSecondary }]}>
+                  Se disattivato, viene usato il periodo selezionato nella Timeline.
+                </Text>
+              </View>
+            </Pressable>
+
+            {customDatesEnabled ? (
+              <View style={styles.dateRangeFields}>
+                <TransactionDateField
+                  label="Dal"
+                  value={draftStart}
+                  maximumDate={draftEnd}
+                  onChange={(date) => {
+                    const next = new Date(date);
+                    next.setHours(0, 0, 0, 0);
+                    setDraftStart(next);
+                  }}
+                />
+                <TransactionDateField
+                  label="Al"
+                  value={draftEnd}
+                  minimumDate={draftStart}
+                  onChange={(date) => {
+                    const next = new Date(date);
+                    next.setHours(23, 59, 59, 999);
+                    setDraftEnd(next);
+                  }}
+                />
+              </View>
+            ) : null}
+
+            <Text style={[styles.filterModalLabel, { color: colors.textSecondary }]}>
+              CATEGORIE
+            </Text>
+            <View
+              style={[
+                styles.filterDropdown,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: categoryOpen }}
+                accessibilityLabel="Scegli categorie"
+                onPress={() => setCategoryOpen((current) => !current)}
+                style={styles.filterDropdownTrigger}>
+                <Text style={[styles.filterDropdownValue, { color: colors.text }]}>
+                  {draftCategories.length === 0
+                    ? 'Tutte le categorie'
+                    : draftCategories.length === 1
+                      ? draftCategories[0]
+                      : `${draftCategories.length} categorie`}
+                </Text>
+                <Text
+                  style={[
+                    styles.editorDropdownIcon,
+                    { color: colors.textSecondary },
+                  ]}>
+                  {categoryOpen ? 'expand_less' : 'expand_more'}
+                </Text>
+              </Pressable>
+              {categoryOpen ? (
+                <ScrollView
+                  nestedScrollEnabled
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  style={[
+                    styles.filterDropdownMenu,
+                    { borderTopColor: colors.border },
+                  ]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: draftCategories.length === 0 }}
+                    onPress={() => setDraftCategories([])}
+                    style={({ pressed }) => [
+                      styles.filterDropdownOption,
+                      draftCategories.length === 0 && {
+                        backgroundColor: colors.accentSoft,
+                      },
+                      pressed && styles.pressed,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.filterDropdownOptionText,
+                        {
+                          color: draftCategories.length === 0
+                            ? colors.accent
+                            : colors.text,
+                        },
+                      ]}>
+                      Tutte le categorie
+                    </Text>
+                  </Pressable>
+                  {categories.map((option) => {
+                    const selected = draftCategories.includes(option);
+                    return (
+                      <Pressable
+                        key={option}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: selected }}
+                        onPress={() => toggleCategory(option)}
+                        style={({ pressed }) => [
+                          styles.filterDropdownOption,
+                          selected && { backgroundColor: colors.accentSoft },
+                          pressed && styles.pressed,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.filterDropdownOptionText,
+                            { color: selected ? colors.accent : colors.text },
+                          ]}>
+                          {option}
+                        </Text>
+                        {selected ? (
+                          <Text style={[styles.editorDropdownCheck, { color: colors.accent }]}>
+                            check
+                          </Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.filterModalActions,
+              {
+                borderTopColor: colors.border,
+                paddingBottom: 26,
+              },
+            ]}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setDraftQuery('');
+                setDraftCategories([]);
+                setCustomDatesEnabled(false);
+                setCategoryOpen(false);
+              }}
+              style={({ pressed }) => [
+                styles.resetFiltersButton,
+                pressed && styles.pressed,
+              ]}>
+              <Text style={[styles.resetFiltersText, { color: colors.accent }]}>Azzera</Text>
+            </Pressable>
+            <View style={styles.applyFiltersButton}>
+              <PrimaryButton
+                compact
+                onPress={() =>
+                  onApply(
+                    draftQuery.trim(),
+                    draftCategories,
+                    customDatesEnabled
+                      ? { start: draftStart, end: draftEnd }
+                      : null,
+                  )
+                }>
+                Applica filtri
+              </PrimaryButton>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  );
+}
+
 function BulkCategoryModal({
   transactions,
   saving,
   error,
+  allowRemember,
   onClose,
   onSave,
 }: {
   transactions: ExpenseDraft[];
   saving: boolean;
   error: string | null;
+  allowRemember: boolean;
   onClose: () => void;
   onSave: (category: string, rememberSimilar: boolean) => Promise<void>;
 }) {
@@ -1170,7 +1639,7 @@ function BulkCategoryModal({
                 );
               })}
             </View>
-            {kind === 'expense' ? (
+            {kind === 'expense' && allowRemember ? (
               <Pressable
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: rememberSimilar }}
@@ -1461,7 +1930,9 @@ function EditTransactionModal({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   virtualizedScreen: { paddingBottom: 0 },
-  timelineContent: { paddingTop: 10, paddingBottom: 110 },
+  timelineHeaderLayer: { zIndex: 50 },
+  timelineList: { flex: 1, zIndex: 0 },
+  timelineContent: { paddingTop: 18, paddingBottom: 110 },
   pressed: { opacity: 0.65 },
   headerTools: { flexDirection: 'row', alignItems: 'center' },
   headerButton: {
@@ -1536,7 +2007,50 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textTransform: 'capitalize',
   },
-  filterPanel: { marginBottom: 12 },
+  customRangeBanner: {
+    minHeight: 62,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  customRangeIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 21,
+    lineHeight: 24,
+  },
+  customRangeTitle: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  customRangeCopy: {
+    fontFamily: font.body,
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  customRangeEdit: {
+    minHeight: 38,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  customRangeEditText: { fontFamily: font.bodySemiBold, fontSize: 10 },
+  quickClearFilters: {
+    alignSelf: 'flex-end',
+    minHeight: 34,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    marginBottom: 12,
+  },
+  quickClearIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 17,
+    lineHeight: 20,
+  },
+  quickClearText: { fontFamily: font.bodySemiBold, fontSize: 10 },
   searchField: {
     minHeight: 46,
     borderRadius: 10,
@@ -1556,23 +2070,103 @@ const styles = StyleSheet.create({
     fontSize: 14,
     paddingVertical: 10,
   },
-  filterLabel: {
+  filterModalLabel: {
     fontFamily: font.bodySemiBold,
     fontSize: 9,
     letterSpacing: 0.9,
     marginTop: 14,
     marginBottom: 8,
   },
-  categoryChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  categoryChip: {
-    minHeight: 32,
-    borderRadius: 9,
-    justifyContent: 'center',
+  fullFilterRoot: { flex: 1 },
+  fullFilterBody: { flex: 1 },
+  fullFilterHeader: {
+    minHeight: 70,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  fullFilterContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  filterDropdown: {
+    borderWidth: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  filterDropdownTrigger: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+  },
+  filterDropdownValue: {
+    flex: 1,
+    fontFamily: font.bodyMedium,
+    fontSize: 13,
+  },
+  filterDropdownMenu: {
+    maxHeight: 220,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 5,
+  },
+  filterDropdownOption: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 8,
+    marginHorizontal: 5,
     paddingHorizontal: 10,
   },
-  categoryChipText: { fontFamily: font.bodyMedium, fontSize: 11 },
-  clearFilters: { alignSelf: 'flex-end', paddingTop: 13, paddingHorizontal: 2 },
-  clearFiltersText: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  filterDropdownOptionText: {
+    flex: 1,
+    fontFamily: font.body,
+    fontSize: 12,
+  },
+  filterModalActions: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  resetFiltersButton: {
+    minHeight: 42,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  resetFiltersText: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  applyFiltersButton: { flex: 1 },
+  customDateToggle: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 11,
+    marginTop: 22,
+    paddingVertical: 5,
+  },
+  filterCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customDateTitle: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  customDateCopy: {
+    fontFamily: font.body,
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  dateRangeFields: { gap: 2 },
   chartCard: { marginBottom: 20 },
   summaryRow: { flexDirection: 'row', gap: 8 },
   summaryItem: { flex: 1 },
@@ -1726,6 +2320,23 @@ const styles = StyleSheet.create({
     fontSize: 30,
     lineHeight: 34,
   },
+  categorizeFloatingAction: {
+    minWidth: 210,
+    minHeight: 52,
+    borderRadius: 26,
+    paddingHorizontal: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 8,
+  },
+  categorizeFloatingIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
+  categorizeFloatingText: { fontFamily: font.bodySemiBold, fontSize: 14 },
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
   modalBackdrop: {
     ...StyleSheet.absoluteFill,
@@ -1888,6 +2499,7 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     minHeight: 44,
+    marginTop: 16,
     borderWidth: 1,
     borderRadius: 10,
     alignItems: 'center',

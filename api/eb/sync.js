@@ -45,7 +45,7 @@ async function createLink(service, values) {
   if (error) throw error
 }
 
-async function findManualMatch(service, userId, normalized) {
+export async function findManualMatch(service, userId, normalized) {
   const from = occurredAt(shiftDate(normalized.occurredOn, -2))
   const through = occurredAt(shiftDate(normalized.occurredOn, 3))
   const { data, error } = await service
@@ -55,6 +55,7 @@ async function findManualMatch(service, userId, normalized) {
     .eq('kind', normalized.kind)
     .eq('amount', normalized.amount)
     .in('source', ['manual', 'onboarding'])
+    .is('financial_account_id', null)
     .gte('occurred_at', from)
     .lt('occurred_at', through)
   if (error) throw error

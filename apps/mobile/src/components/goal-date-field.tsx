@@ -4,57 +4,53 @@ import { useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { font, useFlowndTheme } from '@/components/flownd-ui';
+import {
+  defaultGoalDeadline,
+  formatDateISO,
+  formatDateItalian,
+  parseDraftDate,
+} from '@/lib/onboarding';
 
-function formatTransactionDate(date: Date) {
-  return new Intl.DateTimeFormat('it-IT', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  }).format(date);
-}
-
-function preserveTime(date: Date, current: Date) {
-  const next = new Date(date);
-  next.setHours(
-    current.getHours(),
-    current.getMinutes(),
-    current.getSeconds(),
-    current.getMilliseconds(),
-  );
-  return next;
-}
-
-export function TransactionDateField({
+export function GoalDateField({
   value,
   onChange,
-  label = 'Data',
-  minimumDate,
-  maximumDate = new Date(),
 }: {
-  value: Date;
-  onChange: (date: Date) => void;
-  label?: string;
-  minimumDate?: Date;
-  maximumDate?: Date;
+  value: string;
+  onChange: (value: string) => void;
 }) {
   const { colors, isDark } = useFlowndTheme();
   const [open, setOpen] = useState(false);
+  const selectedDate =
+    parseDraftDate(value) ??
+    parseDraftDate(defaultGoalDeadline()) ??
+    new Date();
+  const minimumDate = new Date();
+  minimumDate.setHours(0, 0, 0, 0);
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
+      <Text style={[styles.label, { color: colors.text }]}>Scadenza</Text>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Data della transazione: ${formatTransactionDate(value)}`}
+        accessibilityLabel={
+          value
+            ? `Scadenza ${formatDateItalian(formatDateISO(selectedDate))}`
+            : 'Seleziona una scadenza'
+        }
         onPress={() => setOpen(true)}
         style={({ pressed }) => [
           styles.field,
           { backgroundColor: colors.surface, borderColor: colors.border },
           pressed && styles.pressed,
         ]}>
-        <Text style={[styles.value, { color: colors.text }]}> 
-          {formatTransactionDate(value)}
+        <Text
+          style={[
+            styles.value,
+            { color: value ? colors.text : colors.textSecondary },
+          ]}>
+          {value
+            ? formatDateItalian(formatDateISO(selectedDate))
+            : 'Nessuna scadenza'}
         </Text>
         <SymbolView
           name={{ ios: 'calendar', android: 'calendar_month', web: 'calendar_month' }}
@@ -63,19 +59,30 @@ export function TransactionDateField({
         />
       </Pressable>
 
+      {value ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Rimuovi scadenza"
+          onPress={() => onChange('')}
+          style={styles.clearButton}>
+          <Text style={[styles.clearText, { color: colors.textSecondary }]}>
+            Rimuovi scadenza
+          </Text>
+        </Pressable>
+      ) : null}
+
       {open && Platform.OS === 'android' ? (
         <DateTimePicker
-          value={value}
+          value={selectedDate}
           mode="date"
           display="default"
           presentation="dialog"
           minimumDate={minimumDate}
-          maximumDate={maximumDate}
           accentColor={colors.accent}
           positiveButton={{ label: 'Conferma' }}
           negativeButton={{ label: 'Annulla' }}
           onValueChange={(_event, date) => {
-            onChange(preserveTime(date, value));
+            onChange(formatDateISO(date));
             setOpen(false);
           }}
           onDismiss={() => setOpen(false)}
@@ -97,21 +104,22 @@ export function TransactionDateField({
                 { backgroundColor: colors.surface, borderColor: colors.border },
               ]}>
               <View style={styles.pickerHeader}>
-                <Text style={[styles.pickerTitle, { color: colors.text }]}>Scegli la data</Text>
+                <Text style={[styles.pickerTitle, { color: colors.text }]}>
+                  Scegli la scadenza
+                </Text>
                 <Pressable accessibilityRole="button" onPress={() => setOpen(false)}>
                   <Text style={[styles.done, { color: colors.accent }]}>Fatto</Text>
                 </Pressable>
               </View>
               <DateTimePicker
-                value={value}
+                value={selectedDate}
                 mode="date"
                 display="inline"
                 locale="it_IT"
                 minimumDate={minimumDate}
-                maximumDate={maximumDate}
                 accentColor={colors.accent}
                 themeVariant={isDark ? 'dark' : 'light'}
-                onValueChange={(_event, date) => onChange(preserveTime(date, value))}
+                onValueChange={(_event, date) => onChange(formatDateISO(date))}
                 style={styles.picker}
               />
             </View>
@@ -124,32 +132,37 @@ export function TransactionDateField({
 
 const styles = StyleSheet.create({
   wrap: { marginTop: 16 },
-  label: { fontFamily: font.bodySemiBold, fontSize: 13, marginBottom: 7 },
+  label: { fontFamily: font.bodyMedium, fontSize: 13, marginBottom: 7 },
   field: {
-    minHeight: 50,
-    borderWidth: 1,
+    minHeight: 52,
     borderRadius: 10,
+    borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 14,
   },
-  value: { flex: 1, fontFamily: font.body, fontSize: 14, textTransform: 'capitalize' },
+  value: { flex: 1, fontFamily: font.data, fontSize: 15 },
   pressed: { opacity: 0.68 },
+  clearButton: { alignSelf: 'flex-start', paddingVertical: 8 },
+  clearText: { fontFamily: font.bodyMedium, fontSize: 11 },
   overlay: {
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
-    backgroundColor: 'rgba(4, 12, 9, 0.4)',
+    backgroundColor: 'rgba(5, 14, 10, 0.48)',
   },
-  pickerCard: { borderRadius: 22, borderWidth: 1, padding: 16 },
+  pickerCard: {
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+  },
   pickerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   pickerTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
-  done: { fontFamily: font.bodySemiBold, fontSize: 14, padding: 6 },
-  picker: { minHeight: 330 },
+  done: { fontFamily: font.bodySemiBold, fontSize: 14, padding: 7 },
+  picker: { width: '100%', minHeight: 330 },
 });

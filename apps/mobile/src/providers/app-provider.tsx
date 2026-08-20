@@ -57,9 +57,20 @@ export type FinancialAccount = {
   balance: number;
   previousMonthBalance: number | null;
   source: 'open_banking' | 'manual';
+  accountKind: 'bank' | 'manual_bank' | 'cash_wallet';
+  balanceAsOf: string | null;
+  openingBalance: number;
+  openingBalanceAsOf: string | null;
   lastSyncedAt: string | null;
   institutionName: string | null;
   currency: string;
+};
+
+export type ManualFinancialAccountDraft = {
+  name: string;
+  balance: number;
+  accountKind: 'manual_bank' | 'cash_wallet';
+  balanceAsOf: string;
 };
 
 export type UpcomingPayment = {
@@ -76,6 +87,12 @@ export type CoachInsight = {
   body: string;
 };
 
+export type GoalContributionSummary = {
+  goalId: string | null;
+  amount: number;
+  createdAt: string;
+};
+
 type AppContextValue = {
   session: Session | null;
   loading: boolean;
@@ -85,6 +102,8 @@ type AppContextValue = {
   draft: OnboardingDraft;
   transactions: ExpenseDraft[];
   goals: Goal[];
+  completedGoals: Goal[];
+  goalContributions: GoalContributionSummary[];
   loans: Loan[];
   goalAllocationMode: GoalAllocationMode;
   goalNotice: GoalNotice | null;
@@ -104,6 +123,14 @@ type AppContextValue = {
     transactionId: string,
     transaction: TransactionUpdate,
   ) => Promise<boolean>;
+  createManualFinancialAccount: (
+    account: ManualFinancialAccountDraft,
+  ) => Promise<string | null>;
+  updateManualFinancialAccountOpeningBalance: (
+    accountId: string,
+    balance: number,
+  ) => Promise<boolean>;
+  deleteManualFinancialAccount: (accountId: string) => Promise<boolean>;
   categorizeTransactions: (
     transactionIds: string[],
     category: string,
@@ -119,6 +146,7 @@ type AppContextValue = {
     goalId: string | null,
     changes: Partial<OnboardingDraft['goal']>,
   ) => Promise<boolean>;
+  deleteGoal: (goalId: string) => Promise<boolean>;
   setGoalAllocationMode: (mode: GoalAllocationMode) => Promise<boolean>;
   moveGoal: (goalId: string, direction: -1 | 1) => Promise<boolean>;
   addGoalContribution: (
@@ -160,6 +188,10 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [draft, setDraft] = useState<OnboardingDraft>(initialDraft);
   const [transactions, setTransactions] = useState<ExpenseDraft[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [completedGoals, setCompletedGoals] = useState<Goal[]>([]);
+  const [goalContributions, setGoalContributions] = useState<
+    GoalContributionSummary[]
+  >([]);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [goalAllocationMode, setGoalAllocationModeState] =
     useState<GoalAllocationMode>('priority');
@@ -200,10 +232,12 @@ export function AppProvider({ children }: PropsWithChildren) {
     const [
       budgetsResult,
       goalsResult,
+      completedGoalsResult,
       transactionResult,
       goalSettingsResult,
       loansResult,
       goalNoticeResult,
+      goalContributionsResult,
     ] = await Promise.all([
       supabase
         .from('budget_categories')
@@ -217,6 +251,14 @@ export function AppProvider({ children }: PropsWithChildren) {
         .eq('active', true)
         .order('priority')
         .order('created_at'),
+      supabase
+        .from('goals')
+        .select('id,name,target_amount,saved_amount,deadline_label,monthly_contribution,allocation_percentage,priority,status')
+        .eq('user_id', userId)
+        .eq('active', false)
+        .eq('status', 'completed')
+        .is('deleted_at', null)
+        .order('completed_at', { ascending: false }),
       supabase
         .from('transactions')
         .select('id,description,amount,category,occurred_at,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type')
@@ -242,15 +284,23 @@ export function AppProvider({ children }: PropsWithChildren) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from('goal_contributions')
+        .select('goal_id,amount,occurred_at')
+        .eq('user_id', userId)
+        .gte('occurred_at', historyStart.toISOString())
+        .order('occurred_at', { ascending: false }),
     ]);
 
     if (
       budgetsResult.error ||
       goalsResult.error ||
+      completedGoalsResult.error ||
       transactionResult.error ||
       goalSettingsResult.error ||
       loansResult.error ||
-      goalNoticeResult.error
+      goalNoticeResult.error ||
+      goalContributionsResult.error
     ) {
       if (activeUserId.current !== userId) return;
       setError('Il profilo è pronto, ma alcuni dati non sono ancora disponibili.');
@@ -301,8 +351,29 @@ export function AppProvider({ children }: PropsWithChildren) {
       priority: Number(goal.priority),
       status: goal.status as Goal['status'],
     }));
+    const hydratedCompletedGoals: Goal[] = (completedGoalsResult.data ?? []).map(
+      (goal) => ({
+        id: goal.id,
+        name: goal.name,
+        targetAmount: Number(goal.target_amount),
+        savedAmount: Number(goal.saved_amount),
+        deadline: goal.deadline_label ?? '',
+        monthlyContribution: Number(goal.monthly_contribution),
+        allocationPercentage: Number(goal.allocation_percentage),
+        priority: Number(goal.priority),
+        status: goal.status as Goal['status'],
+      }),
+    );
     setTransactions(monthlyTransactions);
     setGoals(hydratedGoals);
+    setCompletedGoals(hydratedCompletedGoals);
+    setGoalContributions(
+      (goalContributionsResult.data ?? []).map((contribution) => ({
+        goalId: contribution.goal_id,
+        amount: Number(contribution.amount),
+        createdAt: contribution.occurred_at,
+      })),
+    );
     setGoalAllocationModeState(
       goalSettingsResult.data.goal_allocation_mode as GoalAllocationMode,
     );
@@ -350,7 +421,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const [accountsResult, paymentsResult, insightResult] = await Promise.all([
       supabase
         .from('financial_accounts')
-        .select('id,name,current_balance,previous_month_balance,source,last_synced_at,institution_name,currency')
+        .select('id,name,current_balance,opening_balance,opening_balance_as_of,previous_month_balance,source,account_kind,balance_as_of,last_synced_at,institution_name,currency')
         .eq('user_id', userId)
         .eq('active', true)
         .order('created_at'),
@@ -384,6 +455,10 @@ export function AppProvider({ children }: PropsWithChildren) {
             ? null
             : Number(account.previous_month_balance),
         source: account.source as FinancialAccount['source'],
+        accountKind: account.account_kind as FinancialAccount['accountKind'],
+        balanceAsOf: account.balance_as_of,
+        openingBalance: Number(account.opening_balance ?? 0),
+        openingBalanceAsOf: account.opening_balance_as_of,
         lastSyncedAt: account.last_synced_at,
         institutionName: account.institution_name,
         currency: account.currency,
@@ -416,6 +491,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       setDraft(initialDraft);
       setTransactions([]);
       setGoals([]);
+      setCompletedGoals([]);
+      setGoalContributions([]);
       setLoans([]);
       setGoalAllocationModeState('priority');
       setGoalNotice(null);
@@ -591,6 +668,67 @@ export function AppProvider({ children }: PropsWithChildren) {
     const category = normalizeTransactionCategory(transaction.category, kind);
     const incomeTreatment =
       kind === 'income' ? incomeTreatmentForCategory(category) : null;
+    const manualAccount = transaction.financialAccountId
+      ? financialAccounts.find(
+          (account) =>
+            account.id === transaction.financialAccountId &&
+            account.source === 'manual',
+        )
+      : null;
+
+    if (transaction.financialAccountId && !manualAccount) {
+      setSaving(false);
+      setError('Il conto manuale selezionato non è più disponibile.');
+      return false;
+    }
+
+    if (manualAccount) {
+      const { data: transactionId, error: rpcError } = await supabase.rpc(
+        'record_manual_financial_account_transaction',
+        {
+          p_account_id: manualAccount.id,
+          p_description: transaction.description.trim(),
+          p_amount: transaction.amount,
+          p_category: category,
+          p_kind: kind,
+          p_occurred_at: occurredAt,
+          p_income_type: incomeTreatment?.incomeType ?? null,
+          p_excluded_from_budget:
+            incomeTreatment?.excludedFromBudget ?? false,
+        },
+      );
+      setSaving(false);
+      if (rpcError || !transactionId) {
+        if (__DEV__) console.error('Flownd manual account transaction failed', rpcError);
+        setError(
+          manualAccount.accountKind === 'cash_wallet' &&
+            kind === 'expense' &&
+            transaction.amount > manualAccount.balance
+            ? 'Il portafoglio non contiene abbastanza contanti.'
+            : 'Non siamo riusciti ad aggiornare il conto manuale.',
+        );
+        return false;
+      }
+      const recordedTransaction: ExpenseDraft = {
+        ...transaction,
+        id: String(transactionId),
+        category,
+        occurredAt,
+        source: 'manual',
+        kind,
+        financialAccountId: manualAccount.id,
+        internalTransfer: incomeTreatment?.incomeType === 'internal_transfer',
+        excludedFromTotals: incomeTreatment?.incomeType === 'internal_transfer',
+        incomeType: incomeTreatment?.incomeType,
+        excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
+      };
+      await hydrateUserData(session.user.id);
+      if (recordedTransaction.kind !== 'income') {
+        setDraft((current) => ({ ...current, expense: recordedTransaction }));
+      }
+      return true;
+    }
+
     const { data, error: insertError } = await supabase
       .from('transactions')
       .insert({
@@ -602,9 +740,12 @@ export function AppProvider({ children }: PropsWithChildren) {
         kind,
         income_type: incomeTreatment?.incomeType ?? null,
         excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
+        internal_transfer: incomeTreatment?.incomeType === 'internal_transfer',
+        excluded_from_totals: incomeTreatment?.incomeType === 'internal_transfer',
         occurred_at: occurredAt,
+        financial_account_id: null,
       })
-      .select('id,description,amount,category,source,kind,occurred_at')
+      .select('id,description,amount,category,source,kind,occurred_at,internal_transfer,excluded_from_totals')
       .single();
     setSaving(false);
 
@@ -622,13 +763,98 @@ export function AppProvider({ children }: PropsWithChildren) {
       occurredAt: data.occurred_at,
       source: data.source,
       kind: data.kind,
+      internalTransfer: Boolean(data.internal_transfer),
+      excludedFromTotals: Boolean(data.excluded_from_totals),
       incomeType: incomeTreatment?.incomeType,
       excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
+      financialAccountId: null,
     };
     if (recordedTransaction.kind !== 'income') {
       setDraft((current) => ({ ...current, expense: recordedTransaction }));
     }
     setTransactions((current) => [recordedTransaction, ...current]);
+    return true;
+  }
+
+  async function createManualFinancialAccount(
+    account: ManualFinancialAccountDraft,
+  ) {
+    if (!session) {
+      setError('La sessione è scaduta. Accedi di nuovo.');
+      return null;
+    }
+    setSaving(true);
+    setError(null);
+    const { data: accountId, error: createError } = await supabase.rpc(
+      'create_manual_financial_account',
+      {
+        p_name: account.name.trim(),
+        p_account_kind: account.accountKind,
+        p_balance: account.balance,
+        p_balance_as_of: account.balanceAsOf,
+      },
+    );
+    if (!createError && accountId) await hydrateUserData(session.user.id);
+    setSaving(false);
+    if (createError || !accountId) {
+      if (__DEV__) console.error('Flownd manual account creation failed', createError);
+      setError('Non siamo riusciti a creare il conto manuale.');
+      return null;
+    }
+    return String(accountId);
+  }
+
+  async function updateManualFinancialAccountOpeningBalance(
+    accountId: string,
+    balance: number,
+  ) {
+    if (!session) return false;
+    const account = financialAccounts.find(
+      (item) => item.id === accountId && item.source === 'manual',
+    );
+    if (!account) {
+      setError('Il conto manuale non è più disponibile.');
+      return false;
+    }
+    if (account.accountKind === 'cash_wallet' && balance < 0) {
+      setError('Il saldo del portafoglio non può essere negativo.');
+      return false;
+    }
+    setSaving(true);
+    setError(null);
+    const { data: updated, error: updateError } = await supabase.rpc(
+      'update_manual_financial_account_opening_balance',
+      {
+        p_account_id: accountId,
+        p_opening_balance: balance,
+        p_opening_balance_as_of: account.openingBalanceAsOf ?? new Date().toISOString(),
+      },
+    );
+    if (!updateError && updated) await hydrateUserData(session.user.id);
+    setSaving(false);
+    if (updateError || !updated) {
+      if (__DEV__) console.error('Flownd manual account balance failed', updateError);
+      setError('Non siamo riusciti ad aggiornare il saldo iniziale.');
+      return false;
+    }
+    return true;
+  }
+
+  async function deleteManualFinancialAccount(accountId: string) {
+    if (!session) return false;
+    setSaving(true);
+    setError(null);
+    const { data: deleted, error: deleteError } = await supabase.rpc(
+      'delete_manual_financial_account',
+      { p_account_id: accountId },
+    );
+    if (!deleteError && deleted) await hydrateUserData(session.user.id);
+    setSaving(false);
+    if (deleteError || !deleted) {
+      if (__DEV__) console.error('Flownd manual account delete failed', deleteError);
+      setError('Non siamo riusciti a eliminare il conto.');
+      return false;
+    }
     return true;
   }
 
@@ -804,27 +1030,52 @@ export function AppProvider({ children }: PropsWithChildren) {
         : null;
     if (!nextDescription || !nextCategory || transaction.amount <= 0) return false;
 
+    const existingTransaction = transactions.find((item) => item.id === transactionId);
+    const manualAccount = existingTransaction?.financialAccountId
+      ? financialAccounts.find(
+          (account) =>
+            account.id === existingTransaction.financialAccountId &&
+            account.source === 'manual',
+        )
+      : null;
+
     setSaving(true);
     setError(null);
-    const { error: updateError } = await supabase
-      .from('transactions')
-      .update({
-        description: nextDescription,
-        amount: transaction.amount,
-        category: nextCategory,
-        kind: transaction.kind,
-        income_type: incomeTreatment?.incomeType ?? null,
-        excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
-        occurred_at: transaction.occurredAt,
-      })
-      .eq('id', transactionId)
-      .eq('user_id', session.user.id);
+    const { error: updateError } = manualAccount
+      ? await supabase.rpc('update_manual_financial_account_transaction', {
+          p_transaction_id: transactionId,
+          p_description: nextDescription,
+          p_amount: transaction.amount,
+          p_category: nextCategory,
+          p_kind: transaction.kind,
+          p_occurred_at: transaction.occurredAt,
+          p_income_type: incomeTreatment?.incomeType ?? null,
+          p_excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
+        })
+      : await supabase
+          .from('transactions')
+          .update({
+            description: nextDescription,
+            amount: transaction.amount,
+            category: nextCategory,
+            kind: transaction.kind,
+            income_type: incomeTreatment?.incomeType ?? null,
+            excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
+            occurred_at: transaction.occurredAt,
+          })
+          .eq('id', transactionId)
+          .eq('user_id', session.user.id);
     setSaving(false);
 
     if (updateError) {
       if (__DEV__) console.error('Flownd transaction update failed', updateError);
       setError('Non siamo riusciti ad aggiornare la transazione.');
       return false;
+    }
+
+    if (manualAccount) {
+      await hydrateUserData(session.user.id);
+      return true;
     }
 
     const updatedFields: Partial<ExpenseDraft> = {
@@ -943,21 +1194,34 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
     setSaving(true);
     setError(null);
-    const { error: deleteError } = await supabase
-      .from('transactions')
-      .delete()
-      .eq('id', transactionId)
-      .eq('user_id', session.user.id)
-      .in('source', ['manual', 'onboarding']);
+    const linkedManualAccount = transaction.financialAccountId
+      ? financialAccounts.some(
+          (account) =>
+            account.id === transaction.financialAccountId && account.source === 'manual',
+        )
+      : false;
+    const { error: deleteError } = linkedManualAccount
+      ? await supabase.rpc('delete_manual_financial_account_transaction', {
+          p_transaction_id: transactionId,
+        })
+      : await supabase
+          .from('transactions')
+          .delete()
+          .eq('id', transactionId)
+          .eq('user_id', session.user.id)
+          .in('source', ['manual', 'onboarding']);
     setSaving(false);
     if (deleteError) {
       if (__DEV__) console.error('Flownd transaction delete failed', deleteError);
       setError('Non siamo riusciti a eliminare la transazione.');
       return false;
     }
-    setTransactions((current) =>
-      current.filter((item) => item.id !== transactionId),
-    );
+    if (linkedManualAccount) await hydrateUserData(session.user.id);
+    else {
+      setTransactions((current) =>
+        current.filter((item) => item.id !== transactionId),
+      );
+    }
     return true;
   }
 
@@ -1187,6 +1451,59 @@ export function AppProvider({ children }: PropsWithChildren) {
     return true;
   }
 
+  async function deleteGoal(goalId: string) {
+    if (!session) {
+      setError('La sessione è scaduta. Accedi di nuovo.');
+      return false;
+    }
+    if (
+      !goals.some((goal) => goal.id === goalId) &&
+      !completedGoals.some((goal) => goal.id === goalId)
+    ) {
+      setError('Non riusciamo a identificare l’obiettivo da eliminare.');
+      return false;
+    }
+    setSaving(true);
+    setError(null);
+    const { data: deleted, error: deleteError } = await supabase.rpc(
+      'delete_goal',
+      { p_goal_id: goalId },
+    );
+    setSaving(false);
+    if (deleteError || !deleted) {
+      if (__DEV__) console.error('Flownd goal delete failed', deleteError);
+      setError('Non siamo riusciti a eliminare l’obiettivo.');
+      return false;
+    }
+    const remaining = goals
+      .filter((goal) => goal.id !== goalId)
+      .sort((first, second) => first.priority - second.priority)
+      .map((goal, priority) => ({ ...goal, priority }));
+    const currentCycle = financialCycleForDate(
+      new Date(),
+      budgetCycleStartDay,
+    );
+    setGoals(remaining);
+    setCompletedGoals((current) =>
+      current.filter((goal) => goal.id !== goalId),
+    );
+    setGoalContributions((current) =>
+      current.filter((contribution) => {
+        if (contribution.goalId !== goalId) return true;
+        const occurredAt = new Date(contribution.createdAt);
+        return occurredAt < currentCycle.start || occurredAt >= currentCycle.end;
+      }),
+    );
+    setDraft((current) => ({
+      ...current,
+      goal:
+        remaining.find((goal) => goal.status !== 'free_savings') ??
+        remaining[0] ??
+        initialDraft.goal,
+    }));
+    return true;
+  }
+
   async function setGoalAllocationMode(mode: GoalAllocationMode) {
     if (!session) return false;
     setError(null);
@@ -1203,15 +1520,34 @@ export function AppProvider({ children }: PropsWithChildren) {
   }
 
   async function moveGoal(goalId: string, direction: -1 | 1) {
-    const currentIndex = goals.findIndex((goal) => goal.id === goalId);
+    const orderedTargetGoals = [...goals]
+      .filter((goal) => goal.status === 'active')
+      .sort((first, second) => first.priority - second.priority);
+    const currentIndex = orderedTargetGoals.findIndex((goal) => goal.id === goalId);
     const nextIndex = currentIndex + direction;
-    if (!session || currentIndex < 0 || nextIndex < 0 || nextIndex >= goals.length) {
+    if (
+      !session ||
+      currentIndex < 0 ||
+      nextIndex < 0 ||
+      nextIndex >= orderedTargetGoals.length
+    ) {
       return false;
     }
-    const reordered = [...goals];
-    const [moved] = reordered.splice(currentIndex, 1);
-    reordered.splice(nextIndex, 0, moved);
-    const prioritized = reordered.map((goal, index) => ({ ...goal, priority: index }));
+    const [moved] = orderedTargetGoals.splice(currentIndex, 1);
+    orderedTargetGoals.splice(nextIndex, 0, moved);
+    const nonTargetGoals = [...goals]
+      .filter((goal) => goal.status !== 'active')
+      .sort((first, second) => first.priority - second.priority);
+    const priorities = new Map(
+      [...orderedTargetGoals, ...nonTargetGoals].map((goal, priority) => [
+        goal.id,
+        priority,
+      ]),
+    );
+    const prioritized = goals.map((goal) => ({
+      ...goal,
+      priority: priorities.get(goal.id) ?? goal.priority,
+    }));
     setGoals(prioritized);
     if (prioritized[0]) {
       setDraft((current) => ({ ...current, goal: prioritized[0] }));
@@ -1267,7 +1603,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (!session || amount <= 0) return false;
     setSaving(true);
     setError(null);
-    const { error: contributionError } = await supabase.rpc(
+    const { data: contributionResult, error: contributionError } = await supabase.rpc(
       'add_manual_goal_contribution',
       { p_amount: amount, p_goal_id: goalId ?? null },
     );
@@ -1279,60 +1615,49 @@ export function AppProvider({ children }: PropsWithChildren) {
       setError('Non siamo riusciti a registrare il contributo.');
       return false;
     }
+    const allocated = Number(
+      (contributionResult as { allocated?: number } | null)?.allocated ?? 0,
+    );
+    if (allocated > 0) {
+      setGoalContributions((current) => [
+        {
+          goalId: goalId ?? null,
+          amount: allocated,
+          createdAt: new Date().toISOString(),
+        },
+        ...current,
+      ]);
+    }
     return true;
   }
 
   async function completeGoal(goalId: string) {
     if (!session) return false;
     const completedGoal = goals.find((goal) => goal.id === goalId);
-    const nextGoal = [...goals]
-      .filter((goal) => goal.id !== goalId && goal.status === 'active')
-      .sort((first, second) => first.priority - second.priority)[0];
-    const operations = [
-      supabase
-        .from('goals')
-        .update({ active: false, status: 'completed', completed_at: new Date().toISOString() })
-        .eq('user_id', session.user.id)
-        .eq('id', goalId),
-    ];
-    if (
-      goalAllocationMode === 'priority' &&
-      completedGoal &&
-      nextGoal &&
-      completedGoal.monthlyContribution > 0
-    ) {
-      operations.push(
-        supabase
-          .from('goals')
-          .update({
-            monthly_contribution:
-              nextGoal.monthlyContribution + completedGoal.monthlyContribution,
-          })
-          .eq('user_id', session.user.id)
-          .eq('id', nextGoal.id),
-      );
-    }
-    const results = await Promise.all(operations);
-    if (results.some((result) => result.error)) {
+    const { error: updateError } = await supabase
+      .from('goals')
+      .update({ active: false, status: 'completed', completed_at: new Date().toISOString() })
+      .eq('user_id', session.user.id)
+      .eq('id', goalId);
+    if (updateError) {
       setError('Non siamo riusciti a completare l’obiettivo.');
       return false;
     }
-    const remaining = goals
-      .filter((goal) => goal.id !== goalId)
-      .map((goal) =>
-        goal.id === nextGoal?.id && goalAllocationMode === 'priority'
-          ? {
-              ...goal,
-              monthlyContribution:
-                goal.monthlyContribution +
-                (completedGoal?.monthlyContribution ?? 0),
-            }
-          : goal,
-      );
+    const remaining = goals.filter((goal) => goal.id !== goalId);
     setGoals(remaining);
-    if (draft.goal.id === goalId && remaining[0]) {
-      setDraft((current) => ({ ...current, goal: remaining[0] }));
+    if (completedGoal) {
+      setCompletedGoals((current) => [
+        { ...completedGoal, status: 'completed' },
+        ...current,
+      ]);
     }
+    setDraft((current) => ({
+      ...current,
+      goal:
+        current.goal.id === goalId
+          ? (remaining[0] ?? initialDraft.goal)
+          : current.goal,
+    }));
     return true;
   }
 
@@ -1450,6 +1775,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     draft,
     transactions,
     goals,
+    completedGoals,
+    goalContributions,
     loans,
     goalAllocationMode,
     goalNotice,
@@ -1465,12 +1792,16 @@ export function AppProvider({ children }: PropsWithChildren) {
     updateDraft: (next) => setDraft((current) => ({ ...current, ...next })),
     completeOnboarding,
     addTransaction,
+    createManualFinancialAccount,
+    updateManualFinancialAccountOpeningBalance,
+    deleteManualFinancialAccount,
     updateTransaction,
     categorizeTransactions,
     deleteTransaction,
     setTransactionBudgetInclusion,
     createGoal,
     updateGoal,
+    deleteGoal,
     setGoalAllocationMode,
     moveGoal,
     addGoalContribution,
