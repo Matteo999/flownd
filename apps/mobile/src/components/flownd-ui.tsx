@@ -72,11 +72,13 @@ export function Screen({
   scrollHeaderWithContent = false,
   style,
   floatingAction,
+  floatingActionPosition = 'right',
 }: PropsWithChildren<{
   scroll?: boolean;
   scrollHeaderWithContent?: boolean;
   style?: StyleProp<ViewStyle>;
   floatingAction?: ReactNode;
+  floatingActionPosition?: 'right' | 'center';
 }>) {
   const { colors } = useFlowndTheme();
   const [scrollY] = useState(() => new Animated.Value(0));
@@ -138,7 +140,12 @@ export function Screen({
         )}
       </ScrollHeaderContext.Provider>
       {floatingAction ? (
-        <View pointerEvents="box-none" style={styles.floatingAction}>
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.floatingAction,
+            floatingActionPosition === 'center' && styles.floatingActionCenter,
+          ]}>
           {floatingAction}
         </View>
       ) : null}
@@ -337,12 +344,14 @@ export function PageHeader({
   leading,
   action,
   collapseInPlace = false,
+  compactBorderless = false,
 }: {
   eyebrow?: string;
   title: string;
   leading?: ReactNode;
   action?: ReactNode;
   collapseInPlace?: boolean;
+  compactBorderless?: boolean;
 }) {
   const { colors } = useFlowndTheme();
   const scrollContext = useContext(ScrollHeaderContext);
@@ -401,6 +410,10 @@ export function PageHeader({
             {
               backgroundColor: colors.background,
               borderBottomColor: colors.border,
+              borderBottomWidth: compactBorderless
+                ? 0
+                : StyleSheet.hairlineWidth,
+              elevation: compactBorderless ? 0 : 8,
               opacity: compactOpacity,
               transform: [
                 { translateY: compactTranslateY },
@@ -481,6 +494,7 @@ const styles = StyleSheet.create({
     right: 20,
     bottom: 112,
   },
+  floatingActionCenter: { left: 20, alignItems: 'center' },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
   loadingMark: { marginBottom: 6 },
   loadingText: { fontFamily: font.bodyMedium, fontSize: 14 },

@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -7,13 +7,37 @@ import { Field, PrimaryButton, Screen, font, uiStyles, useFlowndTheme } from '@/
 import { TransactionDateField } from '@/components/transaction-date-field';
 import {
   categoriesForTransactionKind,
+  suggestPersonalizedTransactionCategory,
   suggestTransactionCategory,
 } from '@/lib/transaction-categories';
 import { useApp } from '@/providers/app-provider';
 
 export default function AddTransactionScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const { addTransaction, saving, error, clearError } = useApp();
+  const params = useLocalSearchParams<{ accountId?: string | string[] }>();
+  const accountId = Array.isArray(params.accountId)
+    ? params.accountId[0]
+    : params.accountId;
+  const {
+    addTransaction,
+    financialAccounts,
+    planTier,
+    transactions,
+    saving,
+    error,
+    clearError,
+  } = useApp();
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
+    accountId ?? null,
+  );
+  const [accountsOpen, setAccountsOpen] = useState(false);
+  const manualAccounts = financialAccounts.filter(
+    (account) => account.source === 'manual',
+  );
+  const selectedAccount = manualAccounts.find(
+    (account) => account.id === selectedAccountId,
+  );
+  const effectiveAccountId = selectedAccount?.id ?? null;
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
@@ -21,12 +45,24 @@ export default function AddTransactionScreen() {
   const [categoryOverride, setCategoryOverride] = useState<string | null>(null);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const suggestedCategory = useMemo(
-    () => suggestTransactionCategory(description, kind),
-    [description, kind],
+    () =>
+      planTier === 'free'
+        ? suggestTransactionCategory(description, kind)
+        : suggestPersonalizedTransactionCategory(
+            description,
+            kind,
+            transactions,
+          ),
+    [description, kind, planTier, transactions],
   );
   const category = categoryOverride ?? suggestedCategory;
   const categoryOptions = categoriesForTransactionKind(kind);
   const numericAmount = Number(amount.replace(',', '.')) || 0;
+  const insufficientCash = Boolean(
+    selectedAccount?.accountKind === 'cash_wallet' &&
+      kind === 'expense' &&
+      numericAmount > selectedAccount.balance,
+  );
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -107,6 +143,57 @@ export default function AddTransactionScreen() {
           }}
         />
         <TransactionDateField value={occurredAt} onChange={setOccurredAt} />
+        <Text style={[styles.categoryTitle, { color: colors.text }]}>Conto</Text>
+        <View
+          style={[
+            styles.categoryDropdown,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: accountsOpen }}
+            onPress={() => {
+              setCategoriesOpen(false);
+              setAccountsOpen((current) => !current);
+            }}
+            style={({ pressed }) => [styles.categoryTrigger, pressed && styles.pressed]}>
+            <Text style={[styles.categoryValue, { color: colors.text }]}>
+              {selectedAccount?.name ?? 'Automatico'}
+            </Text>
+            <Text style={[styles.dropdownIcon, { color: colors.textSecondary }]}>
+              {accountsOpen ? 'expand_less' : 'expand_more'}
+            </Text>
+          </Pressable>
+          {accountsOpen ? (
+            <View style={[styles.categoryMenu, { borderTopColor: colors.border }]}>
+              {[null, ...manualAccounts].map((option) => {
+                const optionId = option?.id ?? null;
+                const selected = effectiveAccountId === optionId;
+                return (
+                  <Pressable
+                    key={optionId ?? 'none'}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => {
+                      clearError();
+                      setSelectedAccountId(optionId);
+                      setAccountsOpen(false);
+                    }}
+                    style={({ pressed }) => [
+                      styles.categoryOption,
+                      selected && { backgroundColor: colors.accentSoft },
+                      pressed && styles.pressed,
+                    ]}>
+                    <Text style={[styles.categoryOptionText, { color: selected ? colors.accent : colors.text }]}>
+                      {option?.name ?? 'Automatico'}
+                    </Text>
+                    {selected ? <Text style={[styles.optionCheck, { color: colors.accent }]}>check</Text> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+        </View>
         <Text style={[styles.categoryTitle, { color: colors.text }]}>Categoria</Text>
         <View
           style={[
@@ -117,18 +204,21 @@ export default function AddTransactionScreen() {
             accessibilityRole="button"
             accessibilityLabel={`Categoria selezionata: ${category}`}
             accessibilityState={{ expanded: categoriesOpen }}
-            onPress={() => setCategoriesOpen((current) => !current)}
+            onPress={() => {
+              setAccountsOpen(false);
+              setCategoriesOpen((current) => !current);
+            }}
             style={({ pressed }) => [
               styles.categoryTrigger,
               pressed && styles.pressed,
             ]}>
             <Text style={[styles.categoryValue, { color: colors.text }]}>{category}</Text>
-            <Text style={[styles.dropdownIcon, { color: colors.textSecondary }]}> 
+            <Text style={[styles.dropdownIcon, { color: colors.textSecondary }]}>
               {categoriesOpen ? 'expand_less' : 'expand_more'}
             </Text>
           </Pressable>
           {categoriesOpen ? (
-            <View style={[styles.categoryMenu, { borderTopColor: colors.border }]}> 
+            <View style={[styles.categoryMenu, { borderTopColor: colors.border }]}>
               {categoryOptions.map((option) => {
                 const selected = category === option;
                 return (
@@ -168,9 +258,14 @@ export default function AddTransactionScreen() {
             il budget mensile.
           </Text>
         ) : null}
+        {insufficientCash ? (
+          <Text style={[uiStyles.error, { color: colors.negative }]}>
+            Il portafoglio non contiene abbastanza contanti.
+          </Text>
+        ) : null}
         {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
         <PrimaryButton
-          disabled={!description.trim() || numericAmount <= 0}
+          disabled={!description.trim() || numericAmount <= 0 || insufficientCash}
           loading={saving}
           onPress={async () => {
             const saved = await addTransaction({
@@ -179,6 +274,7 @@ export default function AddTransactionScreen() {
               category,
               kind,
               occurredAt: occurredAt.toISOString(),
+              financialAccountId: effectiveAccountId,
             });
             if (saved) router.back();
           }}>

@@ -21,6 +21,7 @@ export default function BudgetAllocationScreen() {
   const {
     draft,
     transactions,
+    goalContributions,
     budgetCycleStartDay,
     budgetMonthlyIncome,
     error,
@@ -50,6 +51,16 @@ export default function BudgetAllocationScreen() {
       ),
     [cycle, transactions],
   );
+  const savedThisCycle = useMemo(
+    () =>
+      goalContributions
+        .filter((contribution) => {
+          const createdAt = new Date(contribution.createdAt);
+          return createdAt >= cycle.start && createdAt < cycle.end;
+        })
+        .reduce((sum, contribution) => sum + contribution.amount, 0),
+    [cycle, goalContributions],
+  );
   const spentByGroup = useMemo(
     () =>
       expenses.reduce(
@@ -57,9 +68,9 @@ export default function BudgetAllocationScreen() {
           summary[categoryToBudgetGroup(transaction.category)] += transaction.amount;
           return summary;
         },
-        { needs: 0, wants: 0, savings: 0 },
+        { needs: 0, wants: 0, savings: savedThisCycle },
       ),
-    [expenses],
+    [expenses, savedThisCycle],
   );
 
   function spentForCategory(category: BudgetCategory) {
@@ -179,15 +190,22 @@ export default function BudgetAllocationScreen() {
 
               <View style={styles.meta}>
                 <Text style={[styles.spent, { color: colors.text }]}>
-                  {group.id === 'savings' ? `${formatEuro(group.amount)} da accantonare` : `${formatEuro(spent)} utilizzati`}
+                  {group.id === 'savings' ? `${formatEuro(spent)} accantonati` : `${formatEuro(spent)} utilizzati`}
                 </Text>
-                <Text style={[styles.remaining, { color: progress >= 0.8 ? colors.warning : colors.textSecondary }]}>
-                  {group.id === 'savings'
-                    ? `${percentage}% del piano`
-                    : `${formatEuro(Math.max(0, group.amount - spent))} disponibili`}
+                <Text
+                  style={[
+                    styles.remaining,
+                    {
+                      color:
+                        group.id !== 'savings' && progress >= 0.8
+                          ? colors.warning
+                          : colors.textSecondary,
+                    },
+                  ]}>
+                  {formatEuro(Math.max(0, group.amount - spent))} disponibili
                 </Text>
               </View>
-              <ProgressBar value={group.id === 'savings' ? percentage / 100 : progress} warning={group.id !== 'savings' && progress >= 0.8} />
+              <ProgressBar value={progress} warning={group.id !== 'savings' && progress >= 0.8} />
 
               {group.children.length ? (
                 <View style={[styles.children, { borderTopColor: colors.border }]}>

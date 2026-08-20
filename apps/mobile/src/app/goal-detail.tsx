@@ -18,7 +18,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
-import { formatEuro } from '@/lib/onboarding';
+import { formatDateItalian, formatEuro } from '@/lib/onboarding';
 import { supabase } from '@/lib/supabase';
 import { useApp } from '@/providers/app-provider';
 
@@ -50,10 +50,10 @@ export default function GoalDetailScreen() {
       if (!goalId || !session) return undefined;
       void supabase
         .from('goal_contributions')
-        .select('id,amount,source,created_at')
+        .select('id,amount,source,occurred_at')
         .eq('user_id', session.user.id)
         .eq('goal_id', goalId)
-        .order('created_at', { ascending: false })
+        .order('occurred_at', { ascending: false })
         .then(({ data, error }) => {
           if (!active) return;
           setHistoryError(Boolean(error));
@@ -62,7 +62,7 @@ export default function GoalDetailScreen() {
               id: item.id,
               amount: Number(item.amount),
               source: item.source as Contribution['source'],
-              createdAt: item.created_at,
+              createdAt: item.occurred_at,
             })),
           );
           setLoadingHistory(false);
@@ -107,29 +107,46 @@ export default function GoalDetailScreen() {
           {goal.status === 'free_savings'
             ? 'Risparmio libero'
             : goal.deadline
-              ? `Scadenza ${goal.deadline}`
+              ? `Scadenza ${formatDateItalian(goal.deadline) || goal.deadline}`
               : 'Nessuna scadenza'}
         </Text>
         <View style={styles.amountRow}>
           <Text style={[styles.amount, { color: colors.text }]}> 
             {amountsVisible ? formatEuro(goal.savedAmount) : HIDDEN_AMOUNT}
           </Text>
-          <Text style={[styles.target, { color: colors.textSecondary }]}> 
-            {amountsVisible ? `su ${formatEuro(goal.targetAmount)}` : `su ${HIDDEN_AMOUNT}`}
-          </Text>
+          {goal.status !== 'free_savings' ? (
+            <Text style={[styles.target, { color: colors.textSecondary }]}>
+              {amountsVisible ? `su ${formatEuro(goal.targetAmount)}` : `su ${HIDDEN_AMOUNT}`}
+            </Text>
+          ) : null}
         </View>
-        <ProgressBar value={progress} />
-        <Text style={[styles.progressLabel, { color: colors.accent }]}> 
-          {amountsVisible ? `${Math.round(progress * 100)}% completato` : 'Avanzamento nascosto'}
-        </Text>
+        {goal.status !== 'free_savings' ? (
+          <>
+            <ProgressBar value={progress} />
+            <Text style={[styles.progressLabel, { color: colors.accent }]}>
+              {amountsVisible ? `${Math.round(progress * 100)}% completato` : 'Avanzamento nascosto'}
+            </Text>
+          </>
+        ) : (
+          <Text style={[styles.freeSavingsCopy, { color: colors.textSecondary }]}>
+            Qui confluisce la parte della quota Risparmio non assegnata ad altri obiettivi.
+          </Text>
+        )}
       </Card>
 
-      <PrimaryButton
-        onPress={() =>
-          router.push(`/add-goal-contribution?goalId=${encodeURIComponent(goal.id)}` as Href)
-        }>
-        Registra versamento
-      </PrimaryButton>
+      {goal.status !== 'reached' ? (
+        <>
+          <PrimaryButton
+            onPress={() =>
+              router.push(`/add-goal-contribution?goalId=${encodeURIComponent(goal.id)}` as Href)
+            }>
+            Registra versamento
+          </PrimaryButton>
+          <Text style={[styles.contributionHint, { color: colors.textSecondary }]}>
+            Riduce la quota Risparmio disponibile del ciclo, senza essere conteggiato come spesa.
+          </Text>
+        </>
+      ) : null}
 
       {goal.status === 'reached' ? (
         <Card style={[styles.reached, { backgroundColor: colors.accentSoft }]}> 
@@ -274,6 +291,14 @@ const styles = StyleSheet.create({
   amount: { fontFamily: font.dataMedium, fontSize: 25 },
   target: { fontFamily: font.data, fontSize: 11 },
   progressLabel: { fontFamily: font.bodySemiBold, fontSize: 10, marginTop: 8 },
+  freeSavingsCopy: { fontFamily: font.body, fontSize: 10, lineHeight: 15 },
+  contributionHint: {
+    fontFamily: font.body,
+    fontSize: 10,
+    lineHeight: 15,
+    textAlign: 'center',
+    marginTop: 6,
+  },
   reached: { marginTop: 12 },
   reachedTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   reachedCopy: { fontFamily: font.body, fontSize: 11, lineHeight: 17, marginTop: 4 },

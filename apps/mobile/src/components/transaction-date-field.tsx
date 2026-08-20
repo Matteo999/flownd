@@ -28,17 +28,22 @@ function preserveTime(date: Date, current: Date) {
 export function TransactionDateField({
   value,
   onChange,
+  label = 'Data',
+  minimumDate,
+  maximumDate = new Date(),
 }: {
   value: Date;
   onChange: (date: Date) => void;
+  label?: string;
+  minimumDate?: Date;
+  maximumDate?: Date;
 }) {
   const { colors, isDark } = useFlowndTheme();
   const [open, setOpen] = useState(false);
-  const today = new Date();
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.label, { color: colors.text }]}>Data</Text>
+      <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Data della transazione: ${formatTransactionDate(value)}`}
@@ -64,7 +69,8 @@ export function TransactionDateField({
           mode="date"
           display="default"
           presentation="dialog"
-          maximumDate={today}
+          minimumDate={minimumDate}
+          maximumDate={maximumDate}
           accentColor={colors.accent}
           positiveButton={{ label: 'Conferma' }}
           negativeButton={{ label: 'Annulla' }}
@@ -101,7 +107,8 @@ export function TransactionDateField({
                 mode="date"
                 display="inline"
                 locale="it_IT"
-                maximumDate={today}
+                minimumDate={minimumDate}
+                maximumDate={maximumDate}
                 accentColor={colors.accent}
                 themeVariant={isDark ? 'dark' : 'light'}
                 onValueChange={(_event, date) => onChange(preserveTime(date, value))}

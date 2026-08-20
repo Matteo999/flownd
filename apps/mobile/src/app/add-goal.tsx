@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,6 +19,7 @@ import {
   uiStyles,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { GoalDateField } from '@/components/goal-date-field';
 import { useApp } from '@/providers/app-provider';
 
 export default function AddGoalScreen() {
@@ -31,15 +33,15 @@ export default function AddGoalScreen() {
   const {
     createGoal,
     updateGoal,
+    deleteGoal,
     saving,
     error,
     clearError,
     goals,
-    draft,
-    budgetMonthlyIncome,
     goalAllocationMode,
   } = useApp();
   const existingGoal = goals.find((goal) => goal.id === params.goalId);
+  const isFreeSavings = existingGoal?.status === 'free_savings';
   const [name, setName] = useState(existingGoal?.name ?? params.name ?? '');
   const [target, setTarget] = useState(
     existingGoal ? String(existingGoal.targetAmount) : params.target ?? '',
@@ -48,16 +50,13 @@ export default function AddGoalScreen() {
     existingGoal?.deadline ?? params.deadline ?? '',
   );
   const targetAmount = Number(target.replace(',', '.')) || 0;
-  const savingsMacro = draft.budgets.find((item) => item.id === 'savings');
-  const savingsPool = savingsMacro
-    ? (budgetMonthlyIncome * savingsMacro.percentage) / 100
-    : draft.budgets
-        .filter((item) => item.parentId === 'savings')
-        .reduce((sum, item) => sum + item.amount, 0);
   const usedPercentage = goals
-    .filter((goal) => goal.id !== existingGoal?.id)
+    .filter(
+      (goal) =>
+        goal.id !== existingGoal?.id && goal.status === 'active',
+    )
     .reduce((sum, goal) => sum + goal.allocationPercentage, 0);
-  const valid = Boolean(name.trim()) && targetAmount > 0;
+  const valid = Boolean(name.trim()) && (isFreeSavings || targetAmount > 0);
 
   return (
     <KeyboardAvoidingView
@@ -81,11 +80,19 @@ export default function AddGoalScreen() {
         </View>
 
         <Text style={[uiStyles.title, { color: colors.text }]}>{existingGoal ? 'Aggiorna il tuo piano' : 'Per cosa vuoi risparmiare?'}</Text>
-        <Text style={[uiStyles.subtitle, { color: colors.textSecondary }]}>Definisci il traguardo. Flownd lo inserirà automaticamente in coda agli altri obiettivi.</Text>
+        <Text style={[uiStyles.subtitle, { color: colors.textSecondary }]}>
+          {isFreeSavings
+            ? 'Il risparmio libero raccoglie la parte della quota mensile non assegnata ad altri obiettivi.'
+            : 'Definisci il traguardo. Flownd lo inserirà automaticamente in coda agli altri obiettivi.'}
+        </Text>
 
         <Field label="Nome" placeholder="es. Fondo emergenza" value={name} autoFocus onChangeText={(value) => { clearError(); setName(value); }} />
-        <Field label="Importo target" placeholder="0,00" suffix="€" keyboardType="decimal-pad" value={target} onChangeText={(value) => { clearError(); setTarget(value); }} />
-        <Field label="Scadenza" placeholder="AAAA-MM-GG" value={deadline} onChangeText={setDeadline} />
+        {!isFreeSavings ? (
+          <>
+            <Field label="Importo target" placeholder="0,00" suffix="€" keyboardType="decimal-pad" value={target} onChangeText={(value) => { clearError(); setTarget(value); }} />
+            <GoalDateField value={deadline} onChange={setDeadline} />
+          </>
+        ) : null}
         {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
         <PrimaryButton
           disabled={!valid}
@@ -93,13 +100,10 @@ export default function AddGoalScreen() {
           onPress={async () => {
             const values = {
               name: name.trim(),
-              targetAmount,
-              deadline,
-              monthlyContribution:
-                existingGoal?.monthlyContribution ??
-                (goalAllocationMode === 'priority'
-                  ? Math.max(targetAmount, savingsPool)
-                  : 0),
+              targetAmount: isFreeSavings
+                ? (existingGoal?.targetAmount ?? 1)
+                : targetAmount,
+              deadline: isFreeSavings ? '' : deadline,
               allocationPercentage:
                 existingGoal?.allocationPercentage ??
                 (goalAllocationMode === 'percentage'
@@ -113,6 +117,41 @@ export default function AddGoalScreen() {
           }}>
           {existingGoal ? 'Salva modifiche' : 'Crea obiettivo'}
         </PrimaryButton>
+        {existingGoal ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Elimina ${existingGoal.name}`}
+            disabled={saving}
+            onPress={() => {
+              Alert.alert(
+                'Eliminare l’obiettivo?',
+                existingGoal.savedAmount > 0
+                  ? `“${existingGoal.name}” verrà rimosso dagli obiettivi attivi. I versamenti già effettuati resteranno nei totali storici del budget.`
+                  : `“${existingGoal.name}” verrà eliminato definitivamente. La quota futura tornerà disponibile.`,
+                [
+                  { text: 'Annulla', style: 'cancel' },
+                  {
+                    text: 'Elimina',
+                    style: 'destructive',
+                    onPress: () => {
+                      void deleteGoal(existingGoal.id).then((deleted) => {
+                        if (deleted) router.replace('/goals');
+                      });
+                    },
+                  },
+                ],
+              );
+            }}
+            style={({ pressed }) => [
+              styles.deleteButton,
+              { borderColor: colors.negative },
+              pressed && styles.pressed,
+            ]}>
+            <Text style={[styles.deleteText, { color: colors.negative }]}>
+              Elimina obiettivo
+            </Text>
+          </Pressable>
+        ) : null}
       </Screen>
     </KeyboardAvoidingView>
   );
@@ -125,4 +164,14 @@ const styles = StyleSheet.create({
   closeText: { fontFamily: font.body, fontSize: 25, lineHeight: 28 },
   headerTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   headerSpacer: { width: 40 },
+  deleteButton: {
+    minHeight: 44,
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteText: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  pressed: { opacity: 0.7 },
 });

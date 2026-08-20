@@ -2,7 +2,7 @@ import PagerView, {
   type PagerViewRef,
 } from '@expo/ui/community/pager-view';
 import { router, type Href } from 'expo-router';
-import { useMemo, useRef, useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -34,6 +34,7 @@ import {
   formatEuro,
   summarizeBudgets,
 } from '@/lib/onboarding';
+import { buildNetWorthHistory } from '@/lib/wealth-history';
 import { useApp } from '@/providers/app-provider';
 
 const periodLabels: { id: DashboardPeriod; label: string }[] = [
@@ -50,7 +51,9 @@ export default function DashboardScreen() {
   const { colors, isDark } = useFlowndTheme();
   const {
     draft,
+    goals,
     transactions,
+    goalContributions,
     financialAccounts,
     planTier,
     upcomingPayments,
@@ -98,31 +101,42 @@ export default function DashboardScreen() {
   const previousSpent = previousCycleTransactions
     .filter((transaction) => transaction.kind !== 'income')
     .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const savedThisCycle = goalContributions
+    .filter((contribution) => {
+      const createdAt = new Date(contribution.createdAt);
+      return createdAt >= financialCycle.start && createdAt < financialCycle.end;
+    })
+    .reduce((sum, contribution) => sum + contribution.amount, 0);
+  const savedPreviousCycle = goalContributions
+    .filter((contribution) => {
+      const createdAt = new Date(contribution.createdAt);
+      return createdAt >= previousCycle.start && createdAt < previousCycle.end;
+    })
+    .reduce((sum, contribution) => sum + contribution.amount, 0);
   const rolloverAmount =
     budgetRolloverMode === 'reset'
       ? 0
-      : Math.max(0, previousIncome - previousSpent);
+      : Math.max(0, previousIncome - previousSpent - savedPreviousCycle);
   const monthlyBudget = budgetMonthlyIncome + rolloverAmount;
-  const chartTransactions = useMemo(
-    () =>
-      transactionsForPeriod(transactions, chartPeriod).filter(
-        (transaction) =>
-          transaction.kind !== 'income' && !transaction.excludedFromTotals,
-      ),
-    [chartPeriod, transactions],
-  );
+  const chartPeriodTransactions = chartPeriod === 'month'
+    ? transactionsForFinancialCycle(transactions, financialCycle)
+    : transactionsForPeriod(transactions, chartPeriod);
+  const chartTransactions = chartPeriodTransactions.filter(
+      (transaction) =>
+        transaction.kind !== 'income' && !transaction.excludedFromTotals,
+    );
   const monthlySpent = monthlyTransactions.reduce(
     (sum, transaction) => sum + transaction.amount,
     0,
   );
-  const monthlyRemaining = monthlyBudget - monthlySpent;
+  const monthlyRemaining = monthlyBudget - monthlySpent - savedThisCycle;
   const spentByGroup = monthlyTransactions.reduce(
     (summary, transaction) => {
       const group = categoryToBudgetGroup(transaction.category);
       summary[group] += transaction.amount;
       return summary;
     },
-    { needs: 0, wants: 0, savings: 0 },
+    { needs: 0, wants: 0, savings: savedThisCycle },
   );
   const budgetRows = budgetSummary.map((budget) => {
     const allocationShare = budget.percentage / 100;
@@ -143,38 +157,37 @@ export default function DashboardScreen() {
     };
   });
   const budgetAlert = [...budgetRows]
-    .filter((budget) => budget.progress >= 0.8)
+    .filter((budget) => budget.id !== 'savings' && budget.progress >= 0.8)
     .sort((first, second) => second.progress - first.progress)[0];
 
   const aggregatedNetWorth = financialAccounts.reduce(
     (sum, account) => sum + account.balance,
     0,
   );
-  const previousNetWorth = financialAccounts.reduce(
-    (sum, account) => sum + (account.previousMonthBalance ?? account.balance),
-    0,
-  );
-  const hasPreviousNetWorth = financialAccounts.some(
-    (account) => account.previousMonthBalance != null,
-  );
+  const netWorthHistory = buildNetWorthHistory({
+    currentNetWorth: aggregatedNetWorth,
+    financialAccountIds: financialAccounts.map((account) => account.id),
+    transactions,
+  });
+  const previousNetWorth = netWorthHistory[0]?.value ?? aggregatedNetWorth;
+  const hasPreviousNetWorth = financialAccounts.length > 0;
   const netWorthDelta = aggregatedNetWorth - previousNetWorth;
-  const savedTowardGoal = draft.goal.savedAmount ?? 0;
-  const goalProgress = draft.goal.targetAmount
-    ? savedTowardGoal / draft.goal.targetAmount
+  const featuredGoal = [...goals]
+    .filter((goal) => goal.status !== 'free_savings')
+    .sort((first, second) => first.priority - second.priority)[0];
+  const savedTowardGoal = featuredGoal?.savedAmount ?? 0;
+  const goalProgress = featuredGoal?.targetAmount
+    ? savedTowardGoal / featuredGoal.targetAmount
     : 0;
   const hasRecentData = isRecentSource(
     transactions,
     financialAccounts.map((account) => account.lastSyncedAt),
   );
-  const chartCategoryCount = useMemo(
-    () =>
-      new Set(
-        chartTransactions.map(
-          (transaction) => transaction.category.trim() || 'Altro',
-        ),
-      ).size,
-    [chartTransactions],
-  );
+  const chartCategoryCount = new Set(
+    chartTransactions.map(
+      (transaction) => transaction.category.trim() || 'Altro',
+    ),
+  ).size;
 
   return (
     <Screen
@@ -195,6 +208,7 @@ export default function DashboardScreen() {
         title="Dashboard"
         action={
           <AppHeaderActions
+            showNotifications
             leading={
               <Pressable
                 accessibilityRole="switch"
@@ -408,7 +422,9 @@ export default function DashboardScreen() {
             Ottimo inizio: il tuo spazio è pronto.
           </Text>
           <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
-            Hai impostato il budget e creato l’obiettivo “{draft.goal.name}”.
+            {featuredGoal
+              ? `Hai impostato il budget e creato l’obiettivo “${featuredGoal.name}”.`
+              : 'Hai impostato il tuo primo budget.'}
           </Text>
         </Card>
       ) : null}
@@ -452,6 +468,11 @@ export default function DashboardScreen() {
           {chartCategoryCount >= 2 ? (
             <SpendingDonutChart
               amountsVisible={amountsVisible}
+              totalLabel={
+                chartPeriod === 'month'
+                  ? 'TOTALE SPESO NEL CICLO'
+                  : 'TOTALE SPESO'
+              }
               transactions={chartTransactions}
             />
           ) : (
@@ -511,10 +532,10 @@ export default function DashboardScreen() {
         </Card>
       ) : null}
 
-      {draft.goal.name && draft.goal.targetAmount > 0 ? (
+      {featuredGoal ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Apri l’obiettivo ${draft.goal.name}`}
+          accessibilityLabel={`Apri l’obiettivo ${featuredGoal.name}`}
           onPress={() => router.push('/(tabs)/goals' as Href)}
           style={({ pressed }) => pressed && styles.iconPressed}>
           <Card style={styles.contentCard}>
@@ -524,11 +545,11 @@ export default function DashboardScreen() {
                   OBIETTIVO IN EVIDENZA
                 </Text>
                 <Text style={[styles.goalName, { color: colors.text }]}>
-                  {draft.goal.name}
+                  {featuredGoal.name}
                 </Text>
                 <Text style={[styles.goalAmount, { color: colors.textSecondary }]}>
                   {amountsVisible
-                    ? `${formatEuro(savedTowardGoal)} di ${formatEuro(draft.goal.targetAmount)}`
+                    ? `${formatEuro(savedTowardGoal)} di ${formatEuro(featuredGoal.targetAmount)}`
                     : `${HIDDEN_AMOUNT} di ${HIDDEN_AMOUNT}`}
                 </Text>
               </View>

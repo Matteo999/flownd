@@ -6,30 +6,38 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { font, useFlowndTheme } from '@/components/flownd-ui';
 import { useApp } from '@/providers/app-provider';
 
-export function AppHeaderActions({ leading }: { leading?: ReactNode }) {
+export function AppHeaderActions({
+  leading,
+  showNotifications = false,
+}: {
+  leading?: ReactNode;
+  showNotifications?: boolean;
+}) {
   const { colors } = useFlowndTheme();
   const { goalNotice } = useApp();
 
   return (
     <View style={styles.actions}>
       {leading}
-      <Pressable
-        accessibilityLabel={goalNotice ? 'Notifiche, nuove notifiche presenti' : 'Notifiche'}
-        accessibilityRole="button"
-        hitSlop={6}
-        onPress={() => router.push('/notifications' as Href)}
-        style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
-        <Text style={[styles.materialIcon, { color: colors.text }]}>notifications</Text>
-        {goalNotice ? (
-          <View
-            accessibilityElementsHidden
-            style={[
-              styles.notificationBadge,
-              { backgroundColor: colors.negative, borderColor: colors.background },
-            ]}
-          />
-        ) : null}
-      </Pressable>
+      {showNotifications ? (
+        <Pressable
+          accessibilityLabel={goalNotice ? 'Notifiche, nuove notifiche presenti' : 'Notifiche'}
+          accessibilityRole="button"
+          hitSlop={6}
+          onPress={() => router.push('/notifications' as Href)}
+          style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
+          <Text style={[styles.materialIcon, { color: colors.text }]}>notifications</Text>
+          {goalNotice ? (
+            <View
+              accessibilityElementsHidden
+              style={[
+                styles.notificationBadge,
+                { backgroundColor: colors.negative, borderColor: colors.background },
+              ]}
+            />
+          ) : null}
+        </Pressable>
+      ) : null}
       <Pressable
         accessibilityLabel="Apri profilo"
         accessibilityRole="button"

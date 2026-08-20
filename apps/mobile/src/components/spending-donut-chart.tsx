@@ -49,13 +49,15 @@ function percentageAccessibilityLabel(amount: number, total: number) {
 export function SpendingDonutChart({
   transactions,
   amountsVisible = true,
+  totalLabel = 'TOTALE SPESO',
 }: {
   transactions: ExpenseDraft[];
   amountsVisible?: boolean;
+  totalLabel?: string;
 }) {
   const { colors } = useFlowndTheme();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const grouped = Array.from(
+  const allCategories = Array.from(
     transactions.reduce((categories, transaction) => {
       const category = transaction.category.trim() || 'Altro';
       categories.set(
@@ -67,7 +69,16 @@ export function SpendingDonutChart({
   )
     .map(([category, amount]) => ({ category, amount }))
     .sort((first, second) => second.amount - first.amount);
-  const total = grouped.reduce((sum, item) => sum + item.amount, 0);
+  const topCategories = allCategories
+    .filter((item) => item.category.toLocaleLowerCase('it-IT') !== 'altro')
+    .slice(0, 5);
+  const total = allCategories.reduce((sum, item) => sum + item.amount, 0);
+  const topTotal = topCategories.reduce((sum, item) => sum + item.amount, 0);
+  const otherAmount = total - topTotal;
+  const grouped = [
+    ...topCategories,
+    ...(otherAmount > 0 ? [{ category: 'Altro', amount: otherAmount }] : []),
+  ];
   // Keep the combined whitespace around 2% of the ring. A fixed gap per slice
   // can otherwise erase small categories as their number grows.
   const gapLength =
@@ -146,7 +157,7 @@ export function SpendingDonutChart({
       onPress={() => setSelectedCategory(null)}>
       <View style={styles.totalHeader}>
         <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>
-          TOTALE SPESO
+          {totalLabel}
         </Text>
         <Text
           adjustsFontSizeToFit

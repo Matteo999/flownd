@@ -18,6 +18,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
+import { financialCycleForDate } from '@/lib/financial-cycle';
 import type { Goal } from '@/lib/goals';
 import { formatEuro } from '@/lib/onboarding';
 import { useApp } from '@/providers/app-provider';
@@ -26,17 +27,19 @@ export default function GoalSettingsScreen() {
   const { colors, isDark } = useFlowndTheme();
   const {
     goals,
+    goalContributions,
     loans,
     draft,
     budgetMonthlyIncome,
+    budgetCycleStartDay,
     amountsVisible,
     goalAllocationMode,
     setGoalAllocationMode,
     moveGoal,
     updateGoal,
   } = useApp();
-  const activeGoals = [...goals]
-    .filter((goal) => goal.status === 'active' || goal.status === 'free_savings')
+  const targetGoals = [...goals]
+    .filter((goal) => goal.status === 'active')
     .sort((first, second) => first.priority - second.priority);
   const savingsMacro = draft.budgets.find((item) => item.id === 'savings');
   const savingsPool = savingsMacro
@@ -44,18 +47,20 @@ export default function GoalSettingsScreen() {
     : draft.budgets
         .filter((item) => item.parentId === 'savings')
         .reduce((sum, item) => sum + item.amount, 0);
-  const requested = activeGoals.reduce(
-    (sum, goal) => sum + goal.monthlyContribution,
-    0,
-  );
-  const percentageTotal = activeGoals.reduce(
+  const cycle = financialCycleForDate(new Date(), budgetCycleStartDay);
+  const savedThisCycle = goalContributions
+    .filter((contribution) => {
+      const createdAt = new Date(contribution.createdAt);
+      return createdAt >= cycle.start && createdAt < cycle.end;
+    })
+    .reduce((sum, contribution) => sum + contribution.amount, 0);
+  const availableSavings = Math.max(0, savingsPool - savedThisCycle);
+  const percentageTotal = targetGoals.reduce(
     (sum, goal) => sum + goal.allocationPercentage,
     0,
   );
-  const needsAttention =
-    goalAllocationMode === 'priority'
-      ? requested > savingsPool
-      : percentageTotal > 100;
+  const freePercentage = Math.max(0, 100 - percentageTotal);
+  const needsAttention = percentageTotal > 100;
 
   return (
     <Screen>
@@ -82,41 +87,61 @@ export default function GoalSettingsScreen() {
         </View>
         <Text style={[styles.modeCopy, { color: colors.textSecondary }]}> 
           {goalAllocationMode === 'priority'
-            ? 'I contributi seguono la lista dall’alto verso il basso.'
-            : 'Ogni contributo viene suddiviso tra gli obiettivi secondo le quote configurate.'}
+            ? 'L’intera quota Risparmio va al primo obiettivo. L’eventuale eccedenza passa al successivo.'
+            : 'La quota Risparmio viene suddivisa tra gli obiettivi. La parte non assegnata resta nel Risparmio libero.'}
         </Text>
         <View style={styles.poolRow}>
-          <Text style={[styles.poolLabel, { color: colors.textSecondary }]}>Pool Risparmio</Text>
-          <Text style={[styles.poolValue, { color: colors.text }]}> 
+          <Text style={[styles.poolLabel, { color: colors.textSecondary }]}>Quota pianificata</Text>
+          <Text style={[styles.poolValue, { color: colors.text }]}>
             {amountsVisible ? formatEuro(savingsPool) : HIDDEN_AMOUNT}
           </Text>
         </View>
+        <View style={styles.poolRow}>
+          <Text style={[styles.poolLabel, { color: colors.textSecondary }]}>Accantonato nel ciclo</Text>
+          <Text style={[styles.poolValue, { color: colors.text }]}>
+            {amountsVisible ? formatEuro(savedThisCycle) : HIDDEN_AMOUNT}
+          </Text>
+        </View>
+        <View style={styles.poolRow}>
+          <Text style={[styles.poolLabel, { color: colors.textSecondary }]}>Ancora disponibile</Text>
+          <Text style={[styles.poolValue, { color: colors.accent }]}>
+            {amountsVisible ? formatEuro(availableSavings) : HIDDEN_AMOUNT}
+          </Text>
+        </View>
+        {goalAllocationMode === 'percentage' ? (
+          <View style={styles.poolRow}>
+            <Text style={[styles.poolLabel, { color: colors.textSecondary }]}>Risparmio libero</Text>
+            <Text style={[styles.poolValue, { color: colors.text }]}>
+              {amountsVisible
+                ? `${freePercentage}% · ${formatEuro((savingsPool * freePercentage) / 100)}`
+                : HIDDEN_AMOUNT}
+            </Text>
+          </View>
+        ) : null}
       </Card>
 
       {needsAttention ? (
         <Card style={[styles.warning, { backgroundColor: colors.warningSoft }]}> 
           <Text style={[styles.warningTitle, { color: colors.warning }]}>Quote da rivedere</Text>
           <Text style={[styles.warningCopy, { color: colors.textSecondary }]}> 
-            {goalAllocationMode === 'priority'
-              ? `${formatEuro(requested)} richiesti su ${formatEuro(savingsPool)} disponibili.`
-              : `Le percentuali arrivano al ${percentageTotal}%. Devono restare entro il 100%.`}
+            Le percentuali arrivano al {percentageTotal}%. Riducile fino a un massimo del 100%.
           </Text>
         </Card>
       ) : null}
 
-      {goalAllocationMode === 'priority' && activeGoals.length > 1 ? (
+      {goalAllocationMode === 'priority' && targetGoals.length ? (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Ordine di priorità</Text>
           <Text style={[styles.sectionCopy, { color: colors.textSecondary }]}> 
-            Trascina una riga verso l’alto o il basso per cambiarne la priorità.
+            Il primo obiettivo riceve l’intera quota mensile. Trascina le righe per cambiare l’ordine.
           </Text>
           <View style={styles.goalList}>
-            {activeGoals.map((goal, index) => (
+            {targetGoals.map((goal, index) => (
               <SortableGoalRow
                 key={goal.id}
                 goal={goal}
                 first={index === 0}
-                last={index === activeGoals.length - 1}
+                last={index === targetGoals.length - 1}
                 onMove={(direction) => void moveGoal(goal.id, direction)}
               />
             ))}
@@ -124,17 +149,21 @@ export default function GoalSettingsScreen() {
         </View>
       ) : null}
 
-      {goalAllocationMode === 'percentage' && activeGoals.length ? (
+      {goalAllocationMode === 'percentage' && targetGoals.length ? (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Quote percentuali</Text>
           <Text style={[styles.sectionCopy, { color: colors.textSecondary }]}> 
-            Regola ogni quota a passi del 5%. Il totale deve restare entro il 100%.
+            Regola ogni quota a passi del 5%. Ciò che rimane confluisce nel Risparmio libero.
           </Text>
           <View style={styles.goalList}>
-            {activeGoals.map((goal) => (
+            {targetGoals.map((goal) => (
               <PercentageRow
                 key={goal.id}
                 goal={goal}
+                maxValue={Math.max(
+                  0,
+                  100 - (percentageTotal - goal.allocationPercentage),
+                )}
                 onChange={(value) =>
                   void updateGoal(goal.id, { allocationPercentage: value })
                 }
@@ -268,13 +297,16 @@ function SortableGoalRow({
 
 function PercentageRow({
   goal,
+  maxValue,
   onChange,
 }: {
   goal: Goal;
+  maxValue: number;
   onChange: (value: number) => void;
 }) {
   const { colors } = useFlowndTheme();
   const value = Math.max(0, Math.min(100, goal.allocationPercentage));
+  const canIncrease = value < Math.min(100, maxValue);
   return (
     <View
       style={[
@@ -294,10 +326,10 @@ function PercentageRow({
       <Text style={[styles.percentageValue, { color: colors.text }]}>{value}%</Text>
       <Pressable
         accessibilityLabel={`Aumenta quota di ${goal.name}`}
-        disabled={value >= 100}
-        onPress={() => onChange(Math.min(100, value + 5))}
+        disabled={!canIncrease}
+        onPress={() => onChange(Math.min(100, maxValue, value + 5))}
         style={[styles.stepButton, { backgroundColor: colors.sunken }]}> 
-        <Text style={[styles.stepIcon, { color: value >= 100 ? colors.border : colors.text }]}>add</Text>
+        <Text style={[styles.stepIcon, { color: canIncrease ? colors.text : colors.border }]}>add</Text>
       </Pressable>
     </View>
   );
