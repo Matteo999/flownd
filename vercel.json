@@ -9,7 +9,7 @@
   "crons": [
     {
       "path": "/api/eb/auto-sync",
-      "schedule": "*/15 * * * *"
+      "schedule": "17 5 * * *"
     }
   ],
   "rewrites": [
