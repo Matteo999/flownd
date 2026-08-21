@@ -202,6 +202,12 @@ type TransactionHistoryRow = {
   internal_transfer: boolean | null;
   excluded_from_budget: boolean | null;
   income_type: string | null;
+  raw_description: string | null;
+  merchant_name: string | null;
+  counterparty_name: string | null;
+  import_memo: string | null;
+  import_reference: string | null;
+  import_confidence: number | string | null;
 };
 
 async function fetchTransactionHistory(userId: string) {
@@ -210,7 +216,7 @@ async function fetchTransactionHistory(userId: string) {
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from('transactions')
-      .select('id,description,amount,category,occurred_at,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type')
+      .select('id,description,amount,category,occurred_at,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type,raw_description,merchant_name,counterparty_name,import_memo,import_reference,import_confidence')
       .eq('user_id', userId)
       .order('occurred_at', { ascending: false })
       .range(from, from + pageSize - 1);
@@ -359,6 +365,13 @@ export function AppProvider({ children }: PropsWithChildren) {
       internalTransfer: Boolean(item.internal_transfer),
       excludedFromBudget: Boolean(item.excluded_from_budget),
       incomeType: item.income_type as ExpenseDraft['incomeType'],
+      rawDescription: item.raw_description,
+      merchantName: item.merchant_name,
+      counterpartyName: item.counterparty_name,
+      memo: item.import_memo,
+      bankReference: item.import_reference,
+      importConfidence:
+        item.import_confidence == null ? null : Number(item.import_confidence),
     }));
     const incomeBand = goalSettingsResult.data.income_band as IncomeBandId | null;
     const plannedMonthlyIncome = incomeReferenceForBand(incomeBand);
@@ -789,6 +802,12 @@ export function AppProvider({ children }: PropsWithChildren) {
                 occurredAt,
                 kind,
               }),
+              raw_description: transaction.rawDescription ?? transaction.description,
+              merchant_name: transaction.merchantName ?? null,
+              counterparty_name: transaction.counterpartyName ?? null,
+              import_memo: transaction.memo ?? null,
+              import_reference: transaction.bankReference ?? null,
+              import_confidence: transaction.importConfidence ?? null,
             }
           : {}),
       };
@@ -829,6 +848,12 @@ export function AppProvider({ children }: PropsWithChildren) {
       incomeType: incomeTreatment?.incomeType,
       excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
       financialAccountId: null,
+      rawDescription: transaction.rawDescription ?? null,
+      merchantName: transaction.merchantName ?? null,
+      counterpartyName: transaction.counterpartyName ?? null,
+      memo: transaction.memo ?? null,
+      bankReference: transaction.bankReference ?? null,
+      importConfidence: transaction.importConfidence ?? null,
     };
     if (recordedTransaction.kind !== 'income') {
       setDraft((current) => ({ ...current, expense: recordedTransaction }));

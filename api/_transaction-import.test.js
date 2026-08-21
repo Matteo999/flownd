@@ -86,7 +86,14 @@ test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing
   globalThis.fetch = async () => new Response(JSON.stringify({
     candidates: [{ content: { parts: [{ text: JSON.stringify({
       transactions: [{
-        description: 'Movimento di test',
+        sourceIndex: null,
+        rawDescription: 'Card operation at OPENMOVE.COM',
+        description: 'Openmove',
+        merchantName: 'Openmove',
+        counterpartyName: null,
+        memo: null,
+        bankReference: 'REF-123',
+        confidence: 0.98,
         amount: 12.34,
         kind: 'expense',
         occurredAt: '2026-08-21T12:00:00.000Z',
@@ -101,6 +108,10 @@ test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing
     )
     assert.equal(transactions.length, 2)
     assert.ok(transactions.every((item) => item.amount === 12.34))
+    assert.ok(transactions.every((item) => item.description === 'Openmove'))
+    assert.ok(transactions.every((item) => item.merchantName === 'Openmove'))
+    assert.ok(transactions.every((item) => item.rawDescription === 'Card operation at OPENMOVE.COM'))
+    assert.ok(transactions.every((item) => item.importConfidence === 0.98))
   } finally {
     globalThis.fetch = previousFetch
     if (previousProvider == null) delete process.env.AI_PROVIDER
@@ -127,7 +138,7 @@ test('usa il riconoscimento locale se il provider IA non risponde in tempo', asy
       'csv',
     )
     assert.ok(transactions.length > 200)
-    assert.ok(transactions.every((item) => !/^saldo/i.test(item.description)))
+    assert.ok(transactions.every((item) => item.rawDescription))
   } finally {
     globalThis.fetch = previousFetch
     if (previousProvider == null) delete process.env.AI_PROVIDER

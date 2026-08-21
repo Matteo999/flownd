@@ -126,6 +126,11 @@ async function reconcileTransaction({
     const linkedUpdate = {
       bank_status: normalized.status,
       financial_account_id: financialAccountId,
+      raw_description: normalized.rawDescription,
+      merchant_name: normalized.merchantName,
+      counterparty_name: normalized.counterpartyName,
+      import_reference: normalized.entryReference || normalized.providerTransactionId,
+      import_confidence: normalized.merchantName || normalized.counterpartyName ? 1 : 0.5,
       ...(normalized.status !== 'booked' ? { excluded_from_totals: true } : {}),
     }
     const { error } = await service
@@ -196,6 +201,11 @@ async function reconcileTransaction({
         (normalized.refundHint || normalized.category === 'Tredicesima'),
       financial_account_id: financialAccountId,
       bank_status: 'booked',
+      raw_description: normalized.rawDescription,
+      merchant_name: normalized.merchantName,
+      counterparty_name: normalized.counterpartyName,
+      import_reference: normalized.entryReference || normalized.providerTransactionId,
+      import_confidence: normalized.merchantName || normalized.counterpartyName ? 1 : 0.5,
     })
     .select('id')
     .single()

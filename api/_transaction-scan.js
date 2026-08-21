@@ -7,7 +7,15 @@ const CATEGORIES = [
   'Assicurazioni', 'Investimenti', 'Regali', 'Stipendio', 'Rimborsi', 'Altro',
 ]
 
-const instructions = `Analizza una foto di scontrino o uno screenshot bancario italiano. Estrai solo transazioni chiaramente visibili. Restituisci JSON con transactions. amount deve essere positivo; kind è expense o income; occurredAt è ISO 8601; category deve essere una delle categorie consentite. Non inventare dati. Se la data non è visibile usa null e se non ci sono transazioni restituisci un array vuoto.`
+const instructions = `Analizza una foto di scontrino o uno screenshot bancario in qualsiasi lingua. Estrai solo transazioni chiaramente visibili. Per ogni transazione separa semanticamente merchantName, counterpartyName, memo e bankReference, usando null quando il dato non è esplicito. description è una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo; rawDescription conserva il testo originale rilevante. Mantieni i nomi propri nella lingua originale e non inventare dati. confidence è tra 0 e 1; amount è positivo; kind è expense o income; occurredAt è ISO 8601; category deve essere una delle categorie consentite. Se la data non è visibile usa null e se non ci sono transazioni restituisci un array vuoto.`
+
+function cleanText(value, limit = 500) {
+  return String(value ?? '')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit)
+}
 
 function parseModelJson(text) {
   const clean = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
@@ -31,8 +39,17 @@ function safeTransactions(value) {
     const amount = Number(item?.amount)
     const occurredAt = item?.occurredAt ? new Date(item.occurredAt) : new Date()
     if (!item?.description || !Number.isFinite(amount) || amount <= 0 || Number.isNaN(occurredAt.getTime())) return []
+    const merchantName = cleanText(item.merchantName, 180) || null
+    const counterpartyName = cleanText(item.counterpartyName, 180) || null
+    const memo = cleanText(item.memo, 500) || null
     return [{
-      description: String(item.description).trim().slice(0, 180),
+      description: cleanText(merchantName || counterpartyName || item.description || memo, 180),
+      rawDescription: cleanText(item.rawDescription || item.description, 1000),
+      merchantName,
+      counterpartyName,
+      memo,
+      bankReference: cleanText(item.bankReference, 180) || null,
+      importConfidence: Math.max(0, Math.min(1, Number(item.confidence) || 0)),
       amount,
       kind: item.kind === 'income' ? 'income' : 'expense',
       occurredAt: occurredAt.toISOString(),
@@ -56,9 +73,12 @@ async function openAI(dataUrl) {
       text: { format: { type: 'json_schema', name: 'transaction_scan', strict: true, schema: {
         type: 'object',
         properties: { transactions: { type: 'array', items: { type: 'object', properties: {
-          description: { type: 'string' }, amount: { type: 'number' }, kind: { type: 'string', enum: ['expense', 'income'] },
+          rawDescription: { type: 'string' }, description: { type: 'string' }, merchantName: { type: ['string', 'null'] },
+          counterpartyName: { type: ['string', 'null'] }, memo: { type: ['string', 'null'] },
+          bankReference: { type: ['string', 'null'] }, confidence: { type: 'number' },
+          amount: { type: 'number' }, kind: { type: 'string', enum: ['expense', 'income'] },
           occurredAt: { type: ['string', 'null'] }, category: { type: 'string', enum: CATEGORIES },
-        }, required: ['description', 'amount', 'kind', 'occurredAt', 'category'], additionalProperties: false } } },
+        }, required: ['rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'category'], additionalProperties: false } } },
         required: ['transactions'], additionalProperties: false,
       } } },
     }),

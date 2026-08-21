@@ -15,7 +15,7 @@ const CATEGORIES = [
   'Assicurazioni', 'Investimenti', 'Regali', 'Stipendio', 'Rimborsi', 'Altro',
 ]
 
-const aiInstructions = `Sei il motore di importazione bancaria di Flownd. Ricevi una porzione di CSV, XLSX o PDF bancario, potenzialmente con colonne e formati non standard. Estrai ogni movimento reale senza inventare dati. Escludi saldi iniziali/finali, totali e intestazioni. Usa la descrizione più informativa disponibile (esercente, beneficiario o causale specifica), non una voce generica come "Pagamento carta" se è visibile un dettaglio migliore. amount deve essere positivo, kind deve essere expense o income, occurredAt deve essere ISO 8601 e category deve appartenere alle categorie consentite.`
+const aiInstructions = `Sei il motore multilingue di importazione bancaria di Flownd. Ricevi una porzione di CSV, XLSX o PDF bancario, potenzialmente con colonne e formati non standard e in qualsiasi lingua. Estrai ogni movimento reale senza inventare dati. Escludi saldi, totali e intestazioni. Se è presente sourceIndex, riportalo invariato. Seleziona semanticamente merchantName, counterpartyName, memo e bankReference; usa null quando il dato non è esplicito. description deve essere una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo, senza formule tecniche della banca, date, orari, numeri carta, importi o IBAN. Mantieni i nomi propri nella lingua originale. rawDescription deve contenere il testo originale rilevante solo quando sourceIndex non è disponibile. confidence è un numero tra 0 e 1. amount deve essere positivo, kind deve essere expense o income, occurredAt deve essere ISO 8601 e category deve appartenere alle categorie consentite.`
 
 function normalized(value) {
   return String(value ?? '')
@@ -68,13 +68,27 @@ function isoDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
+function cleanImportedText(value, limit = 500) {
+  return String(value ?? '')
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit)
+}
+
 function candidate(description, signedAmount, occurredAt) {
-  const cleanDescription = String(description ?? '').replace(/\s+/g, ' ').trim()
+  const cleanDescription = cleanImportedText(description, 180)
   const amount = Number(signedAmount)
   if (!cleanDescription || !occurredAt || !Number.isFinite(amount) || amount === 0) return null
-  if (/^(saldo\s+(iniziale|finale)|totale\b)/i.test(cleanDescription)) return null
   return {
     description: cleanDescription.slice(0, 180),
+    rawDescription: cleanImportedText(description, 1000),
+    merchantName: null,
+    counterpartyName: null,
+    memo: null,
+    bankReference: null,
+    importConfidence: 0,
     amount: Math.abs(amount),
     kind: amount < 0 ? 'expense' : 'income',
     occurredAt,
@@ -222,14 +236,34 @@ export function parseModelJson(text) {
   }
 }
 
-function aiTransactions(value) {
+function aiTransactions(value, chunk) {
   const items = Array.isArray(value?.transactions) ? value.transactions : []
   return items.flatMap((item) => {
     const rawAmount = Number(item?.amount)
     const date = new Date(item?.occurredAt)
     if (!item?.description || !Number.isFinite(rawAmount) || rawAmount === 0 || Number.isNaN(date.getTime())) return []
+    const sourceRow = Number.isInteger(item?.sourceIndex)
+      ? chunk?.sourceRows?.find((row) => row.sourceIndex === item.sourceIndex)
+      : null
+    const merchantName = cleanImportedText(item.merchantName, 180) || null
+    const counterpartyName = cleanImportedText(item.counterpartyName, 180) || null
+    const memo = cleanImportedText(item.memo, 500) || null
+    const rawDescription = sourceRow?.rawDescription
+      || cleanImportedText(item.rawDescription, 1000)
+      || cleanImportedText(item.description, 1000)
+    const description = cleanImportedText(
+      merchantName || counterpartyName || item.description || memo,
+      180,
+    )
+    if (!description) return []
     return [{
-      description: String(item.description).replace(/\s+/g, ' ').trim().slice(0, 180),
+      description,
+      rawDescription,
+      merchantName,
+      counterpartyName,
+      memo,
+      bankReference: cleanImportedText(item.bankReference, 180) || null,
+      importConfidence: Math.max(0, Math.min(1, Number(item.confidence) || 0)),
       amount: Math.abs(rawAmount),
       kind: item.kind === 'income' || rawAmount > 0 && item.kind !== 'expense' ? 'income' : 'expense',
       occurredAt: date.toISOString(),
@@ -255,9 +289,12 @@ async function openAIExtract(chunk, signal) {
       text: { format: { type: 'json_schema', name: 'transaction_import', strict: true, schema: {
         type: 'object',
         properties: { transactions: { type: 'array', items: { type: 'object', properties: {
-          description: { type: 'string' }, amount: { type: 'number' }, kind: { type: 'string', enum: ['expense', 'income'] },
+          sourceIndex: { type: ['integer', 'null'] }, rawDescription: { type: ['string', 'null'] },
+          description: { type: 'string' }, merchantName: { type: ['string', 'null'] }, counterpartyName: { type: ['string', 'null'] },
+          memo: { type: ['string', 'null'] }, bankReference: { type: ['string', 'null'] }, confidence: { type: 'number' },
+          amount: { type: 'number' }, kind: { type: 'string', enum: ['expense', 'income'] },
           occurredAt: { type: 'string' }, category: { type: 'string', enum: CATEGORIES },
-        }, required: ['description', 'amount', 'kind', 'occurredAt', 'category'], additionalProperties: false } } },
+        }, required: ['sourceIndex', 'rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'category'], additionalProperties: false } } },
         required: ['transactions'], additionalProperties: false,
       } } },
     }),
@@ -271,7 +308,7 @@ async function openAIExtract(chunk, signal) {
   }
   if (!response.ok) throw new Error(data?.error?.message || `OpenAI failed with ${response.status}`)
   const output = (data.output || []).flatMap((item) => item.content || []).find((part) => part.type === 'output_text')?.text
-  return aiTransactions(parseModelJson(output))
+  return aiTransactions(parseModelJson(output), chunk)
 }
 
 async function geminiExtract(chunk, signal) {
@@ -306,7 +343,7 @@ async function geminiExtract(chunk, signal) {
     throw providerError
   }
   const output = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('')
-  return aiTransactions(parseModelJson(output))
+  return aiTransactions(parseModelJson(output), chunk)
 }
 
 export async function fileChunks(buffer, extension) {
@@ -314,7 +351,12 @@ export async function fileChunks(buffer, extension) {
     const rows = delimitedRows(buffer.toString('utf8').replace(/^\uFEFF/, ''))
     const chunks = []
     for (let index = 0; index < rows.length; index += 120) {
-      chunks.push({ text: `Formato CSV. Righe in JSON:\n${JSON.stringify(rows.slice(index, index + 120))}` })
+      const sourceRows = rows.slice(index, index + 120).map((row, offset) => ({
+        sourceIndex: index + offset,
+        rawDescription: cleanImportedText(row.filter((cell) => String(cell ?? '').trim()).join(' | '), 1000),
+        row,
+      }))
+      chunks.push({ text: `Formato CSV. Righe in JSON:\n${JSON.stringify(sourceRows.map(({ sourceIndex, row }) => ({ sourceIndex, row })))}`, sourceRows })
     }
     return chunks
   }
@@ -323,7 +365,12 @@ export async function fileChunks(buffer, extension) {
     const rows = await readXlsxFile(buffer)
     const chunks = []
     for (let index = 0; index < rows.length; index += 120) {
-      chunks.push({ text: `Formato foglio di calcolo. Righe in JSON:\n${JSON.stringify(rows.slice(index, index + 120))}` })
+      const sourceRows = rows.slice(index, index + 120).map((row, offset) => ({
+        sourceIndex: index + offset,
+        rawDescription: cleanImportedText(row.filter((cell) => String(cell ?? '').trim()).join(' | '), 1000),
+        row,
+      }))
+      chunks.push({ text: `Formato foglio di calcolo. Righe in JSON:\n${JSON.stringify(sourceRows.map(({ sourceIndex, row }) => ({ sourceIndex, row })))}`, sourceRows })
     }
     return chunks
   }

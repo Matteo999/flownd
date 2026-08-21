@@ -37,28 +37,6 @@ function indicator(transaction) {
   return value.includes('CRDT') || value.includes('CREDIT') ? 'credit' : 'debit'
 }
 
-function extractMerchant(text) {
-  const patterns = [
-    /\bpresso\s+(.+?)(?=\s+(?:tessera|causale|data|via\b|[-–]\s*transazione)|$)/i,
-    /\beserc\.?\s+(.+?)(?=\s+(?:tessera|causale|data)|$)/i,
-    /\bc\/o\s+(.+?)(?=\s+(?:tessera|causale|data)|$)/i,
-  ]
-  for (const pattern of patterns) {
-    const match = text.match(pattern)
-    if (match?.[1]) return clean(match[1])
-  }
-  return null
-}
-
-function extractLabeledValue(text, label) {
-  const match = text.match(new RegExp(`\\b${label}\\s*:\\s*(.+?)(?=\\s+(?:Causale|Data|Cod\\.|Banca|Cro|Note|Id\\.)\\b|$)`, 'i'))
-  return match?.[1] ? clean(match[1]) : null
-}
-
-function genericBankDescription(value) {
-  return /^(pmnt|pagamento carta|bonifico|storno scrittura)$/i.test(clean(value))
-}
-
 function describe(transaction) {
   const direction = indicator(transaction)
   const lines = remittanceLines(transaction)
@@ -68,27 +46,38 @@ function describe(transaction) {
       ? transaction.creditor?.name
       : transaction.debtor?.name,
   )
-  const merchant = extractMerchant(fullRemittance)
-  const labeledCounterparty =
-    extractLabeledValue(fullRemittance, 'Ordinante')
-    || extractLabeledValue(fullRemittance, 'Beneficiario')
+  const merchant = clean(
+    transaction.merchant?.name
+      || transaction.merchant_name
+      || transaction.card_acceptor?.name,
+  )
+  const conciseRemittance = lines
+    .filter((line) => {
+      const compact = clean(line)
+      const digits = (compact.match(/\d/g) || []).length
+      return compact.length >= 3 && digits / compact.length < 0.15
+    })
+    .sort((first, second) => first.length - second.length)[0] || clean(lines[0])
+  const ultimateParty = clean(
+    direction === 'debit'
+      ? transaction.ultimate_creditor?.name
+      : transaction.ultimate_debtor?.name,
+  )
   const bankDescription = clean(transaction.bank_transaction_code?.description)
-  const genericTransfer = /bonifico a (?:vostro|vs) favore/i.test(lines[0] || '')
-  const secondLine = genericTransfer ? clean(lines[1]) : ''
 
   const description =
-    counterparty
-    || merchant
-    || secondLine
-    || labeledCounterparty
-    || (!genericBankDescription(bankDescription) ? bankDescription : '')
-    || clean(lines[0])
+    merchant
+    || counterparty
+    || ultimateParty
+    || conciseRemittance
     || bankDescription
-    || 'Transazione bancaria'
+    || 'Bank transaction'
 
   return {
     description: description.slice(0, 180),
-    counterparty: (counterparty || merchant || secondLine || labeledCounterparty || null),
+    counterparty: (merchant || counterparty || ultimateParty || null),
+    merchantName: merchant || null,
+    counterpartyName: counterparty || ultimateParty || null,
     remittance: fullRemittance,
   }
 }
@@ -228,6 +217,9 @@ export function normalizeBankTransaction(transaction, accountIdentity) {
     occurredOn,
     description: described.description,
     counterparty: described.counterparty,
+    rawDescription: described.remittance || described.description,
+    merchantName: described.merchantName,
+    counterpartyName: described.counterpartyName,
     category: categoryFor({
       description: described.description,
       remittance: described.remittance,
@@ -258,9 +250,8 @@ export function redactBankPayload(value) {
 }
 
 export function descriptionSimilarity(first, second) {
-  const ignored = new Set(['del', 'della', 'con', 'presso', 'pagamento', 'transazione'])
   const tokens = (value) =>
-    new Set(normalized(value).split(' ').filter((token) => token.length > 2 && !ignored.has(token)))
+    new Set(normalized(value).split(' ').filter((token) => token.length > 2))
   const a = tokens(first)
   const b = tokens(second)
   if (!a.size || !b.size) return 0

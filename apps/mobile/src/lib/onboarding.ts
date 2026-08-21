@@ -101,6 +101,12 @@ export type ExpenseDraft = {
   category: string;
   occurredAt?: string;
   source?: string;
+  rawDescription?: string | null;
+  merchantName?: string | null;
+  counterpartyName?: string | null;
+  memo?: string | null;
+  bankReference?: string | null;
+  importConfidence?: number | null;
   kind?: 'expense' | 'income';
   financialAccountId?: string | null;
   bankStatus?: string | null;
