@@ -1,5 +1,3 @@
-import { PDFParse } from 'pdf-parse'
-import readXlsxFile from 'read-excel-file/node'
 import { randomUUID } from 'node:crypto'
 
 import { authenticateUserRequest } from './eb/_supabase.js'
@@ -272,6 +270,7 @@ export async function fileChunks(buffer, extension) {
     return chunks
   }
   if (extension === 'xlsx') {
+    const { default: readXlsxFile } = await import('read-excel-file/node')
     const rows = await readXlsxFile(buffer)
     const chunks = []
     for (let index = 0; index < rows.length; index += 60) {
@@ -279,6 +278,7 @@ export async function fileChunks(buffer, extension) {
     }
     return chunks
   }
+  const { PDFParse } = await import('pdf-parse')
   const parser = new PDFParse({ data: buffer })
   try {
     const result = await parser.getText()

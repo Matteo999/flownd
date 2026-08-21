@@ -1780,6 +1780,11 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
   }
 
+  const refreshData = useCallback(async () => {
+    const userId = session?.user.id;
+    if (userId) await hydrateUserData(userId);
+  }, [hydrateUserData, session?.user.id]);
+
   const value: AppContextValue = {
     session,
     loading,
@@ -1830,9 +1835,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     dismissFirstVisit: () => setFirstDashboardVisit(false),
     toggleAmountsVisible,
     clearError: () => setError(null),
-    refreshData: async () => {
-      if (session?.user.id) await hydrateUserData(session.user.id);
-    },
+    refreshData,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

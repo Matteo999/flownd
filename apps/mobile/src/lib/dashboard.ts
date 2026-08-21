@@ -23,7 +23,28 @@ export function isInPeriod(
   } else {
     start.setMonth(0, 1);
   }
-  return occurred >= start && occurred <= now;
+
+  const end = new Date(start);
+  if (period === 'week') end.setDate(end.getDate() + 7);
+  else if (period === 'month') end.setMonth(end.getMonth() + 1);
+  else end.setFullYear(end.getFullYear() + 1);
+
+  const actualNow = new Date();
+  const currentPeriodStart = new Date(actualNow);
+  currentPeriodStart.setHours(0, 0, 0, 0);
+  if (period === 'week') {
+    const weekday = currentPeriodStart.getDay() || 7;
+    currentPeriodStart.setDate(currentPeriodStart.getDate() - weekday + 1);
+  } else if (period === 'month') {
+    currentPeriodStart.setDate(1);
+  } else {
+    currentPeriodStart.setMonth(0, 1);
+  }
+
+  const effectiveEnd = start.getTime() === currentPeriodStart.getTime()
+    ? actualNow
+    : end;
+  return occurred >= start && occurred < effectiveEnd;
 }
 
 export function transactionsForPeriod(
