@@ -5,12 +5,15 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -18,6 +21,7 @@ import {
 
 import {
   Card,
+  Field,
   GradientButton,
   PrimaryButton,
   Screen,
@@ -25,7 +29,8 @@ import {
   uiStyles,
   useFlowndTheme,
 } from '@/components/flownd-ui';
-import { formatDateItalian, formatEuro } from '@/lib/onboarding';
+import { TransactionDateField } from '@/components/transaction-date-field';
+import { type ExpenseDraft, formatDateItalian, formatEuro } from '@/lib/onboarding';
 import {
   analyzeTransactionFile,
   duplicateIndexes,
@@ -34,20 +39,29 @@ import {
   reportClientError,
   scanTransactionImage,
 } from '@/lib/transaction-import';
-import { suggestTransactionCategory } from '@/lib/transaction-categories';
-import { useApp } from '@/providers/app-provider';
+import {
+  categoriesForTransactionKind,
+  suggestPersonalizedTransactionCategory,
+  suggestTransactionCategory,
+} from '@/lib/transaction-categories';
+import { type FinancialAccount, useApp } from '@/providers/app-provider';
 
 type ImportMode = 'file' | 'ai';
 
 export default function TransactionImportScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const params = useLocalSearchParams<{ mode?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    mode?: string | string[];
+    source?: string | string[];
+  }>();
   const requestedMode = Array.isArray(params.mode) ? params.mode[0] : params.mode;
+  const requestedSource = Array.isArray(params.source) ? params.source[0] : params.source;
   const mode: ImportMode = requestedMode === 'ai' ? 'ai' : 'file';
   const {
     addTransaction,
     clearError,
     error,
+    financialAccounts,
     planTier,
     saving,
     session,
@@ -57,6 +71,9 @@ export default function TransactionImportScreen() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<ImportedTransaction[]>([]);
   const [excluded, setExcluded] = useState<Set<number>>(() => new Set());
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const autoLaunchRef = useRef(false);
+  const isPaid = planTier !== 'free';
   const duplicates = useMemo(
     () => duplicateIndexes(candidates, transactions),
     [candidates, transactions],
@@ -65,18 +82,18 @@ export default function TransactionImportScreen() {
     (_, index) => !duplicates.has(index) && !excluded.has(index),
   );
 
-  async function showOperationalError(context: string, reason: unknown) {
+  const showOperationalError = useCallback(async (context: string, reason: unknown) => {
     setAnalysisError(GENERIC_OPERATION_ERROR);
     await reportClientError(session?.access_token, context, reason);
-  }
+  }, [session]);
 
-  function showCandidates(items: ImportedTransaction[]) {
+  const showCandidates = useCallback((items: ImportedTransaction[]) => {
     setCandidates(items);
     setExcluded(new Set());
     setAnalysisError(null);
-  }
+  }, []);
 
-  async function chooseFile() {
+  const chooseFile = useCallback(async () => {
     if (!session?.access_token) {
       return showOperationalError('transaction_file_missing_session', new Error('Missing session'));
     }
@@ -110,9 +127,9 @@ export default function TransactionImportScreen() {
     } finally {
       setAnalyzing(false);
     }
-  }
+  }, [clearError, session, showCandidates, showOperationalError]);
 
-  async function analyzeImage(asset: ImagePicker.ImagePickerAsset) {
+  const analyzeImage = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
     if (!session?.access_token) {
       return showOperationalError('transaction_image_missing_session', new Error('Missing session'));
     }
@@ -138,9 +155,9 @@ export default function TransactionImportScreen() {
     } finally {
       setAnalyzing(false);
     }
-  }
+  }, [session, showCandidates, showOperationalError]);
 
-  async function chooseScreenshot() {
+  const chooseScreenshot = useCallback(async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
@@ -151,9 +168,9 @@ export default function TransactionImportScreen() {
     } catch (reason) {
       await showOperationalError('transaction_image_picker', reason);
     }
-  }
+  }, [analyzeImage, showOperationalError]);
 
-  async function takeReceiptPhoto() {
+  const takeReceiptPhoto = useCallback(async () => {
     try {
       if (Platform.OS === 'ios' && !Device.isDevice) {
         throw new Error('Camera unavailable on iOS Simulator');
@@ -175,7 +192,20 @@ export default function TransactionImportScreen() {
     } catch (reason) {
       await showOperationalError('transaction_camera', reason);
     }
-  }
+  }, [analyzeImage, showOperationalError]);
+
+  useEffect(() => {
+    if (autoLaunchRef.current || !requestedSource) return;
+    if ((requestedSource === 'camera' || requestedSource === 'library') && !isPaid) return;
+    const timer = setTimeout(() => {
+      if (autoLaunchRef.current) return;
+      autoLaunchRef.current = true;
+      if (requestedSource === 'camera') void takeReceiptPhoto();
+      if (requestedSource === 'library') void chooseScreenshot();
+      if (requestedSource === 'file') void chooseFile();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [chooseFile, chooseScreenshot, isPaid, requestedSource, takeReceiptPhoto]);
 
   async function importSelected() {
     for (const item of selected) {
@@ -198,7 +228,6 @@ export default function TransactionImportScreen() {
     );
   }
 
-  const isPaid = planTier !== 'free';
   const title = mode === 'ai' ? 'Scansiona con Flownd AI' : 'Importa con Flownd AI';
 
   return (
@@ -288,36 +317,51 @@ export default function TransactionImportScreen() {
               const active = !duplicate && !omitted;
               const category = item.category ?? suggestTransactionCategory(item.description, item.kind ?? 'expense');
               return (
-                <Pressable
+                <View
                   key={`${item.occurredAt}:${item.amount}:${index}`}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: active, disabled: duplicate }}
-                  disabled={duplicate}
-                  onPress={() => setExcluded((current) => {
-                    const next = new Set(current);
-                    if (next.has(index)) next.delete(index);
-                    else next.add(index);
-                    return next;
-                  })}
                   style={[
                     styles.transaction,
                     { backgroundColor: colors.surface, borderColor: colors.border },
                     !active && styles.inactive,
-                  ]}
-                >
-                  <Text style={[styles.check, { color: duplicate ? colors.warning : colors.accent }]}>
-                    {duplicate ? 'difference' : active ? 'check_circle' : 'radio_button_unchecked'}
-                  </Text>
-                  <View style={styles.transactionCopy}>
+                  ]}>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: active, disabled: duplicate }}
+                    disabled={duplicate}
+                    hitSlop={8}
+                    onPress={() => setExcluded((current) => {
+                      const next = new Set(current);
+                      if (next.has(index)) next.delete(index);
+                      else next.add(index);
+                      return next;
+                    })}>
+                    <Text style={[styles.check, { color: duplicate ? colors.warning : colors.accent }]}>
+                      {duplicate ? 'difference' : active ? 'check_circle' : 'radio_button_unchecked'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Modifica ${item.description}`}
+                    onPress={() => setEditingIndex(index)}
+                    style={styles.transactionCopy}>
                     <Text numberOfLines={1} style={[styles.description, { color: colors.text }]}>{item.description}</Text>
                     <Text style={[styles.meta, { color: colors.textSecondary }]}>
                       {formatDateItalian(item.occurredAt ?? '')} · {category}{duplicate ? ' · Duplicato' : ''}
                     </Text>
+                  </Pressable>
+                  <View style={styles.transactionTrailing}>
+                    <Text style={[styles.amount, { color: item.kind === 'income' ? colors.positive : colors.text }]}>
+                      {item.kind === 'income' ? '+' : '−'}{formatEuro(item.amount)}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Modifica ${item.description}`}
+                      hitSlop={8}
+                      onPress={() => setEditingIndex(index)}>
+                      <Text style={[styles.editIcon, { color: colors.accent }]}>edit</Text>
+                    </Pressable>
                   </View>
-                  <Text style={[styles.amount, { color: item.kind === 'income' ? colors.positive : colors.text }]}>
-                    {item.kind === 'income' ? '+' : '−'}{formatEuro(item.amount)}
-                  </Text>
-                </Pressable>
+                </View>
               );
             })}
           </View>
@@ -329,7 +373,233 @@ export default function TransactionImportScreen() {
           </PrimaryButton>
         </>
       )}
+      {editingIndex != null && candidates[editingIndex] ? (
+        <CandidateEditor
+          key={editingIndex}
+          transaction={candidates[editingIndex]}
+          financialAccounts={financialAccounts}
+          history={transactions}
+          planTier={planTier}
+          onClose={() => setEditingIndex(null)}
+          onSave={(updated) => {
+            setCandidates((current) =>
+              current.map((item, index) => index === editingIndex ? updated : item),
+            );
+            setExcluded((current) => {
+              const next = new Set(current);
+              next.delete(editingIndex);
+              return next;
+            });
+            setEditingIndex(null);
+          }}
+        />
+      ) : null}
     </Screen>
+  );
+}
+
+function CandidateEditor({
+  transaction,
+  financialAccounts,
+  history,
+  planTier,
+  onClose,
+  onSave,
+}: {
+  transaction: ImportedTransaction;
+  financialAccounts: FinancialAccount[];
+  history: ExpenseDraft[];
+  planTier: 'free' | 'pro' | 'max';
+  onClose: () => void;
+  onSave: (transaction: ImportedTransaction) => void;
+}) {
+  const { colors } = useFlowndTheme();
+  const manualAccounts = financialAccounts.filter((account) => account.source === 'manual');
+  const [kind, setKind] = useState<'expense' | 'income'>(transaction.kind ?? 'expense');
+  const [description, setDescription] = useState(transaction.description);
+  const [amount, setAmount] = useState(String(transaction.amount).replace('.', ','));
+  const parsedDate = transaction.occurredAt ? new Date(transaction.occurredAt) : new Date();
+  const [occurredAt, setOccurredAt] = useState(
+    Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
+  );
+  const [category, setCategory] = useState(
+    transaction.category ?? suggestTransactionCategory(transaction.description, kind),
+  );
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
+    transaction.financialAccountId ?? null,
+  );
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [accountsOpen, setAccountsOpen] = useState(false);
+  const selectedAccount = manualAccounts.find((account) => account.id === selectedAccountId);
+  const numericAmount = Number(amount.replace(',', '.')) || 0;
+  const insufficientCash = Boolean(
+    selectedAccount?.accountKind === 'cash_wallet'
+      && kind === 'expense'
+      && numericAmount > selectedAccount.balance,
+  );
+
+  function changeKind(nextKind: 'expense' | 'income') {
+    setKind(nextKind);
+    setCategory(
+      planTier === 'free'
+        ? suggestTransactionCategory(description, nextKind)
+        : suggestPersonalizedTransactionCategory(description, nextKind, history),
+    );
+    setCategoriesOpen(false);
+  }
+
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={[styles.editorScreen, { backgroundColor: colors.background }]}>
+        <View style={[styles.editorHeader, { borderBottomColor: colors.border }]}>
+          <Pressable accessibilityRole="button" onPress={onClose} hitSlop={10}>
+            <Text style={[styles.editorHeaderAction, { color: colors.textSecondary }]}>Annulla</Text>
+          </Pressable>
+          <Text style={[styles.editorTitle, { color: colors.text }]}>Modifica transazione</Text>
+          <Pressable
+            accessibilityRole="button"
+            disabled={!description.trim() || numericAmount <= 0 || insufficientCash}
+            onPress={() => onSave({
+              description: description.trim(),
+              amount: numericAmount,
+              category,
+              kind,
+              occurredAt: occurredAt.toISOString(),
+              financialAccountId: selectedAccount?.id ?? null,
+            })}
+            hitSlop={10}>
+            <Text style={[
+              styles.editorHeaderAction,
+              { color: colors.accent },
+              (!description.trim() || numericAmount <= 0 || insufficientCash) && styles.inactive,
+            ]}>Salva</Text>
+          </Pressable>
+        </View>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.editorContent}>
+          <View accessibilityRole="tablist" style={[styles.kindControl, { backgroundColor: colors.sunken }]}>
+            {([
+              { id: 'expense', label: 'Uscita' },
+              { id: 'income', label: 'Entrata' },
+            ] as const).map((option) => (
+              <Pressable
+                key={option.id}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: kind === option.id }}
+                onPress={() => changeKind(option.id)}
+                style={[styles.kindButton, kind === option.id && { backgroundColor: colors.surface }]}>
+                <Text style={[styles.kindText, { color: kind === option.id ? colors.text : colors.textSecondary }]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Field label="Descrizione" value={description} onChangeText={setDescription} />
+          <Field
+            label="Importo"
+            suffix="€"
+            keyboardType="decimal-pad"
+            value={amount}
+            onChangeText={setAmount}
+          />
+          <TransactionDateField value={occurredAt} onChange={setOccurredAt} />
+          <EditorDropdown
+            label="Conto"
+            value={selectedAccount?.name ?? 'Automatico'}
+            open={accountsOpen}
+            onToggle={() => {
+              setCategoriesOpen(false);
+              setAccountsOpen((current) => !current);
+            }}
+            options={[
+              { id: 'automatic', label: 'Automatico', selected: !selectedAccount },
+              ...manualAccounts.map((account) => ({
+                id: account.id,
+                label: account.name,
+                selected: selectedAccount?.id === account.id,
+              })),
+            ]}
+            onSelect={(id) => {
+              setSelectedAccountId(id === 'automatic' ? null : id);
+              setAccountsOpen(false);
+            }}
+          />
+          <EditorDropdown
+            label="Categoria"
+            value={category}
+            open={categoriesOpen}
+            onToggle={() => {
+              setAccountsOpen(false);
+              setCategoriesOpen((current) => !current);
+            }}
+            options={categoriesForTransactionKind(kind).map((option) => ({
+              id: option,
+              label: option,
+              selected: category === option,
+            }))}
+            onSelect={(nextCategory) => {
+              setCategory(nextCategory);
+              setCategoriesOpen(false);
+            }}
+          />
+          {insufficientCash ? (
+            <Text style={[uiStyles.error, { color: colors.negative }]}>Il portafoglio non contiene abbastanza contanti.</Text>
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function EditorDropdown({
+  label,
+  value,
+  open,
+  options,
+  onToggle,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  open: boolean;
+  options: { id: string; label: string; selected: boolean }[];
+  onToggle: () => void;
+  onSelect: (id: string) => void;
+}) {
+  const { colors } = useFlowndTheme();
+  return (
+    <View style={styles.dropdownWrap}>
+      <Text style={[styles.dropdownLabel, { color: colors.text }]}>{label}</Text>
+      <View style={[styles.dropdown, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={styles.dropdownTrigger}>
+          <Text style={[styles.dropdownValue, { color: colors.text }]}>{value}</Text>
+          <Text style={[styles.dropdownIcon, { color: colors.textSecondary }]}>{open ? 'expand_less' : 'expand_more'}</Text>
+        </Pressable>
+        {open ? (
+          <View style={[styles.dropdownMenu, { borderTopColor: colors.border }]}>
+            {options.map((option) => (
+              <Pressable
+                key={option.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: option.selected }}
+                onPress={() => onSelect(option.id)}
+                style={[styles.dropdownOption, option.selected && { backgroundColor: colors.accentSoft }]}>
+                <Text style={[styles.dropdownOptionText, { color: option.selected ? colors.accent : colors.text }]}>{option.label}</Text>
+                {option.selected ? <Text style={[styles.optionCheck, { color: colors.accent }]}>check</Text> : null}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    </View>
   );
 }
 
@@ -353,7 +623,34 @@ const styles = StyleSheet.create({
   inactive: { opacity: 0.48 },
   check: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21, lineHeight: 24 },
   transactionCopy: { flex: 1 },
+  transactionTrailing: { alignItems: 'flex-end', gap: 5 },
   description: { fontFamily: font.bodyMedium, fontSize: 13, marginBottom: 3 },
   meta: { fontFamily: font.body, fontSize: 10 },
   amount: { fontFamily: font.dataMedium, fontSize: 12 },
+  editIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 18, lineHeight: 20 },
+  editorScreen: { flex: 1 },
+  editorHeader: {
+    minHeight: 58,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  editorTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
+  editorHeaderAction: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  editorContent: { padding: 20, paddingBottom: 48 },
+  kindControl: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 8 },
+  kindButton: { flex: 1, minHeight: 42, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  kindText: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  dropdownWrap: { marginTop: 18 },
+  dropdownLabel: { fontFamily: font.bodySemiBold, fontSize: 13, marginBottom: 7 },
+  dropdown: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
+  dropdownTrigger: { minHeight: 48, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center' },
+  dropdownValue: { flex: 1, fontFamily: font.bodyMedium, fontSize: 13 },
+  dropdownIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21, lineHeight: 24 },
+  dropdownMenu: { borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 5 },
+  dropdownOption: { minHeight: 42, marginHorizontal: 5, paddingHorizontal: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
+  dropdownOptionText: { flex: 1, fontFamily: font.body, fontSize: 12 },
+  optionCheck: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 18, lineHeight: 21 },
 });

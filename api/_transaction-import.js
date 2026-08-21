@@ -149,9 +149,13 @@ export function rowsCandidates(rows, extension) {
 }
 
 export async function spreadsheetCandidates(buffer, extension) {
-  const rows = extension === 'csv'
-    ? delimitedRows(buffer.toString('utf8').replace(/^\uFEFF/, ''))
-    : await readXlsxFile(buffer)
+  let rows
+  if (extension === 'csv') {
+    rows = delimitedRows(buffer.toString('utf8').replace(/^\uFEFF/, ''))
+  } else {
+    const { default: readXlsxFile } = await import('read-excel-file/node')
+    rows = await readXlsxFile(buffer)
+  }
   return rowsCandidates(rows, extension)
 }
 
@@ -255,7 +259,12 @@ async function geminiExtract(chunk) {
   } catch {
     throw new Error(`Gemini returned non-JSON (${response.status}): ${body.slice(0, 200)}`)
   }
-  if (!response.ok) throw new Error(data?.error?.message || `Gemini failed with ${response.status}`)
+  if (!response.ok) {
+    const providerError = new Error(data?.error?.message || `Gemini failed with ${response.status}`)
+    providerError.providerStatus = response.status
+    providerError.providerCode = data?.error?.status || null
+    throw providerError
+  }
   const output = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('')
   return aiTransactions(parseModelJson(output))
 }
@@ -303,6 +312,49 @@ export async function fileChunks(buffer, extension) {
   }
 }
 
+export function isTransientAiError(error) {
+  const status = Number(error?.providerStatus || error?.status)
+  const message = String(error?.message || '').toLowerCase()
+  return [429, 500, 502, 503, 504].includes(status)
+    || message.includes('high demand')
+    || message.includes('temporar')
+    || message.includes('overloaded')
+    || message.includes('resource exhausted')
+}
+
+export async function withAiRetry(operation, {
+  attempts = 3,
+  delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+} = {}) {
+  let lastError
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await operation(attempt)
+    } catch (error) {
+      lastError = error
+      if (!isTransientAiError(error) || attempt === attempts - 1) throw error
+      await delay(700 * 2 ** attempt + Math.floor(Math.random() * 250))
+    }
+  }
+  throw lastError
+}
+
+async function mapWithConcurrency(items, concurrency, operation) {
+  const results = new Array(items.length)
+  let nextIndex = 0
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await operation(items[index], index)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  )
+  return results
+}
+
 export async function extractFileWithAI(buffer, extension) {
   const provider = process.env.AI_PROVIDER?.toLowerCase() === 'gemini' || (!process.env.OPENAI_API_KEY && process.env.GEMINI_API_KEY)
     ? 'gemini' : 'openai'
@@ -310,9 +362,10 @@ export async function extractFileWithAI(buffer, extension) {
   if (provider === 'gemini' && !process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY missing')
   const chunks = await fileChunks(buffer, extension)
   if (!chunks.length) throw new Error('File contains no analyzable content')
-  const batches = await Promise.all(chunks.map((chunk) =>
-    provider === 'gemini' ? geminiExtract(chunk) : openAIExtract(chunk),
-  ))
+  // Limita i picchi di richieste e ritenta soltanto gli errori temporanei del provider.
+  const batches = await mapWithConcurrency(chunks, 2, (chunk) =>
+    withAiRetry(() => provider === 'gemini' ? geminiExtract(chunk) : openAIExtract(chunk)),
+  )
   return batches.flat()
 }
 
@@ -341,8 +394,16 @@ export default async function handler(req, res) {
     }
     return res.status(200).json({ transactions: transactions.slice(0, 500) })
   } catch (error) {
-    console.error('Flownd transaction import failed', { reportId, error })
-    return res.status(Number(error?.status) || 500).json({
+    const transient = isTransientAiError(error)
+    console.error('Flownd transaction import failed', {
+      reportId,
+      providerStatus: error?.providerStatus || null,
+      providerCode: error?.providerCode || null,
+      transient,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : null,
+    })
+    return res.status(Number(error?.status) || (transient ? 503 : 500)).json({
       error: 'Si è verificato un errore. Il resoconto è stato inviato agli sviluppatori.',
       reportId,
     })

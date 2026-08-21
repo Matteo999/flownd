@@ -1,7 +1,7 @@
 import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActionSheetIOS, Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   Field,
@@ -72,16 +72,52 @@ export default function AddTransactionScreen() {
       numericAmount > selectedAccount.balance,
   );
 
-  function openAiImport() {
+  function canUseImageAi() {
     if (planTier === 'free') {
       Alert.alert(
         'Flownd AI è incluso in Pro e Max',
         'Passa a un piano a pagamento per riconoscere transazioni da foto di scontrini e screenshot bancari.',
         [{ text: 'Non ora', style: 'cancel' }, { text: 'Ho capito' }],
       );
+      return false;
+    }
+    return true;
+  }
+
+  function openCamera() {
+    if (!canUseImageAi()) return;
+    router.push('/transaction-import?mode=ai&source=camera' as Href);
+  }
+
+  function openPhotoLibrary() {
+    if (!canUseImageAi()) return;
+    router.push('/transaction-import?mode=ai&source=library' as Href);
+  }
+
+  function openFilePicker() {
+    router.push('/transaction-import?mode=file&source=file' as Href);
+  }
+
+  function openImportMenu() {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: 'Importa con Flownd AI',
+          options: ['Annulla', 'Dalla libreria foto', 'Dai file'],
+          cancelButtonIndex: 0,
+        },
+        (index) => {
+          if (index === 1) openPhotoLibrary();
+          if (index === 2) openFilePicker();
+        },
+      );
       return;
     }
-    router.push('/transaction-import?mode=ai' as Href);
+    Alert.alert('Importa con Flownd AI', 'Scegli da dove importare.', [
+      { text: 'Annulla', style: 'cancel' },
+      { text: 'Libreria foto', onPress: openPhotoLibrary },
+      { text: 'File', onPress: openFilePicker },
+    ]);
   }
 
   return (
@@ -103,13 +139,19 @@ export default function AddTransactionScreen() {
           style={[styles.quickAdd, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
           <Text style={[styles.quickAddTitle, { color: colors.text }]}>Aggiungi più velocemente</Text>
-          <Text style={[styles.quickAddCopy, { color: colors.textSecondary }]}>Importa più movimenti o lascia che Flownd AI legga un’immagine.</Text>
-          <GradientButton onPress={() => router.push('/transaction-import?mode=file' as Href)}>
-            ✦ Importa CSV, PDF o XLSX con Flownd AI
-          </GradientButton>
-          <GradientButton onPress={openAiImport}>
-            ✦ Foto o screenshot con Flownd AI {planTier === 'free' ? '· PRO' : ''}
-          </GradientButton>
+          <Text style={[styles.quickAddCopy, { color: colors.textSecondary }]}>Scatta uno scontrino oppure importa una foto o un documento.</Text>
+          <View style={styles.quickActions}>
+            <View style={styles.quickAction}>
+              <GradientButton compact icon="photo_camera" onPress={openCamera}>
+                Fotocamera{planTier === 'free' ? ' · PRO' : ''}
+              </GradientButton>
+            </View>
+            <View style={styles.quickAction}>
+              <GradientButton compact icon="upload_file" onPress={openImportMenu}>
+                Importa
+              </GradientButton>
+            </View>
+          </View>
         </View>
         <View style={styles.manualDivider}>
           <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
@@ -331,6 +373,8 @@ const styles = StyleSheet.create({
   quickAdd: { borderWidth: 1, borderRadius: 14, padding: 15, marginBottom: 20 },
   quickAddTitle: { fontFamily: font.bodySemiBold, fontSize: 15, marginBottom: 4 },
   quickAddCopy: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginBottom: 13 },
+  quickActions: { flexDirection: 'row', gap: 10 },
+  quickAction: { flex: 1 },
   manualDivider: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 18 },
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
   dividerText: { fontFamily: font.bodySemiBold, fontSize: 9, letterSpacing: 0.8 },

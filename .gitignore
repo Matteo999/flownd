@@ -28,3 +28,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Sensitive Data
+
+/api/eb/raw_payload

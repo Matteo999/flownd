@@ -231,6 +231,7 @@ type ButtonProps = PropsWithChildren<{
   disabled?: boolean;
   loading?: boolean;
   compact?: boolean;
+  icon?: string;
 }>;
 
 export function PrimaryButton({ children, onPress, disabled, loading, compact }: ButtonProps) {
@@ -256,7 +257,7 @@ export function PrimaryButton({ children, onPress, disabled, loading, compact }:
   );
 }
 
-export function GradientButton({ children, onPress, disabled, loading }: ButtonProps) {
+export function GradientButton({ children, onPress, disabled, loading, compact, icon }: ButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -264,10 +265,11 @@ export function GradientButton({ children, onPress, disabled, loading }: ButtonP
       onPress={onPress}
       style={({ pressed }) => [
         styles.gradientPressable,
+        compact && styles.compactGradientPressable,
         (disabled || loading) && styles.disabled,
         pressed && styles.pressed,
       ]}>
-      <View style={styles.gradient}>
+      <View style={[styles.gradient, compact && styles.compactGradient]}>
         <View pointerEvents="none" style={styles.gradientBackdrop}>
           {gradientStops.map((backgroundColor, index) => (
             <View key={index} style={[styles.gradientStop, { backgroundColor }]} />
@@ -276,7 +278,10 @@ export function GradientButton({ children, onPress, disabled, loading }: ButtonP
         {loading ? (
           <ActivityIndicator color="#FFFFFF" />
         ) : (
-          <Text style={styles.primaryText}>{children}</Text>
+          <View style={styles.gradientContent}>
+            {icon ? <Text style={styles.gradientIcon}>{icon}</Text> : null}
+            <Text style={[styles.primaryText, compact && styles.compactGradientText]}>{children}</Text>
+          </View>
         )}
       </View>
     </Pressable>
@@ -517,12 +522,17 @@ const styles = StyleSheet.create({
   },
   compactButton: { minHeight: 42, marginTop: 0 },
   gradientPressable: { minHeight: 52, marginTop: 18, borderRadius: radius.control, overflow: 'hidden' },
+  compactGradientPressable: { minHeight: 72, marginTop: 0 },
   gradient: { flex: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 },
+  compactGradient: { minHeight: 72, paddingHorizontal: 10 },
   gradientBackdrop: {
     ...StyleSheet.absoluteFill,
     flexDirection: 'row',
   },
   gradientStop: { flex: 1 },
+  gradientContent: { alignItems: 'center', justifyContent: 'center', gap: 3 },
+  gradientIcon: { color: '#FFFFFF', fontFamily: 'MaterialSymbols_400Regular', fontSize: 24, lineHeight: 27 },
+  compactGradientText: { fontSize: 12, textAlign: 'center' },
   primaryText: { color: '#FFFFFF', fontFamily: font.bodySemiBold, fontSize: 16 },
   secondaryText: { fontFamily: font.bodySemiBold, fontSize: 15 },
   disabled: { opacity: 0.45 },

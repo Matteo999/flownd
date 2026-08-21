@@ -6,9 +6,11 @@ import fs from 'node:fs'
 import {
   extractFileWithAI,
   fileChunks,
+  isTransientAiError,
   pdfCandidates,
   rowsCandidates,
   spreadsheetCandidates,
+  withAiRetry,
 } from './_transaction-import.js'
 
 test('riconosce entrate e uscite da un CSV bancario italiano', async () => {
@@ -92,4 +94,28 @@ test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing
     if (previousKey == null) delete process.env.GEMINI_API_KEY
     else process.env.GEMINI_API_KEY = previousKey
   }
+})
+
+test('ritenta gli errori temporanei di capacità del provider', async () => {
+  let calls = 0
+  const result = await withAiRetry(async () => {
+    calls += 1
+    if (calls < 3) throw new Error('This model is currently experiencing high demand.')
+    return 'ok'
+  }, { delay: async () => {} })
+  assert.equal(result, 'ok')
+  assert.equal(calls, 3)
+  assert.equal(isTransientAiError(new Error('high demand')), true)
+})
+
+test('non ritenta gli errori permanenti del provider', async () => {
+  let calls = 0
+  await assert.rejects(
+    withAiRetry(async () => {
+      calls += 1
+      throw new Error('API key not valid')
+    }, { delay: async () => {} }),
+    /API key not valid/,
+  )
+  assert.equal(calls, 1)
 })
