@@ -4,6 +4,12 @@
   "functions": {
     "api/eb/auto-sync.js": {
       "maxDuration": 300
+    },
+    "api/transaction-import.js": {
+      "maxDuration": 60
+    },
+    "api/transaction-scan.js": {
+      "maxDuration": 60
     }
   },
   "crons": [

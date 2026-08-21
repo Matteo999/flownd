@@ -26,6 +26,14 @@
     "plugins": [
       "expo-router",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Flownd accede alla foto scelta per riconoscere le transazioni. L’immagine non viene conservata.",
+          "cameraPermission": "Flownd usa la fotocamera per riconoscere le transazioni da uno scontrino.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#0F1712",

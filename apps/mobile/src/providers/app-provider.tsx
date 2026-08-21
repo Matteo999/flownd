@@ -32,6 +32,7 @@ import {
   type LoanDraft,
 } from '@/lib/goals';
 import { supabase } from '@/lib/supabase';
+import { transactionFingerprint } from '@/lib/transaction-import';
 import {
   incomeTreatmentForCategory,
   normalizeTransactionCategory,
@@ -665,6 +666,9 @@ export function AppProvider({ children }: PropsWithChildren) {
     setError(null);
     const occurredAt = transaction.occurredAt ?? new Date().toISOString();
     const kind = transaction.kind ?? 'expense';
+    const source = ['file_import', 'ai_scan'].includes(transaction.source ?? '')
+      ? transaction.source
+      : 'manual';
     const category = normalizeTransactionCategory(transaction.category, kind);
     const incomeTreatment =
       kind === 'income' ? incomeTreatmentForCategory(category) : null;
@@ -714,7 +718,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         id: String(transactionId),
         category,
         occurredAt,
-        source: 'manual',
+        source,
         kind,
         financialAccountId: manualAccount.id,
         internalTransfer: incomeTreatment?.incomeType === 'internal_transfer',
@@ -736,7 +740,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         description: transaction.description.trim(),
         amount: transaction.amount,
         category,
-        source: 'manual',
+        source,
         kind,
         income_type: incomeTreatment?.incomeType ?? null,
         excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
@@ -744,12 +748,22 @@ export function AppProvider({ children }: PropsWithChildren) {
         excluded_from_totals: incomeTreatment?.incomeType === 'internal_transfer',
         occurred_at: occurredAt,
         financial_account_id: null,
+        ...(source !== 'manual'
+          ? {
+              import_fingerprint: transactionFingerprint({
+                ...transaction,
+                occurredAt,
+                kind,
+              }),
+            }
+          : {}),
       })
       .select('id,description,amount,category,source,kind,occurred_at,internal_transfer,excluded_from_totals')
       .single();
     setSaving(false);
 
     if (insertError) {
+      if (insertError.code === '23505' && source !== 'manual') return true;
       if (__DEV__) console.error('Flownd transaction save failed', insertError);
       setError('Non siamo riusciti a salvare la transazione. Riprova.');
       return false;

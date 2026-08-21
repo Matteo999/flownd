@@ -33,7 +33,7 @@ export function serviceClient() {
   })
 }
 
-export async function authenticateRequest(req) {
+export async function authenticateUserRequest(req) {
   const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
   if (!token) throw new ApiError(401, 'Sessione mancante')
 
@@ -47,7 +47,12 @@ export async function authenticateRequest(req) {
   })
   const { data, error } = await client.auth.getUser(token)
   if (error || !data.user) throw new ApiError(401, 'Sessione non valida')
-  return { user: data.user, client, service: serviceClient() }
+  return { user: data.user, client }
+}
+
+export async function authenticateRequest(req) {
+  const authenticated = await authenticateUserRequest(req)
+  return { ...authenticated, service: serviceClient() }
 }
 
 export async function paidEntitlement(service, userId) {

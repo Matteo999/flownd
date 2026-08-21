@@ -28,6 +28,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
     "expo": "~57.0.14",
-    "jose": "^6.2.3"
+    "jose": "^6.2.3",
+    "pdf-parse": "^2.4.5",
+    "read-excel-file": "^9.3.10"
   }
 }
