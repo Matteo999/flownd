@@ -7,11 +7,25 @@ import {
   extractFileWithAI,
   fileChunks,
   isTransientAiError,
+  parseModelJson,
   pdfCandidates,
   rowsCandidates,
   spreadsheetCandidates,
   withAiRetry,
 } from './_transaction-import.js'
+
+test('accetta più oggetti JSON consecutivi restituiti dal modello', () => {
+  const parsed = parseModelJson([
+    '```json',
+    '{"transactions":[{"description":"Prima"}]}',
+    '{"transactions":[{"description":"Seconda"}]}',
+    '```',
+  ].join('\n'))
+  assert.deepEqual(
+    parsed.transactions.map((transaction) => transaction.description),
+    ['Prima', 'Seconda'],
+  )
+})
 
 test('riconosce entrate e uscite da un CSV bancario italiano', async () => {
   const csv = [
@@ -106,6 +120,17 @@ test('ritenta gli errori temporanei di capacità del provider', async () => {
   assert.equal(result, 'ok')
   assert.equal(calls, 3)
   assert.equal(isTransientAiError(new Error('high demand')), true)
+})
+
+test('ritenta una risposta JSON malformata del modello', async () => {
+  let calls = 0
+  const result = await withAiRetry(async () => {
+    calls += 1
+    if (calls === 1) JSON.parse('{"transactions":')
+    return 'ok'
+  }, { delay: async () => {} })
+  assert.equal(result, 'ok')
+  assert.equal(calls, 2)
 })
 
 test('non ritenta gli errori permanenti del provider', async () => {

@@ -22,6 +22,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { BrandLogo } from '@/components/brand-logo';
 import {
@@ -30,16 +31,6 @@ import {
   radius,
   useFlowndTheme,
 } from '@/constants/flownd-theme';
-
-const gradientStops = Array.from({ length: 32 }, (_, index) => {
-  const ratio = index / 31;
-  const from = [0x45, 0x7f, 0xef];
-  const to = [0x45, 0xd5, 0xb6];
-  const channels = from.map((channel, channelIndex) =>
-    Math.round(channel + (to[channelIndex] - channel) * ratio),
-  );
-  return `rgb(${channels[0]}, ${channels[1]}, ${channels[2]})`;
-});
 
 type ScrollHeaderContextValue = {
   scrollY: Animated.Value;
@@ -269,12 +260,11 @@ export function GradientButton({ children, onPress, disabled, loading, compact, 
         (disabled || loading) && styles.disabled,
         pressed && styles.pressed,
       ]}>
-      <View style={[styles.gradient, compact && styles.compactGradient]}>
-        <View pointerEvents="none" style={styles.gradientBackdrop}>
-          {gradientStops.map((backgroundColor, index) => (
-            <View key={index} style={[styles.gradientStop, { backgroundColor }]} />
-          ))}
-        </View>
+      <LinearGradient
+        colors={['#457FEF', '#45D5B6']}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={[styles.gradient, compact && styles.compactGradient]}>
         {loading ? (
           <ActivityIndicator color="#FFFFFF" />
         ) : (
@@ -283,7 +273,7 @@ export function GradientButton({ children, onPress, disabled, loading, compact, 
             <Text style={[styles.primaryText, compact && styles.compactGradientText]}>{children}</Text>
           </View>
         )}
-      </View>
+      </LinearGradient>
     </Pressable>
   );
 }
@@ -525,11 +515,6 @@ const styles = StyleSheet.create({
   compactGradientPressable: { minHeight: 72, marginTop: 0 },
   gradient: { flex: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 },
   compactGradient: { minHeight: 72, paddingHorizontal: 10 },
-  gradientBackdrop: {
-    ...StyleSheet.absoluteFill,
-    flexDirection: 'row',
-  },
-  gradientStop: { flex: 1 },
   gradientContent: { alignItems: 'center', justifyContent: 'center', gap: 3 },
   gradientIcon: { color: '#FFFFFF', fontFamily: 'MaterialSymbols_400Regular', fontSize: 24, lineHeight: 27 },
   compactGradientText: { fontSize: 12, textAlign: 'center' },

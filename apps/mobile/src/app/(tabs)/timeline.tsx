@@ -2,6 +2,7 @@ import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-ro
 import {
   memo,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -11,6 +12,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -191,6 +193,7 @@ export default function TimelineScreen() {
   }>();
   const {
     transactions,
+    financialAccounts,
     amountsVisible,
     planTier,
     categorizeTransactions,
@@ -940,11 +943,22 @@ export default function TimelineScreen() {
             if (updated) setEditingTransaction(null);
           }}
           onDelete={
-            ['manual', 'onboarding'].includes(editingTransaction.source ?? '')
+            (
+              ['manual', 'onboarding', 'ai_scan', 'file_import'].includes(
+                editingTransaction.source ?? '',
+              ) ||
+              (['open_banking', 'manual_open_banking'].includes(
+                editingTransaction.source ?? '',
+              ) &&
+                !financialAccounts.some(
+                  (account) =>
+                    account.id === editingTransaction.financialAccountId,
+                ))
+            )
               ? (transactionId) => {
                   Alert.alert(
                     'Eliminare la transazione?',
-                    'Questa operazione rimuove definitivamente il movimento manuale.',
+                    'Questa operazione rimuove definitivamente il movimento.',
                     [
                       { text: 'Annulla', style: 'cancel' },
                       {
@@ -1750,48 +1764,105 @@ function EditTransactionModal({
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const categoryOptions = categoriesForTransactionKind(kind);
   const numericAmount = Number(amount.replace(',', '.')) || 0;
+  const [sheetTranslateY] = useState(() => new Animated.Value(480));
+  const closeSheet = useCallback(() => {
+    Animated.timing(sheetTranslateY, {
+      toValue: 720,
+      duration: 190,
+      useNativeDriver: true,
+    }).start(onClose);
+  }, [onClose, sheetTranslateY]);
+
+  useEffect(() => {
+    Animated.spring(sheetTranslateY, {
+      toValue: 0,
+      damping: 24,
+      stiffness: 240,
+      mass: 0.85,
+      useNativeDriver: true,
+    }).start();
+  }, [sheetTranslateY]);
+
+  const [sheetPanResponder] = useState(() =>
+    PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, gesture) =>
+        gesture.dy > 8 &&
+        Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      onPanResponderMove: (_, gesture) => {
+        sheetTranslateY.setValue(Math.max(0, gesture.dy));
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy > 110 || gesture.vy > 1.05) {
+            closeSheet();
+          return;
+        }
+        Animated.spring(sheetTranslateY, {
+          toValue: 0,
+          damping: 22,
+          stiffness: 260,
+          useNativeDriver: true,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(sheetTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      },
+    }),
+  );
 
   return (
     <Modal
-      animationType="slide"
+      animationType="fade"
       transparent
       visible
-      onRequestClose={onClose}>
+      onRequestClose={closeSheet}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.modalRoot}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Chiudi modifica transazione"
-          onPress={onClose}
+          onPress={closeSheet}
           style={styles.modalBackdrop}
         />
-        <View
+        <Animated.View
           style={[
             styles.editSheet,
-            { backgroundColor: colors.background, borderColor: colors.border },
+            {
+              backgroundColor: colors.background,
+              borderColor: colors.border,
+              transform: [{ translateY: sheetTranslateY }],
+            },
           ]}>
-          <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
-          <View style={styles.sheetHeader}>
-            <View>
-              <Text style={[styles.sheetEyebrow, { color: colors.accent }]}>TRANSAZIONE</Text>
-              <Text style={[styles.sheetTitle, { color: colors.text }]}>Modifica movimento</Text>
+          <View {...sheetPanResponder.panHandlers}>
+            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+            <View style={styles.sheetHeader}>
+              <View>
+                <Text style={[styles.sheetEyebrow, { color: colors.accent }]}>TRANSAZIONE</Text>
+                <Text style={[styles.sheetTitle, { color: colors.text }]}>Modifica movimento</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Chiudi"
+                onPress={closeSheet}
+                style={({ pressed }) => [
+                  styles.sheetClose,
+                  { backgroundColor: colors.sunken },
+                  pressed && styles.pressed,
+                ]}>
+                <Text style={[styles.sheetCloseText, { color: colors.text }]}>×</Text>
+              </Pressable>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Chiudi"
-              onPress={onClose}
-              style={({ pressed }) => [
-                styles.sheetClose,
-                { backgroundColor: colors.sunken },
-                pressed && styles.pressed,
-              ]}>
-              <Text style={[styles.sheetCloseText, { color: colors.text }]}>×</Text>
-            </Pressable>
           </View>
           <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            alwaysBounceVertical
+            onScrollEndDrag={(event) => {
+              if (event.nativeEvent.contentOffset.y < -48) closeSheet();
+            }}
             contentContainerStyle={styles.sheetContent}>
             <View style={[styles.kindControl, { backgroundColor: colors.sunken }]}> 
               {([
@@ -1909,7 +1980,7 @@ function EditTransactionModal({
             {onDelete && transaction.id ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Elimina transazione manuale"
+                accessibilityLabel="Elimina transazione"
                 disabled={saving}
                 onPress={() => onDelete(transaction.id!)}
                 style={({ pressed }) => [
@@ -1942,7 +2013,7 @@ function EditTransactionModal({
               Salva modifiche
             </PrimaryButton>
           </ScrollView>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );

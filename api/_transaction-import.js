@@ -176,12 +176,43 @@ export function pdfCandidates(text) {
   })
 }
 
-function parseModelJson(text) {
+export function parseModelJson(text) {
   const clean = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-  const start = clean.indexOf('{')
-  const end = clean.lastIndexOf('}')
-  if (start < 0 || end < start) throw new Error('AI response contains no JSON object')
-  return JSON.parse(clean.slice(start, end + 1))
+  const objects = []
+  let start = -1
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = 0; index < clean.length; index += 1) {
+    const character = clean[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+    if (character === '"') {
+      inString = true
+      continue
+    }
+    if (character === '{') {
+      if (depth === 0) start = index
+      depth += 1
+    } else if (character === '}' && depth > 0) {
+      depth -= 1
+      if (depth === 0 && start >= 0) {
+        objects.push(JSON.parse(clean.slice(start, index + 1)))
+        start = -1
+      }
+    }
+  }
+  if (!objects.length) throw new Error('AI response contains no complete JSON object')
+  if (objects.length === 1) return objects[0]
+  return {
+    transactions: objects.flatMap((object) =>
+      Array.isArray(object?.transactions) ? object.transactions : [],
+    ),
+  }
 }
 
 function aiTransactions(value) {
@@ -315,7 +346,8 @@ export async function fileChunks(buffer, extension) {
 export function isTransientAiError(error) {
   const status = Number(error?.providerStatus || error?.status)
   const message = String(error?.message || '').toLowerCase()
-  return [429, 500, 502, 503, 504].includes(status)
+  return error instanceof SyntaxError
+    || [429, 500, 502, 503, 504].includes(status)
     || message.includes('high demand')
     || message.includes('temporar')
     || message.includes('overloaded')
