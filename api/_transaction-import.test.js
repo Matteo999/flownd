@@ -9,7 +9,7 @@ import {
   pdfCandidates,
   rowsCandidates,
   spreadsheetCandidates,
-} from './transaction-import.js'
+} from './_transaction-import.js'
 
 test('riconosce entrate e uscite da un CSV bancario italiano', async () => {
   const csv = [

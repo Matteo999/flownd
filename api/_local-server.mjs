@@ -1,9 +1,7 @@
 import http from 'node:http'
 
 import coachHandler from './coach.js'
-import clientErrorHandler from './client-error.js'
-import transactionImportHandler from './transaction-import.js'
-import transactionScanHandler from './transaction-scan.js'
+import transactionToolsHandler from './transaction-tools.js'
 import ebAuthHandler from './eb/auth.js'
 import ebAutoSyncHandler from './eb/auto-sync.js'
 import ebBanksHandler from './eb/banks.js'
@@ -14,9 +12,7 @@ import ebSyncHandler from './eb/sync.js'
 const port = Number(process.env.API_PORT || 3000)
 const handlers = new Map([
   ['/api/coach', coachHandler],
-  ['/api/client-error', clientErrorHandler],
-  ['/api/transaction-import', transactionImportHandler],
-  ['/api/transaction-scan', transactionScanHandler],
+  ['/api/transaction-tools', transactionToolsHandler],
   ['/api/eb/auth', ebAuthHandler],
   ['/api/eb/auto-sync', ebAutoSyncHandler],
   ['/api/eb/banks', ebBanksHandler],
