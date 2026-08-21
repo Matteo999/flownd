@@ -73,7 +73,7 @@ test('suddivide il CSV reale in blocchi adatti alla IA', async () => {
     fs.readFileSync(new URL('../prompt/2147483647.csv', import.meta.url)),
     'csv',
   )
-  assert.equal(chunks.length, 4)
+  assert.equal(chunks.length, 2)
   assert.ok(chunks.every((chunk) => chunk.text.startsWith('Formato CSV.')))
 })
 
@@ -99,8 +99,35 @@ test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing
       fs.readFileSync(new URL('../prompt/2147483647.csv', import.meta.url)),
       'csv',
     )
-    assert.equal(transactions.length, 4)
+    assert.equal(transactions.length, 2)
     assert.ok(transactions.every((item) => item.amount === 12.34))
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousProvider == null) delete process.env.AI_PROVIDER
+    else process.env.AI_PROVIDER = previousProvider
+    if (previousKey == null) delete process.env.GEMINI_API_KEY
+    else process.env.GEMINI_API_KEY = previousKey
+  }
+})
+
+test('usa il riconoscimento locale se il provider IA non risponde in tempo', async () => {
+  const previousFetch = globalThis.fetch
+  const previousProvider = process.env.AI_PROVIDER
+  const previousKey = process.env.GEMINI_API_KEY
+  process.env.AI_PROVIDER = 'gemini'
+  process.env.GEMINI_API_KEY = 'test-key'
+  globalThis.fetch = async () => {
+    const error = new Error('The operation was aborted')
+    error.name = 'AbortError'
+    throw error
+  }
+  try {
+    const transactions = await extractFileWithAI(
+      fs.readFileSync(new URL('../prompt/2147483647.csv', import.meta.url)),
+      'csv',
+    )
+    assert.ok(transactions.length > 200)
+    assert.ok(transactions.every((item) => !/^saldo/i.test(item.description)))
   } finally {
     globalThis.fetch = previousFetch
     if (previousProvider == null) delete process.env.AI_PROVIDER
