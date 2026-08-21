@@ -406,7 +406,9 @@ export default function TransactionImportScreen() {
                     style={styles.transactionCopy}>
                     <Text numberOfLines={1} style={[styles.description, { color: colors.text }]}>{item.description}</Text>
                     <Text style={[styles.meta, { color: colors.textSecondary }]}>
-                      {formatDateItalian(item.occurredAt ?? '')} · {category}{duplicate ? ' · Duplicato' : ''}
+                      {formatDateItalian(item.occurredAt ?? '')} · {category}
+                      {duplicate ? ' · Duplicato' : ''}
+                      {(item.importConfidence ?? 1) < 0.65 ? ' · Da verificare' : ''}
                     </Text>
                   </Pressable>
                   <View style={styles.transactionTrailing}>
@@ -526,7 +528,11 @@ function CandidateEditor({
             accessibilityRole="button"
             disabled={!description.trim() || numericAmount <= 0 || insufficientCash}
             onPress={() => onSave({
+              ...transaction,
               description: description.trim(),
+              ...(description.trim() !== transaction.description
+                ? { merchantName: null, counterpartyName: null }
+                : {}),
               amount: numericAmount,
               category,
               kind,

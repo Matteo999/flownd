@@ -1808,7 +1808,7 @@ function EditTransactionModal({
       },
       onPanResponderRelease: (_, gesture) => {
         if (gesture.dy > 110 || gesture.vy > 1.05) {
-            closeSheet();
+          closeSheet();
           return;
         }
         Animated.spring(sheetTranslateY, {
@@ -1873,7 +1873,7 @@ function EditTransactionModal({
               </Pressable>
             </View>
           </View>
-          <View style={styles.sheetContent}>
+          <View {...sheetPanResponder.panHandlers} style={styles.sheetContent}>
             <View style={[styles.kindControl, { backgroundColor: colors.sunken }]}> 
               {([
                 { id: 'expense', label: 'Uscita' },
