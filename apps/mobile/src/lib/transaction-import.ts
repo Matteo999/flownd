@@ -5,7 +5,7 @@ import type { ExpenseDraft } from '@/lib/onboarding';
 export type ImportedTransaction = Pick<
   ExpenseDraft,
   'description' | 'amount' | 'kind' | 'occurredAt'
-> & { category?: string };
+> & { category?: string; financialAccountId?: string | null };
 
 export const GENERIC_OPERATION_ERROR =
   'Si è verificato un errore. Abbiamo inviato il resoconto agli sviluppatori.';
