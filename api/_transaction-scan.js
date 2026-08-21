@@ -9,6 +9,35 @@ const CATEGORIES = [
 
 const instructions = `Analizza una foto di scontrino o uno screenshot bancario in qualsiasi lingua. Estrai solo transazioni chiaramente visibili. Per ogni transazione separa semanticamente merchantName, counterpartyName, memo e bankReference, usando null quando il dato non è esplicito. description è una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo; rawDescription conserva il testo originale rilevante. Mantieni i nomi propri nella lingua originale e non inventare dati. confidence è tra 0 e 1; amount è positivo; kind è expense o income; occurredAt è ISO 8601; category deve essere una delle categorie consentite. Se la data non è visibile usa null e se non ci sono transazioni restituisci un array vuoto.`
 
+const scanSchema = {
+  type: 'object',
+  properties: {
+    transactions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          rawDescription: { type: 'string' },
+          description: { type: 'string' },
+          merchantName: { type: ['string', 'null'] },
+          counterpartyName: { type: ['string', 'null'] },
+          memo: { type: ['string', 'null'] },
+          bankReference: { type: ['string', 'null'] },
+          confidence: { type: 'number' },
+          amount: { type: 'number' },
+          kind: { type: 'string', enum: ['expense', 'income'] },
+          occurredAt: { type: ['string', 'null'] },
+          category: { type: 'string', enum: CATEGORIES },
+        },
+        required: ['rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'category'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['transactions'],
+  additionalProperties: false,
+}
+
 function cleanText(value, limit = 500) {
   return String(value ?? '')
     .replace(/[\u0000-\u001F\u007F]/g, ' ')
@@ -70,17 +99,7 @@ async function openAI(dataUrl) {
         { type: 'input_text', text: 'Estrai le transazioni presenti in questa immagine.' },
         { type: 'input_image', image_url: dataUrl, detail: 'high' },
       ] }],
-      text: { format: { type: 'json_schema', name: 'transaction_scan', strict: true, schema: {
-        type: 'object',
-        properties: { transactions: { type: 'array', items: { type: 'object', properties: {
-          rawDescription: { type: 'string' }, description: { type: 'string' }, merchantName: { type: ['string', 'null'] },
-          counterpartyName: { type: ['string', 'null'] }, memo: { type: ['string', 'null'] },
-          bankReference: { type: ['string', 'null'] }, confidence: { type: 'number' },
-          amount: { type: 'number' }, kind: { type: 'string', enum: ['expense', 'income'] },
-          occurredAt: { type: ['string', 'null'] }, category: { type: 'string', enum: CATEGORIES },
-        }, required: ['rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'category'], additionalProperties: false } } },
-        required: ['transactions'], additionalProperties: false,
-      } } },
+      text: { format: { type: 'json_schema', name: 'transaction_scan', strict: true, schema: scanSchema } },
     }),
   })
   const body = await response.text()
@@ -98,14 +117,18 @@ async function openAI(dataUrl) {
 async function gemini(dataUrl) {
   const [meta, base64] = dataUrl.split(',', 2)
   const mimeType = meta.match(/^data:([^;]+)/)?.[1] || 'image/jpeg'
-  const model = process.env.GEMINI_VISION_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.6-flash'
+  const model = process.env.GEMINI_VISION_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.7-flash'
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: instructions }] },
       contents: [{ role: 'user', parts: [{ text: 'Estrai le transazioni presenti.' }, { inlineData: { mimeType, data: base64 } }] }],
-      generationConfig: { responseMimeType: 'application/json' },
+      generationConfig: {
+        responseFormat: {
+          text: { mimeType: 'application/json', schema: scanSchema },
+        },
+      },
     }),
   })
   const body = await response.text()
@@ -158,7 +181,7 @@ export default async function handler(req, res) {
       stage,
       provider,
       model: provider === 'gemini'
-        ? process.env.GEMINI_VISION_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.6-flash'
+        ? process.env.GEMINI_VISION_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.7-flash'
         : process.env.OPENAI_VISION_MODEL || 'gpt-5.6-sol',
       status: Number(error?.status) || null,
       code: error?.code || error?.providerCode || null,

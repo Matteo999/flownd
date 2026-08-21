@@ -83,35 +83,42 @@ test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing
   const previousKey = process.env.GEMINI_API_KEY
   process.env.AI_PROVIDER = 'gemini'
   process.env.GEMINI_API_KEY = 'test-key'
-  globalThis.fetch = async () => new Response(JSON.stringify({
-    candidates: [{ content: { parts: [{ text: JSON.stringify({
-      transactions: [{
-        sourceIndex: null,
-        rawDescription: 'Card operation at OPENMOVE.COM',
-        description: 'Openmove',
-        merchantName: 'Openmove',
-        counterpartyName: null,
-        memo: null,
-        bankReference: 'REF-123',
-        confidence: 0.98,
-        amount: 12.34,
-        kind: 'expense',
-        occurredAt: '2026-08-21T12:00:00.000Z',
-        category: 'Altro',
-      }],
-    }) }] } }],
-  }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  const requests = []
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body)
+    requests.push(request)
+    const inputRows = JSON.parse(request.contents[0].parts[0].text)
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({
+        rows: inputRows.map((row) => ({
+          sourceIndex: row.sourceIndex,
+          include: !/^Saldo/i.test(row.rawDescription),
+          description: 'Openmove',
+          merchantName: 'Openmove',
+          counterpartyName: '',
+          memo: '',
+          bankReference: 'REF-123',
+          category: 'Trasporti',
+          confidence: 0.98,
+        })),
+      }) }] } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
   try {
     const transactions = await extractFileWithAI(
       fs.readFileSync(new URL('../prompt/2147483647.csv', import.meta.url)),
       'csv',
     )
-    assert.equal(transactions.length, 2)
-    assert.ok(transactions.every((item) => item.amount === 12.34))
+    assert.ok(transactions.length > 200)
     assert.ok(transactions.every((item) => item.description === 'Openmove'))
     assert.ok(transactions.every((item) => item.merchantName === 'Openmove'))
-    assert.ok(transactions.every((item) => item.rawDescription === 'Card operation at OPENMOVE.COM'))
+    assert.ok(transactions.every((item) => item.rawDescription))
+    assert.ok(transactions.every((item) => item.category === 'Trasporti'))
     assert.ok(transactions.every((item) => item.importConfidence === 0.98))
+    assert.ok(transactions.every((item) => !/^Saldo/i.test(item.rawDescription)))
+    assert.equal(requests.length, 3)
+    assert.equal(requests[0].generationConfig.responseFormat.text.mimeType, 'application/json')
+    assert.equal(requests[0].generationConfig.responseFormat.text.schema.required[0], 'rows')
   } finally {
     globalThis.fetch = previousFetch
     if (previousProvider == null) delete process.env.AI_PROVIDER

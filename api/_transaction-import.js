@@ -17,6 +17,65 @@ const CATEGORIES = [
 
 const aiInstructions = `Sei il motore multilingue di importazione bancaria di Flownd. Ricevi una porzione di CSV, XLSX o PDF bancario, potenzialmente con colonne e formati non standard e in qualsiasi lingua. Estrai ogni movimento reale senza inventare dati. Escludi saldi, totali e intestazioni. Se è presente sourceIndex, riportalo invariato. Seleziona semanticamente merchantName, counterpartyName, memo e bankReference; usa null quando il dato non è esplicito. description deve essere una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo, senza formule tecniche della banca, date, orari, numeri carta, importi o IBAN. Mantieni i nomi propri nella lingua originale. rawDescription deve contenere il testo originale rilevante solo quando sourceIndex non è disponibile. confidence è un numero tra 0 e 1. amount deve essere positivo, kind deve essere expense o income, occurredAt deve essere ISO 8601 e category deve appartenere alle categorie consentite.`
 
+const enrichmentInstructions = `Sei il livello semantico multilingue di Flownd. Ricevi movimenti già validati per data, importo e tipo, quindi non devi rigenerare questi dati. Per ogni sourceIndex restituisci una decisione: include=false per saldi iniziali/finali, disponibilità, totali, intestazioni o righe che non sono movimenti reali; include=true per le transazioni. Per le transazioni estrai merchantName, counterpartyName, memo e bankReference senza basarti su parole di una lingua specifica. description deve essere soltanto una breve etichetta esplicativa derivata da merchantName, counterpartyName o memo, mantenendo i nomi propri originali e rimuovendo formule tecniche, date, orari, numeri carta, importi e IBAN. Non inventare dati. category deve appartenere alle categorie consentite e confidence deve essere tra 0 e 1.`
+
+const enrichmentSchema = {
+  type: 'object',
+  properties: {
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          sourceIndex: { type: 'integer' },
+          include: { type: 'boolean' },
+          description: { type: 'string' },
+          merchantName: { type: ['string', 'null'] },
+          counterpartyName: { type: ['string', 'null'] },
+          memo: { type: ['string', 'null'] },
+          bankReference: { type: ['string', 'null'] },
+          category: { type: 'string', enum: CATEGORIES },
+          confidence: { type: 'number' },
+        },
+        required: ['sourceIndex', 'include', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'category', 'confidence'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['rows'],
+  additionalProperties: false,
+}
+
+const transactionExtractionSchema = {
+  type: 'object',
+  properties: {
+    transactions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          sourceIndex: { type: ['integer', 'null'] },
+          rawDescription: { type: ['string', 'null'] },
+          description: { type: 'string' },
+          merchantName: { type: ['string', 'null'] },
+          counterpartyName: { type: ['string', 'null'] },
+          memo: { type: ['string', 'null'] },
+          bankReference: { type: ['string', 'null'] },
+          confidence: { type: 'number' },
+          amount: { type: 'number' },
+          kind: { type: 'string', enum: ['expense', 'income'] },
+          occurredAt: { type: 'string' },
+          category: { type: 'string', enum: CATEGORIES },
+        },
+        required: ['sourceIndex', 'rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'category'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['transactions'],
+  additionalProperties: false,
+}
+
 function normalized(value) {
   return String(value ?? '')
     .normalize('NFD')
@@ -272,6 +331,91 @@ function aiTransactions(value, chunk) {
   })
 }
 
+function enrichedTransactions(value, candidates) {
+  const rows = Array.isArray(value?.rows) ? value.rows : []
+  const byIndex = new Map(rows.map((row) => [Number(row?.sourceIndex), row]))
+  if (byIndex.size !== candidates.length) {
+    throw new SyntaxError(`AI enrichment returned ${byIndex.size}/${candidates.length} rows`)
+  }
+  return candidates.flatMap((candidate, sourceIndex) => {
+    const row = byIndex.get(sourceIndex)
+    if (!row?.include) return []
+    const merchantName = cleanImportedText(row.merchantName, 180) || null
+    const counterpartyName = cleanImportedText(row.counterpartyName, 180) || null
+    const memo = cleanImportedText(row.memo, 500) || null
+    const description = cleanImportedText(
+      merchantName || counterpartyName || row.description || memo,
+      180,
+    )
+    if (!description) return []
+    return [{
+      ...candidate,
+      description,
+      merchantName,
+      counterpartyName,
+      memo,
+      bankReference: cleanImportedText(row.bankReference, 180) || null,
+      category: CATEGORIES.includes(row.category) ? row.category : 'Altro',
+      importConfidence: Math.max(0, Math.min(1, Number(row.confidence) || 0)),
+    }]
+  })
+}
+
+function enrichmentPrompt(candidates) {
+  return JSON.stringify(candidates.map((candidate, sourceIndex) => ({
+    sourceIndex,
+    rawDescription: candidate.rawDescription || candidate.description,
+    kind: candidate.kind,
+  })))
+}
+
+async function openAIEnrich(candidates, signal) {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    signal,
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: process.env.OPENAI_IMPORT_MODEL || process.env.OPENAI_COACH_MODEL || 'gpt-5.6-sol',
+      reasoning: { effort: 'low' },
+      instructions: enrichmentInstructions,
+      input: enrichmentPrompt(candidates),
+      max_output_tokens: 12000,
+      text: { format: { type: 'json_schema', name: 'transaction_enrichment', strict: true, schema: enrichmentSchema } },
+    }),
+  })
+  const data = JSON.parse(await response.text())
+  if (!response.ok) throw new Error(data?.error?.message || `OpenAI failed with ${response.status}`)
+  const output = (data.output || []).flatMap((item) => item.content || []).find((part) => part.type === 'output_text')?.text
+  return enrichedTransactions(parseModelJson(output), candidates)
+}
+
+async function geminiEnrich(candidates, signal) {
+  const model = process.env.GEMINI_IMPORT_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.7-flash'
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    signal,
+    method: 'POST',
+    headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: enrichmentInstructions }] },
+      contents: [{ role: 'user', parts: [{ text: enrichmentPrompt(candidates) }] }],
+      generationConfig: {
+        responseFormat: {
+          text: { mimeType: 'application/json', schema: enrichmentSchema },
+        },
+        maxOutputTokens: 12000,
+      },
+    }),
+  })
+  const data = JSON.parse(await response.text())
+  if (!response.ok) {
+    const error = new Error(data?.error?.message || `Gemini failed with ${response.status}`)
+    error.providerStatus = response.status
+    throw error
+  }
+  const output = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('')
+  return enrichedTransactions(parseModelJson(output), candidates)
+}
+
 async function openAIExtract(chunk, signal) {
   const response = await fetch('https://api.openai.com/v1/responses', {
     signal,
@@ -286,17 +430,7 @@ async function openAIExtract(chunk, signal) {
         ...(chunk.images || []).map((imageUrl) => ({ type: 'input_image', image_url: imageUrl, detail: 'high' })),
       ] }],
       max_output_tokens: 20000,
-      text: { format: { type: 'json_schema', name: 'transaction_import', strict: true, schema: {
-        type: 'object',
-        properties: { transactions: { type: 'array', items: { type: 'object', properties: {
-          sourceIndex: { type: ['integer', 'null'] }, rawDescription: { type: ['string', 'null'] },
-          description: { type: 'string' }, merchantName: { type: ['string', 'null'] }, counterpartyName: { type: ['string', 'null'] },
-          memo: { type: ['string', 'null'] }, bankReference: { type: ['string', 'null'] }, confidence: { type: 'number' },
-          amount: { type: 'number' }, kind: { type: 'string', enum: ['expense', 'income'] },
-          occurredAt: { type: 'string' }, category: { type: 'string', enum: CATEGORIES },
-        }, required: ['sourceIndex', 'rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'category'], additionalProperties: false } } },
-        required: ['transactions'], additionalProperties: false,
-      } } },
+      text: { format: { type: 'json_schema', name: 'transaction_import', strict: true, schema: transactionExtractionSchema } },
     }),
   })
   const body = await response.text()
@@ -312,7 +446,7 @@ async function openAIExtract(chunk, signal) {
 }
 
 async function geminiExtract(chunk, signal) {
-  const model = process.env.GEMINI_IMPORT_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.6-flash'
+  const model = process.env.GEMINI_IMPORT_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.7-flash'
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     signal,
     method: 'POST',
@@ -326,7 +460,12 @@ async function geminiExtract(chunk, signal) {
           return { inlineData: { mimeType: meta.match(/^data:([^;]+)/)?.[1] || 'image/png', data } }
         }),
       ] }],
-      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 30000 },
+      generationConfig: {
+        responseFormat: {
+          text: { mimeType: 'application/json', schema: transactionExtractionSchema },
+        },
+        maxOutputTokens: 30000,
+      },
     }),
   })
   const body = await response.text()
@@ -457,17 +596,25 @@ export async function extractFileWithAI(buffer, extension) {
       // I file non standard proseguono comunque con il riconoscimento IA.
     }
   }
-  const chunks = await fileChunks(buffer, extension)
+  const chunks = localFallback.length
+    ? Array.from({ length: Math.ceil(localFallback.length / 80) }, (_, index) =>
+        localFallback.slice(index * 80, (index + 1) * 80),
+      )
+    : await fileChunks(buffer, extension)
   if (!chunks.length) throw new Error('File contains no analyzable content')
   const controller = new AbortController()
   const deadline = setTimeout(() => controller.abort(), 30_000)
   try {
-    // Due blocchi più capienti partono insieme, evitando una seconda ondata di
-    // richieste oltre il limite di 60 secondi delle funzioni Vercel Hobby.
-    const batches = await mapWithConcurrency(chunks, 2, (chunk) =>
-      withAiRetry(() => provider === 'gemini'
-        ? geminiExtract(chunk, controller.signal)
-        : openAIExtract(chunk, controller.signal)),
+    // I blocchi semantici partono insieme per restare nel limite di Vercel,
+    // limitando al tempo stesso il numero di richieste e i picchi di quota.
+    const batches = await mapWithConcurrency(chunks, localFallback.length ? 3 : 2, (chunk) =>
+      withAiRetry(() => localFallback.length
+        ? provider === 'gemini'
+          ? geminiEnrich(chunk, controller.signal)
+          : openAIEnrich(chunk, controller.signal)
+        : provider === 'gemini'
+          ? geminiExtract(chunk, controller.signal)
+          : openAIExtract(chunk, controller.signal)),
     )
     return batches.flat()
   } catch (error) {
