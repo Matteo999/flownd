@@ -13,7 +13,7 @@
   },
   "scripts": {
     "dev:mobile": "npm run start --workspace @flownd/mobile",
-    "dev:api": "node --env-file=.env.local api/local-server.mjs",
+    "dev:api": "node --env-file=.env.local api/_local-server.mjs",
     "dev:web": "npm run dev --workspace @flownd/web",
     "build:web": "npm run build --workspace @flownd/web",
     "lint": "npm run lint --workspaces --if-present",

@@ -50,7 +50,7 @@ export async function reportClientError(
   const message = reason instanceof Error ? reason.message : String(reason);
   const stack = reason instanceof Error ? reason.stack : undefined;
   if (__DEV__) console.error(`[Flownd:${context}]`, reason);
-  const url = endpoint('/api/client-error');
+  const url = endpoint('/api/transaction-tools?action=error');
   if (!url || !accessToken) return;
   try {
     await fetch(url, {
@@ -76,7 +76,7 @@ export async function analyzeTransactionFile(
   file: { name: string; base64: string },
 ) {
   return post<{ transactions: ImportedTransaction[] }>(
-    '/api/transaction-import',
+    '/api/transaction-tools?action=import',
     accessToken,
     file,
   );
@@ -87,7 +87,7 @@ export async function scanTransactionImage(
   dataUrl: string,
 ) {
   return post<{ transactions: ImportedTransaction[] }>(
-    '/api/transaction-scan',
+    '/api/transaction-tools?action=scan',
     accessToken,
     { dataUrl },
   );
