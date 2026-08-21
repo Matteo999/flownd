@@ -70,6 +70,7 @@ function RootNavigation() {
           <Stack.Screen name="register" />
           <Stack.Screen name="auth/callback" />
           <Stack.Screen name="add-transaction" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="transaction-import" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="timeline-filters" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="add-manual-account" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="add-goal" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />

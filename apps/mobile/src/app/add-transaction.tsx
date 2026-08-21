@@ -1,9 +1,17 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Field, PrimaryButton, Screen, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
+import {
+  Field,
+  GradientButton,
+  PrimaryButton,
+  Screen,
+  font,
+  uiStyles,
+  useFlowndTheme,
+} from '@/components/flownd-ui';
 import { TransactionDateField } from '@/components/transaction-date-field';
 import {
   categoriesForTransactionKind,
@@ -64,6 +72,18 @@ export default function AddTransactionScreen() {
       numericAmount > selectedAccount.balance,
   );
 
+  function openAiImport() {
+    if (planTier === 'free') {
+      Alert.alert(
+        'Flownd AI è incluso in Pro e Max',
+        'Passa a un piano a pagamento per riconoscere transazioni da foto di scontrini e screenshot bancari.',
+        [{ text: 'Non ora', style: 'cancel' }, { text: 'Ho capito' }],
+      );
+      return;
+    }
+    router.push('/transaction-import?mode=ai' as Href);
+  }
+
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -78,6 +98,23 @@ export default function AddTransactionScreen() {
           </Pressable>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Nuova transazione</Text>
           <View style={styles.headerSpacer} />
+        </View>
+        <View
+          style={[styles.quickAdd, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        >
+          <Text style={[styles.quickAddTitle, { color: colors.text }]}>Aggiungi più velocemente</Text>
+          <Text style={[styles.quickAddCopy, { color: colors.textSecondary }]}>Importa più movimenti o lascia che Flownd AI legga un’immagine.</Text>
+          <GradientButton onPress={() => router.push('/transaction-import?mode=file' as Href)}>
+            ✦ Importa CSV, PDF o XLSX con Flownd AI
+          </GradientButton>
+          <GradientButton onPress={openAiImport}>
+            ✦ Foto o screenshot con Flownd AI {planTier === 'free' ? '· PRO' : ''}
+          </GradientButton>
+        </View>
+        <View style={styles.manualDivider}>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          <Text style={[styles.dividerText, { color: colors.textSecondary }]}>OPPURE INSERISCI A MANO</Text>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
         </View>
         <View
           accessibilityRole="tablist"
@@ -125,7 +162,6 @@ export default function AddTransactionScreen() {
             kind === 'income' ? 'es. stipendio di luglio' : 'es. pranzo al bar'
           }
           value={description}
-          autoFocus
           onChangeText={(value) => {
             clearError();
             setDescription(value);
@@ -292,6 +328,12 @@ const styles = StyleSheet.create({
   closeText: { fontFamily: font.body, fontSize: 25, lineHeight: 28 },
   headerTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   headerSpacer: { width: 40 },
+  quickAdd: { borderWidth: 1, borderRadius: 14, padding: 15, marginBottom: 20 },
+  quickAddTitle: { fontFamily: font.bodySemiBold, fontSize: 15, marginBottom: 4 },
+  quickAddCopy: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginBottom: 13 },
+  manualDivider: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 18 },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  dividerText: { fontFamily: font.bodySemiBold, fontSize: 9, letterSpacing: 0.8 },
   kindControl: {
     flexDirection: 'row',
     borderRadius: 12,
