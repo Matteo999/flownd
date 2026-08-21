@@ -78,7 +78,7 @@ async function openAI(dataUrl) {
 async function gemini(dataUrl) {
   const [meta, base64] = dataUrl.split(',', 2)
   const mimeType = meta.match(/^data:([^;]+)/)?.[1] || 'image/jpeg'
-  const model = process.env.GEMINI_VISION_MODEL || 'gemini-3.6-flash'
+  const model = process.env.GEMINI_VISION_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.6-flash'
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
@@ -95,7 +95,12 @@ async function gemini(dataUrl) {
   } catch {
     throw new Error(`Gemini returned non-JSON (${response.status}): ${body.slice(0, 200)}`)
   }
-  if (!response.ok) throw new Error(data?.error?.message || 'Riconoscimento IA non disponibile')
+  if (!response.ok) {
+    const providerError = new Error(data?.error?.message || 'Riconoscimento IA non disponibile')
+    providerError.providerStatus = response.status
+    providerError.providerCode = data?.error?.status || null
+    throw providerError
+  }
   return parseModelJson(data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join(''))
 }
 
@@ -105,23 +110,42 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Metodo non supportato' })
   }
   const reportId = randomUUID()
+  let stage = 'authenticate_user'
+  let provider = null
   try {
     const { user, service } = await authenticateRequest(req)
+    stage = 'check_paid_plan'
     await assertPaidPlan(service, user.id)
+    stage = 'validate_image'
     const dataUrl = String(req.body?.dataUrl || '')
     if (!/^data:image\/(jpeg|png|webp);base64,/i.test(dataUrl) || dataUrl.length > 3_000_000) {
       throw new ApiError(400, 'Invalid or oversized image')
     }
-    const provider = process.env.AI_PROVIDER?.toLowerCase() === 'gemini' || (!process.env.OPENAI_API_KEY && process.env.GEMINI_API_KEY)
+    stage = 'select_provider'
+    provider = process.env.AI_PROVIDER?.toLowerCase() === 'gemini' || (!process.env.OPENAI_API_KEY && process.env.GEMINI_API_KEY)
       ? 'gemini' : 'openai'
     if (provider === 'openai' && !process.env.OPENAI_API_KEY) throw new ApiError(503, 'Riconoscimento IA non configurato')
     if (provider === 'gemini' && !process.env.GEMINI_API_KEY) throw new ApiError(503, 'Riconoscimento IA non configurato')
+    stage = provider === 'gemini' ? 'call_gemini' : 'call_openai'
     const parsed = provider === 'gemini' ? await gemini(dataUrl) : await openAI(dataUrl)
+    stage = 'validate_ai_response'
     const transactions = safeTransactions(parsed)
     if (!transactions.length) throw new ApiError(422, 'AI extracted zero transactions')
     return res.status(200).json({ transactions })
   } catch (error) {
-    console.error('Flownd transaction scan failed', { reportId, error })
+    console.error('Flownd transaction scan failed', {
+      reportId,
+      stage,
+      provider,
+      model: provider === 'gemini'
+        ? process.env.GEMINI_VISION_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.6-flash'
+        : process.env.OPENAI_VISION_MODEL || 'gpt-5.6-sol',
+      status: Number(error?.status) || null,
+      code: error?.code || error?.providerCode || null,
+      providerStatus: error?.providerStatus || null,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : null,
+    })
     return res.status(Number(error?.status) || 500).json({
       error: 'Si è verificato un errore. Il resoconto è stato inviato agli sviluppatori.',
       reportId,

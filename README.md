@@ -61,3 +61,19 @@ Il telefono e il Mac devono essere sulla stessa rete. La chiave `GEMINI_API_KEY`
 resta caricata solo dal processo locale di Vercel e non viene inclusa nel bundle Expo.
 
 Per le decisioni architetturali e la roadmap consulta `prompt/flownd-project.md`.
+
+## IA in produzione su Vercel
+
+Le funzioni IA pubblicate non richiedono il server locale. In **Settings →
+Environment Variables** del progetto Vercel configura per l'ambiente
+**Production**:
+
+- `AI_PROVIDER=gemini` e `GEMINI_API_KEY`, oppure `AI_PROVIDER=openai` e
+  `OPENAI_API_KEY`;
+- `GEMINI_COACH_MODEL`/`OPENAI_COACH_MODEL` e, facoltativamente, i modelli
+  specifici `*_IMPORT_MODEL` e `*_VISION_MODEL`;
+- `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` (necessaria
+  per verificare il piano Pro/Max durante la scansione di immagini).
+
+Dopo aver aggiunto o modificato le variabili avvia un nuovo deployment. I file
+`.env.local` restano esclusivamente locali e non vengono copiati su Vercel.

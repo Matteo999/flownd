@@ -13,6 +13,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -115,23 +116,18 @@ function shiftTimelinePeriod(
   period: DashboardPeriod,
   direction: -1 | 1,
 ) {
-  const shifted = new Date(date);
+  const shifted = periodStart(date, period);
   if (period === 'week') {
-    const start = periodStart(date, 'week');
-    shifted.setTime(start.getTime());
-    shifted.setDate(start.getDate() + (direction < 0 ? -1 : 13));
-    shifted.setHours(23, 59, 59, 999);
+    shifted.setDate(shifted.getDate() + direction * 7);
   }
   if (period === 'month') {
-    shifted.setDate(1);
-    shifted.setMonth(shifted.getMonth() + direction + 1, 0);
+    shifted.setMonth(shifted.getMonth() + direction);
   }
   if (period === 'year') {
-    shifted.setFullYear(shifted.getFullYear() + direction, 11, 31);
+    shifted.setFullYear(shifted.getFullYear() + direction);
   }
-  return periodStart(shifted, period) >= periodStart(new Date(), period)
-    ? new Date()
-    : shifted;
+  if (shifted >= periodStart(new Date(), period)) return new Date();
+  return anchorForTimelinePeriod(shifted, period);
 }
 
 function formatPeriodAnchor(date: Date, period: DashboardPeriod) {
@@ -203,6 +199,7 @@ export default function TimelineScreen() {
     saving,
     error,
     clearError,
+    refreshData,
   } = useApp();
   const paramCategory = Array.isArray(params.category)
     ? params.category[0]
@@ -230,14 +227,31 @@ export default function TimelineScreen() {
     useState<DashboardPeriod>(initialPeriod);
   const [periodAnchor, setPeriodAnchor] = useState(() => new Date());
   const [timelineRevision, setTimelineRevision] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      // Le tab native possono rimanere congelate mentre il form è sopra lo stack.
-      // Una revisione al focus forza SectionList a ricevere subito i nuovi dati.
-      setTimelineRevision((current) => current + 1);
-    }, []),
+      let active = true;
+      // Rilegge i movimenti al ritorno dai form/import, anche con tab native congelate.
+      void refreshData().finally(() => {
+        if (active) setTimelineRevision((current) => current + 1);
+      });
+      return () => {
+        active = false;
+      };
+    }, [refreshData]),
   );
+
+  const refreshTimeline = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await refreshData();
+      setTimelineRevision((current) => current + 1);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshData, refreshing]);
 
   const appliedFilterToken = Array.isArray(params.filterToken)
     ? params.filterToken[0]
@@ -372,7 +386,6 @@ export default function TimelineScreen() {
           : customDateRange
             ? 'month'
             : selectedPeriod,
-        customDateRange?.end ?? periodAnchor,
       ),
       visibleTransactions,
     };
@@ -586,6 +599,14 @@ export default function TimelineScreen() {
             windowSize={7}
             stickySectionHeadersEnabled={false}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={refreshTimeline}
+                tintColor={colors.accent}
+                colors={[colors.accent]}
+              />
+            }
             onScroll={onScroll}
             scrollEventThrottle={16}
             contentContainerStyle={styles.timelineContent}
