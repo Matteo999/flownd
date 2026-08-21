@@ -99,7 +99,7 @@ export default function TransactionImportScreen() {
   }, [session]);
 
   const showCandidates = useCallback((items: ImportedTransaction[]) => {
-    setCandidates(items.map((item) => {
+    const prepared = items.map((item) => {
       const kind = item.kind ?? 'expense';
       const suggested = planTier === 'free'
         ? suggestTransactionCategory(item.description, kind)
@@ -108,8 +108,13 @@ export default function TransactionImportScreen() {
         ...item,
         category: !item.category || item.category === 'Altro' ? suggested : item.category,
       };
-    }));
-    setExcluded(new Set());
+    });
+    setCandidates(prepared);
+    setExcluded(new Set(
+      prepared.flatMap((item, index) =>
+        (item.importConfidence ?? 1) < 0.65 ? [index] : [],
+      ),
+    ));
     setAnalysisError(null);
   }, [planTier, transactions]);
 
