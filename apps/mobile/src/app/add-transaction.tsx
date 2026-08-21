@@ -1,9 +1,10 @@
+import * as DocumentPicker from 'expo-document-picker';
 import * as Device from 'expo-device';
 import * as ImagePicker from 'expo-image-picker';
 import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   Field,
@@ -58,8 +59,8 @@ export default function AddTransactionScreen() {
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const [importSheetTranslateY] = useState(() => new Animated.Value(480));
+  const [importBackdropOpacity] = useState(() => new Animated.Value(0));
   const pickerBusy = useRef(false);
-  const pendingPicker = useRef<(() => Promise<void>) | null>(null);
   const suggestedCategory = useMemo(
     () =>
       planTier === 'free'
@@ -83,14 +84,22 @@ export default function AddTransactionScreen() {
   useEffect(() => {
     if (!importMenuOpen) return;
     importSheetTranslateY.setValue(480);
-    Animated.spring(importSheetTranslateY, {
-      toValue: 0,
-      damping: 24,
-      stiffness: 240,
-      mass: 0.85,
-      useNativeDriver: true,
-    }).start();
-  }, [importMenuOpen, importSheetTranslateY]);
+    importBackdropOpacity.setValue(0);
+    Animated.parallel([
+      Animated.spring(importSheetTranslateY, {
+        toValue: 0,
+        damping: 24,
+        stiffness: 240,
+        mass: 0.85,
+        useNativeDriver: true,
+      }),
+      Animated.timing(importBackdropOpacity, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [importBackdropOpacity, importMenuOpen, importSheetTranslateY]);
 
   function canUseImageAi() {
     if (planTier === 'free') {
@@ -153,38 +162,71 @@ export default function AddTransactionScreen() {
 
   async function openPhotoLibrary() {
     if (!canUseImageAi()) return;
-    router.push('/transaction-import?mode=ai&source=library' as Href);
+    if (pickerBusy.current) return;
+    pickerBusy.current = true;
+    closeImportMenu();
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (!result.canceled) openImageReview(result.assets[0]);
+    } catch (reason) {
+      await showAiError('transaction_library_launch', reason);
+    } finally {
+      pickerBusy.current = false;
+    }
   }
 
   async function openFilePicker() {
-    router.push('/transaction-import?mode=file&source=file' as Href);
-  }
-
-  function launchPendingPicker() {
-    const picker = pendingPicker.current;
-    if (!picker) return;
-    pendingPicker.current = null;
-    void picker().finally(() => {
+    if (pickerBusy.current) return;
+    pickerBusy.current = true;
+    closeImportMenu();
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'text/csv',
+          'application/pdf',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      router.push({
+        pathname: '/transaction-import',
+        params: {
+          mode: 'file',
+          source: 'file-asset',
+          assetUri: asset.uri,
+          assetName: asset.name,
+          assetSize: String(asset.size ?? 0),
+        },
+      } as Href);
+    } catch (reason) {
+      await showAiError('transaction_file_picker', reason);
+    } finally {
       pickerBusy.current = false;
-    });
+    }
   }
 
-  function closeImportMenu(afterClose?: () => Promise<void>) {
-    if (afterClose && pickerBusy.current) return;
-    if (afterClose) {
-      pickerBusy.current = true;
-      pendingPicker.current = afterClose;
-    }
-    Animated.timing(importSheetTranslateY, {
-      toValue: 480,
-      duration: 180,
-      useNativeDriver: true,
-    }).start(() => {
+  function closeImportMenu() {
+    Animated.parallel([
+      Animated.timing(importSheetTranslateY, {
+        toValue: 480,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+      Animated.timing(importBackdropOpacity, {
+        toValue: 0,
+        duration: 130,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
       setImportMenuOpen(false);
-      if (!afterClose) return;
-      // Android versions that do not emit onDismiss still need to continue.
-      // On iOS, onDismiss wins this race and guarantees that presentation ended.
-      setTimeout(launchPendingPicker, Platform.OS === 'ios' ? 600 : 80);
     });
   }
 
@@ -432,20 +474,17 @@ export default function AddTransactionScreen() {
           Aggiungi {kind === 'income' ? 'entrata' : 'uscita'}
         </PrimaryButton>
       </Screen>
-      <Modal
-        visible={importMenuOpen}
-        transparent
-        animationType="fade"
-        presentationStyle="overFullScreen"
-        onDismiss={launchPendingPicker}
-        onRequestClose={() => closeImportMenu()}>
-        <View style={styles.sheetOverlay}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Chiudi menu importazione"
-            style={StyleSheet.absoluteFill}
-            onPress={() => closeImportMenu()}
-          />
+      {importMenuOpen ? (
+        <View style={styles.importOverlay}>
+          <Animated.View
+            style={[styles.importBackdrop, { opacity: importBackdropOpacity }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Chiudi menu importazione"
+              style={StyleSheet.absoluteFill}
+              onPress={closeImportMenu}
+            />
+          </Animated.View>
           <Animated.View
             style={[
               styles.importSheet,
@@ -460,7 +499,7 @@ export default function AddTransactionScreen() {
             <Text style={[styles.sheetCopy, { color: colors.textSecondary }]}>Scegli una foto oppure un documento CSV, PDF o XLSX.</Text>
             <Pressable
               accessibilityRole="button"
-              onPress={() => closeImportMenu(openPhotoLibrary)}
+              onPress={() => void openPhotoLibrary()}
               style={({ pressed }) => [styles.sheetOption, { borderColor: colors.border }, pressed && styles.pressed]}>
               <View style={[styles.sheetOptionIcon, { backgroundColor: colors.accentSoft }]}>
                 <Text style={[styles.sheetMaterialIcon, { color: colors.accent }]}>photo_library</Text>
@@ -473,7 +512,7 @@ export default function AddTransactionScreen() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={() => closeImportMenu(openFilePicker)}
+              onPress={() => void openFilePicker()}
               style={({ pressed }) => [styles.sheetOption, { borderColor: colors.border }, pressed && styles.pressed]}>
               <View style={[styles.sheetOptionIcon, { backgroundColor: colors.accentSoft }]}>
                 <Text style={[styles.sheetMaterialIcon, { color: colors.accent }]}>description</Text>
@@ -485,7 +524,7 @@ export default function AddTransactionScreen() {
             </Pressable>
           </Animated.View>
         </View>
-      </Modal>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -502,7 +541,8 @@ const styles = StyleSheet.create({
   quickAddCopy: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginBottom: 13 },
   quickActions: { flexDirection: 'row', gap: 10 },
   quickAction: { flex: 1 },
-  sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(4, 12, 9, 0.42)' },
+  importOverlay: { ...StyleSheet.absoluteFill, zIndex: 100, justifyContent: 'flex-end' },
+  importBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(4, 12, 9, 0.42)' },
   importSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 34 },
   sheetHandle: { width: 42, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
   sheetTitle: { fontFamily: font.displaySemiBold, fontSize: 21, marginBottom: 5 },

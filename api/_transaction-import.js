@@ -72,6 +72,7 @@ function candidate(description, signedAmount, occurredAt) {
   const cleanDescription = String(description ?? '').replace(/\s+/g, ' ').trim()
   const amount = Number(signedAmount)
   if (!cleanDescription || !occurredAt || !Number.isFinite(amount) || amount === 0) return null
+  if (/^(saldo\s+(iniziale|finale)|totale\b)/i.test(cleanDescription)) return null
   return {
     description: cleanDescription.slice(0, 180),
     amount: Math.abs(amount),
@@ -127,11 +128,13 @@ export function rowsCandidates(rows, extension) {
   }
   const headers = rows[headerRowIndex].map(normalized)
   const dateIndex = headerIndex(headers, DATE_HEADERS)
-  const descriptionIndex = headerIndex(headers, DESCRIPTION_HEADERS)
+  const descriptionIndexes = headers.flatMap((header, index) =>
+    DESCRIPTION_HEADERS.some((alias) => header.includes(alias)) ? [index] : [],
+  )
   const amountIndex = headerIndex(headers, AMOUNT_HEADERS)
   const debitIndex = headerIndex(headers, DEBIT_HEADERS)
   const creditIndex = headerIndex(headers, CREDIT_HEADERS)
-  if (descriptionIndex < 0) throw new Error('Non trovo una colonna descrizione o causale.')
+  if (!descriptionIndexes.length) throw new Error('Non trovo una colonna descrizione o causale.')
 
   return rows.slice(headerRowIndex + 1).map((row) => {
     const occurredAt = isoDate(row[dateIndex])
@@ -144,7 +147,11 @@ export function rowsCandidates(rows, extension) {
       const credit = parseAmount(row[creditIndex])
       if (credit != null) amount = Math.abs(credit)
     }
-    return candidate(row[descriptionIndex], amount, occurredAt)
+    const description = descriptionIndexes
+      .map((index) => String(row[index] ?? '').trim())
+      .filter(Boolean)
+      .sort((first, second) => second.length - first.length)[0]
+    return candidate(description, amount, occurredAt)
   }).filter(Boolean)
 }
 
@@ -231,8 +238,9 @@ function aiTransactions(value) {
   })
 }
 
-async function openAIExtract(chunk) {
+async function openAIExtract(chunk, signal) {
   const response = await fetch('https://api.openai.com/v1/responses', {
+    signal,
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -266,9 +274,10 @@ async function openAIExtract(chunk) {
   return aiTransactions(parseModelJson(output))
 }
 
-async function geminiExtract(chunk) {
+async function geminiExtract(chunk, signal) {
   const model = process.env.GEMINI_IMPORT_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.6-flash'
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    signal,
     method: 'POST',
     headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -304,8 +313,8 @@ export async function fileChunks(buffer, extension) {
   if (extension === 'csv') {
     const rows = delimitedRows(buffer.toString('utf8').replace(/^\uFEFF/, ''))
     const chunks = []
-    for (let index = 0; index < rows.length; index += 60) {
-      chunks.push({ text: `Formato CSV. Righe in JSON:\n${JSON.stringify(rows.slice(index, index + 60))}` })
+    for (let index = 0; index < rows.length; index += 120) {
+      chunks.push({ text: `Formato CSV. Righe in JSON:\n${JSON.stringify(rows.slice(index, index + 120))}` })
     }
     return chunks
   }
@@ -313,8 +322,8 @@ export async function fileChunks(buffer, extension) {
     const { default: readXlsxFile } = await import('read-excel-file/node')
     const rows = await readXlsxFile(buffer)
     const chunks = []
-    for (let index = 0; index < rows.length; index += 60) {
-      chunks.push({ text: `Formato foglio di calcolo. Righe in JSON:\n${JSON.stringify(rows.slice(index, index + 60))}` })
+    for (let index = 0; index < rows.length; index += 120) {
+      chunks.push({ text: `Formato foglio di calcolo. Righe in JSON:\n${JSON.stringify(rows.slice(index, index + 120))}` })
     }
     return chunks
   }
@@ -347,6 +356,7 @@ export function isTransientAiError(error) {
   const status = Number(error?.providerStatus || error?.status)
   const message = String(error?.message || '').toLowerCase()
   return error instanceof SyntaxError
+    || error?.name === 'AbortError'
     || [429, 500, 502, 503, 504].includes(status)
     || message.includes('high demand')
     || message.includes('temporar')
@@ -392,13 +402,33 @@ export async function extractFileWithAI(buffer, extension) {
     ? 'gemini' : 'openai'
   if (provider === 'openai' && !process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY missing')
   if (provider === 'gemini' && !process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY missing')
+  let localFallback = []
+  if (extension === 'csv' || extension === 'xlsx') {
+    try {
+      localFallback = await spreadsheetCandidates(buffer, extension)
+    } catch {
+      // I file non standard proseguono comunque con il riconoscimento IA.
+    }
+  }
   const chunks = await fileChunks(buffer, extension)
   if (!chunks.length) throw new Error('File contains no analyzable content')
-  // Limita i picchi di richieste e ritenta soltanto gli errori temporanei del provider.
-  const batches = await mapWithConcurrency(chunks, 2, (chunk) =>
-    withAiRetry(() => provider === 'gemini' ? geminiExtract(chunk) : openAIExtract(chunk)),
-  )
-  return batches.flat()
+  const controller = new AbortController()
+  const deadline = setTimeout(() => controller.abort(), 30_000)
+  try {
+    // Due blocchi più capienti partono insieme, evitando una seconda ondata di
+    // richieste oltre il limite di 60 secondi delle funzioni Vercel Hobby.
+    const batches = await mapWithConcurrency(chunks, 2, (chunk) =>
+      withAiRetry(() => provider === 'gemini'
+        ? geminiExtract(chunk, controller.signal)
+        : openAIExtract(chunk, controller.signal)),
+    )
+    return batches.flat()
+  } catch (error) {
+    if (localFallback.length) return localFallback
+    throw error
+  } finally {
+    clearTimeout(deadline)
+  }
 }
 
 export default async function handler(req, res) {

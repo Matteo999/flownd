@@ -1765,23 +1765,38 @@ function EditTransactionModal({
   const categoryOptions = categoriesForTransactionKind(kind);
   const numericAmount = Number(amount.replace(',', '.')) || 0;
   const [sheetTranslateY] = useState(() => new Animated.Value(480));
+  const [backdropOpacity] = useState(() => new Animated.Value(0));
   const closeSheet = useCallback(() => {
-    Animated.timing(sheetTranslateY, {
-      toValue: 720,
-      duration: 190,
-      useNativeDriver: true,
-    }).start(onClose);
-  }, [onClose, sheetTranslateY]);
+    Animated.parallel([
+      Animated.timing(sheetTranslateY, {
+        toValue: 720,
+        duration: 190,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(onClose);
+  }, [backdropOpacity, onClose, sheetTranslateY]);
 
   useEffect(() => {
-    Animated.spring(sheetTranslateY, {
-      toValue: 0,
-      damping: 24,
-      stiffness: 240,
-      mass: 0.85,
-      useNativeDriver: true,
-    }).start();
-  }, [sheetTranslateY]);
+    Animated.parallel([
+      Animated.spring(sheetTranslateY, {
+        toValue: 0,
+        damping: 24,
+        stiffness: 240,
+        mass: 0.85,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [backdropOpacity, sheetTranslateY]);
 
   const [sheetPanResponder] = useState(() =>
     PanResponder.create({
@@ -1814,19 +1829,21 @@ function EditTransactionModal({
 
   return (
     <Modal
-      animationType="fade"
+      animationType="none"
       transparent
       visible
       onRequestClose={closeSheet}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.modalRoot}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Chiudi modifica transazione"
-          onPress={closeSheet}
-          style={styles.modalBackdrop}
-        />
+        <Animated.View style={[styles.modalBackdrop, { opacity: backdropOpacity }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Chiudi modifica transazione"
+            onPress={closeSheet}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
         <Animated.View
           style={[
             styles.editSheet,
@@ -1856,14 +1873,7 @@ function EditTransactionModal({
               </Pressable>
             </View>
           </View>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            alwaysBounceVertical
-            onScrollEndDrag={(event) => {
-              if (event.nativeEvent.contentOffset.y < -48) closeSheet();
-            }}
-            contentContainerStyle={styles.sheetContent}>
+          <View style={styles.sheetContent}>
             <View style={[styles.kindControl, { backgroundColor: colors.sunken }]}> 
               {([
                 { id: 'expense', label: 'Uscita' },
@@ -1934,41 +1944,6 @@ function EditTransactionModal({
                   {categoriesOpen ? 'expand_less' : 'expand_more'}
                 </Text>
               </Pressable>
-              {categoriesOpen ? (
-                <View style={[styles.editorDropdownMenu, { borderTopColor: colors.border }]}> 
-                  {categoryOptions.map((option) => {
-                    const selected = category === option;
-                    return (
-                      <Pressable
-                        key={option}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                        onPress={() => {
-                          setCategory(option);
-                          setCategoriesOpen(false);
-                        }}
-                        style={({ pressed }) => [
-                          styles.editorDropdownOption,
-                          selected && { backgroundColor: colors.accentSoft },
-                          pressed && styles.pressed,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.editorDropdownOptionText,
-                            { color: selected ? colors.accent : colors.text },
-                          ]}>
-                          {option}
-                        </Text>
-                        {selected ? (
-                          <Text style={[styles.editorDropdownCheck, { color: colors.accent }]}> 
-                            check
-                          </Text>
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
             </View>
             {kind === 'income' ? (
               <Text style={[styles.incomeHint, { color: colors.textSecondary }]}>
@@ -2012,7 +1987,69 @@ function EditTransactionModal({
               }}>
               Salva modifiche
             </PrimaryButton>
-          </ScrollView>
+          </View>
+          {categoriesOpen ? (
+            <View style={styles.categoryPopoverLayer}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Chiudi categorie"
+                onPress={() => setCategoriesOpen(false)}
+                style={StyleSheet.absoluteFill}
+              />
+              <View
+                style={[
+                  styles.categoryPopover,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}>
+                <View style={styles.categoryPopoverHeader}>
+                  <Text style={[styles.categoryPopoverTitle, { color: colors.text }]}>
+                    Scegli categoria
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Chiudi categorie"
+                    onPress={() => setCategoriesOpen(false)}
+                    hitSlop={8}>
+                    <Text style={[styles.editorDropdownIcon, { color: colors.textSecondary }]}>close</Text>
+                  </Pressable>
+                </View>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  style={styles.categoryPopoverScroll}>
+                  {categoryOptions.map((option) => {
+                    const selected = category === option;
+                    return (
+                      <Pressable
+                        key={option}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        onPress={() => {
+                          setCategory(option);
+                          setCategoriesOpen(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.editorDropdownOption,
+                          selected && { backgroundColor: colors.accentSoft },
+                          pressed && styles.pressed,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.editorDropdownOptionText,
+                            { color: selected ? colors.accent : colors.text },
+                          ]}>
+                          {option}
+                        </Text>
+                        {selected ? (
+                          <Text style={[styles.editorDropdownCheck, { color: colors.accent }]}>check</Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
         </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
@@ -2436,6 +2473,7 @@ const styles = StyleSheet.create({
   },
   editSheet: {
     maxHeight: '88%',
+    overflow: 'hidden',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,
@@ -2559,6 +2597,33 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingVertical: 5,
   },
+  categoryPopoverLayer: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 20,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(4, 12, 9, 0.16)',
+  },
+  categoryPopover: {
+    maxHeight: '76%',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    padding: 10,
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
+  categoryPopoverHeader: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 9,
+  },
+  categoryPopoverTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
+  categoryPopoverScroll: { maxHeight: 340 },
   editorDropdownOption: {
     minHeight: 42,
     flexDirection: 'row',
