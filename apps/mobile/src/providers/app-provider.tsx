@@ -180,6 +180,47 @@ type AppContextValue = {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+function isTransientNetworkError(error: { message?: string; details?: string } | null) {
+  const detail = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase();
+  return detail.includes('network connection was lost')
+    || detail.includes('fetch failed')
+    || detail.includes('network request failed')
+    || detail.includes('timed out');
+}
+
+type TransactionHistoryRow = {
+  id: string;
+  description: string;
+  amount: number | string;
+  category: string;
+  occurred_at: string;
+  source: string;
+  kind: string | null;
+  financial_account_id: string | null;
+  bank_status: string | null;
+  excluded_from_totals: boolean | null;
+  internal_transfer: boolean | null;
+  excluded_from_budget: boolean | null;
+  income_type: string | null;
+};
+
+async function fetchTransactionHistory(userId: string) {
+  const rows: TransactionHistoryRow[] = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('id,description,amount,category,occurred_at,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type')
+      .eq('user_id', userId)
+      .order('occurred_at', { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) return { data: null, error };
+    rows.push(...((data ?? []) as TransactionHistoryRow[]));
+    if (!data || data.length < pageSize) break;
+  }
+  return { data: rows, error: null };
+}
+
 export function AppProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -225,9 +266,9 @@ export function AppProvider({ children }: PropsWithChildren) {
   }, [privacyKey]);
 
   const hydrateUserData = useCallback(async (userId: string) => {
-    const historyStart = new Date();
-    historyStart.setFullYear(historyStart.getFullYear() - 1);
-    historyStart.setHours(0, 0, 0, 0);
+    const contributionHistoryStart = new Date();
+    contributionHistoryStart.setFullYear(contributionHistoryStart.getFullYear() - 1);
+    contributionHistoryStart.setHours(0, 0, 0, 0);
     const upcomingLimit = new Date();
     upcomingLimit.setDate(upcomingLimit.getDate() + 7);
     const [
@@ -260,12 +301,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         .eq('status', 'completed')
         .is('deleted_at', null)
         .order('completed_at', { ascending: false }),
-      supabase
-        .from('transactions')
-        .select('id,description,amount,category,occurred_at,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type')
-        .eq('user_id', userId)
-        .gte('occurred_at', historyStart.toISOString())
-        .order('occurred_at', { ascending: false }),
+      fetchTransactionHistory(userId),
       supabase
         .from('profiles')
         .select('goal_allocation_mode,plan_tier,budget_cycle_start_day,budget_rollover_mode,planned_monthly_income,income_band')
@@ -289,7 +325,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         .from('goal_contributions')
         .select('goal_id,amount,occurred_at')
         .eq('user_id', userId)
-        .gte('occurred_at', historyStart.toISOString())
+        .gte('occurred_at', contributionHistoryStart.toISOString())
         .order('occurred_at', { ascending: false }),
     ]);
 
@@ -733,9 +769,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       return true;
     }
 
-    const { data, error: insertError } = await supabase
-      .from('transactions')
-      .insert({
+    const insertPayload = {
         user_id: session.user.id,
         description: transaction.description.trim(),
         amount: transaction.amount,
@@ -757,9 +791,22 @@ export function AppProvider({ children }: PropsWithChildren) {
               }),
             }
           : {}),
-      })
+      };
+    const insertTransaction = () => supabase
+      .from('transactions')
+      .insert(insertPayload)
       .select('id,description,amount,category,source,kind,occurred_at,internal_transfer,excluded_from_totals')
       .single();
+    let insertResult = await insertTransaction();
+    for (
+      let attempt = 0;
+      source !== 'manual' && attempt < 2 && isTransientNetworkError(insertResult.error);
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+      insertResult = await insertTransaction();
+    }
+    const { data, error: insertError } = insertResult;
     setSaving(false);
 
     if (insertError) {
@@ -1202,7 +1249,18 @@ export function AppProvider({ children }: PropsWithChildren) {
       return false;
     }
     const transaction = transactions.find((item) => item.id === transactionId);
-    if (!transaction || !['manual', 'onboarding'].includes(transaction.source ?? '')) {
+    const disconnectedBankTransaction =
+      ['open_banking', 'manual_open_banking'].includes(transaction?.source ?? '') &&
+      !financialAccounts.some(
+        (account) => account.id === transaction?.financialAccountId,
+      );
+    if (
+      !transaction ||
+      (!disconnectedBankTransaction &&
+        !['manual', 'onboarding', 'ai_scan', 'file_import'].includes(
+          transaction.source ?? '',
+        ))
+    ) {
       setError('I movimenti bancari non possono essere eliminati. Puoi riclassificarli.');
       return false;
     }
@@ -1223,7 +1281,14 @@ export function AppProvider({ children }: PropsWithChildren) {
           .delete()
           .eq('id', transactionId)
           .eq('user_id', session.user.id)
-          .in('source', ['manual', 'onboarding']);
+          .in('source', [
+            'manual',
+            'onboarding',
+            'ai_scan',
+            'file_import',
+            'open_banking',
+            'manual_open_banking',
+          ]);
     setSaving(false);
     if (deleteError) {
       if (__DEV__) console.error('Flownd transaction delete failed', deleteError);

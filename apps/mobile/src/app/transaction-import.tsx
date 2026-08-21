@@ -53,9 +53,19 @@ export default function TransactionImportScreen() {
   const params = useLocalSearchParams<{
     mode?: string | string[];
     source?: string | string[];
+    assetUri?: string | string[];
+    assetWidth?: string | string[];
+    assetName?: string | string[];
+    assetSize?: string | string[];
   }>();
-  const requestedMode = Array.isArray(params.mode) ? params.mode[0] : params.mode;
-  const requestedSource = Array.isArray(params.source) ? params.source[0] : params.source;
+  const firstParam = (value: string | string[] | undefined) =>
+    Array.isArray(value) ? value[0] : value;
+  const requestedMode = firstParam(params.mode);
+  const requestedSource = firstParam(params.source);
+  const assetUri = firstParam(params.assetUri);
+  const assetWidth = Number(firstParam(params.assetWidth)) || 1600;
+  const assetName = firstParam(params.assetName);
+  const assetSize = Number(firstParam(params.assetSize)) || 0;
   const mode: ImportMode = requestedMode === 'ai' ? 'ai' : 'file';
   const {
     addTransaction,
@@ -73,6 +83,7 @@ export default function TransactionImportScreen() {
   const [excluded, setExcluded] = useState<Set<number>>(() => new Set());
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const autoLaunchRef = useRef(false);
+  const pickerBusyRef = useRef(false);
   const isPaid = planTier !== 'free';
   const duplicates = useMemo(
     () => duplicateIndexes(candidates, transactions),
@@ -88,30 +99,27 @@ export default function TransactionImportScreen() {
   }, [session]);
 
   const showCandidates = useCallback((items: ImportedTransaction[]) => {
-    setCandidates(items);
+    setCandidates(items.map((item) => {
+      const kind = item.kind ?? 'expense';
+      const suggested = planTier === 'free'
+        ? suggestTransactionCategory(item.description, kind)
+        : suggestPersonalizedTransactionCategory(item.description, kind, transactions);
+      return {
+        ...item,
+        category: !item.category || item.category === 'Altro' ? suggested : item.category,
+      };
+    }));
     setExcluded(new Set());
     setAnalysisError(null);
-  }, []);
+  }, [planTier, transactions]);
 
-  const chooseFile = useCallback(async () => {
+  const analyzeFileAsset = useCallback(async (asset: { uri: string; name: string; size?: number }) => {
     if (!session?.access_token) {
       return showOperationalError('transaction_file_missing_session', new Error('Missing session'));
     }
     clearError();
     setAnalysisError(null);
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'text/csv',
-          'application/pdf',
-          'application/vnd.ms-excel',
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ],
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
-      if (result.canceled) return;
-      const asset = result.assets[0];
       if ((asset.size ?? 0) > 3 * 1024 * 1024) {
         throw new Error(`File too large: ${asset.size} bytes`);
       }
@@ -129,7 +137,30 @@ export default function TransactionImportScreen() {
     }
   }, [clearError, session, showCandidates, showOperationalError]);
 
-  const analyzeImage = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
+  const chooseFile = useCallback(async () => {
+    if (pickerBusyRef.current) return;
+    pickerBusyRef.current = true;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'text/csv',
+          'application/pdf',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled) return;
+      await analyzeFileAsset(result.assets[0]);
+    } catch (reason) {
+      await showOperationalError('transaction_file_picker', reason);
+    } finally {
+      pickerBusyRef.current = false;
+    }
+  }, [analyzeFileAsset, showOperationalError]);
+
+  const analyzeImage = useCallback(async (asset: Pick<ImagePicker.ImagePickerAsset, 'uri' | 'width'>) => {
     if (!session?.access_token) {
       return showOperationalError('transaction_image_missing_session', new Error('Missing session'));
     }
@@ -158,6 +189,8 @@ export default function TransactionImportScreen() {
   }, [session, showCandidates, showOperationalError]);
 
   const chooseScreenshot = useCallback(async () => {
+    if (pickerBusyRef.current) return;
+    pickerBusyRef.current = true;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
@@ -167,10 +200,14 @@ export default function TransactionImportScreen() {
       if (!result.canceled) await analyzeImage(result.assets[0]);
     } catch (reason) {
       await showOperationalError('transaction_image_picker', reason);
+    } finally {
+      pickerBusyRef.current = false;
     }
   }, [analyzeImage, showOperationalError]);
 
   const takeReceiptPhoto = useCallback(async () => {
+    if (pickerBusyRef.current) return;
+    pickerBusyRef.current = true;
     try {
       if (Platform.OS === 'ios' && !Device.isDevice) {
         throw new Error('Camera unavailable on iOS Simulator');
@@ -191,21 +228,44 @@ export default function TransactionImportScreen() {
       if (!result.canceled) await analyzeImage(result.assets[0]);
     } catch (reason) {
       await showOperationalError('transaction_camera', reason);
+    } finally {
+      pickerBusyRef.current = false;
     }
   }, [analyzeImage, showOperationalError]);
 
   useEffect(() => {
     if (autoLaunchRef.current || !requestedSource) return;
-    if ((requestedSource === 'camera' || requestedSource === 'library') && !isPaid) return;
+    if (
+      ['camera', 'library', 'image-asset'].includes(requestedSource)
+      && !isPaid
+    ) return;
     const timer = setTimeout(() => {
       if (autoLaunchRef.current) return;
       autoLaunchRef.current = true;
       if (requestedSource === 'camera') void takeReceiptPhoto();
       if (requestedSource === 'library') void chooseScreenshot();
       if (requestedSource === 'file') void chooseFile();
+      if (requestedSource === 'image-asset' && assetUri) {
+        void analyzeImage({ uri: assetUri, width: assetWidth });
+      }
+      if (requestedSource === 'file-asset' && assetUri && assetName) {
+        void analyzeFileAsset({ uri: assetUri, name: assetName, size: assetSize });
+      }
     }, 250);
     return () => clearTimeout(timer);
-  }, [chooseFile, chooseScreenshot, isPaid, requestedSource, takeReceiptPhoto]);
+  }, [
+    analyzeFileAsset,
+    analyzeImage,
+    assetName,
+    assetSize,
+    assetUri,
+    assetWidth,
+    chooseFile,
+    chooseScreenshot,
+    isPaid,
+    requestedSource,
+    takeReceiptPhoto,
+  ]);
 
   async function importSelected() {
     for (const item of selected) {

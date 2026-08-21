@@ -1,7 +1,9 @@
+import * as Device from 'expo-device';
+import * as ImagePicker from 'expo-image-picker';
 import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useMemo, useState } from 'react';
-import { ActionSheetIOS, Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   Field,
@@ -13,6 +15,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { TransactionDateField } from '@/components/transaction-date-field';
+import { GENERIC_OPERATION_ERROR, reportClientError } from '@/lib/transaction-import';
 import {
   categoriesForTransactionKind,
   suggestPersonalizedTransactionCategory,
@@ -30,6 +33,7 @@ export default function AddTransactionScreen() {
     addTransaction,
     financialAccounts,
     planTier,
+    session,
     transactions,
     saving,
     error,
@@ -52,6 +56,10 @@ export default function AddTransactionScreen() {
   const [occurredAt, setOccurredAt] = useState(() => new Date());
   const [categoryOverride, setCategoryOverride] = useState<string | null>(null);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
+  const [importSheetTranslateY] = useState(() => new Animated.Value(480));
+  const pickerBusy = useRef(false);
+  const pendingPicker = useRef<(() => Promise<void>) | null>(null);
   const suggestedCategory = useMemo(
     () =>
       planTier === 'free'
@@ -72,6 +80,18 @@ export default function AddTransactionScreen() {
       numericAmount > selectedAccount.balance,
   );
 
+  useEffect(() => {
+    if (!importMenuOpen) return;
+    importSheetTranslateY.setValue(480);
+    Animated.spring(importSheetTranslateY, {
+      toValue: 0,
+      damping: 24,
+      stiffness: 240,
+      mass: 0.85,
+      useNativeDriver: true,
+    }).start();
+  }, [importMenuOpen, importSheetTranslateY]);
+
   function canUseImageAi() {
     if (planTier === 'free') {
       Alert.alert(
@@ -84,40 +104,93 @@ export default function AddTransactionScreen() {
     return true;
   }
 
-  function openCamera() {
-    if (!canUseImageAi()) return;
-    router.push('/transaction-import?mode=ai&source=camera' as Href);
+  async function showAiError(context: string, reason: unknown) {
+    await reportClientError(session?.access_token, context, reason);
+    Alert.alert('Operazione non riuscita', GENERIC_OPERATION_ERROR);
   }
 
-  function openPhotoLibrary() {
+  function openImageReview(asset: ImagePicker.ImagePickerAsset) {
+    router.push({
+      pathname: '/transaction-import',
+      params: {
+        mode: 'ai',
+        source: 'image-asset',
+        assetUri: asset.uri,
+        assetWidth: String(asset.width),
+      },
+    } as Href);
+  }
+
+  async function openCamera() {
+    if (!canUseImageAi()) return;
+    if (pickerBusy.current) return;
+    pickerBusy.current = true;
+    try {
+      if (Platform.OS === 'ios' && !Device.isDevice) {
+        throw new Error('Camera unavailable on iOS Simulator');
+      }
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Accesso alla fotocamera',
+          'Consenti a Flownd di usare la fotocamera per fotografare lo scontrino.',
+        );
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        cameraType: ImagePicker.CameraType.back,
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (!result.canceled) openImageReview(result.assets[0]);
+    } catch (reason) {
+      await showAiError('transaction_camera_launch', reason);
+    } finally {
+      pickerBusy.current = false;
+    }
+  }
+
+  async function openPhotoLibrary() {
     if (!canUseImageAi()) return;
     router.push('/transaction-import?mode=ai&source=library' as Href);
   }
 
-  function openFilePicker() {
+  async function openFilePicker() {
     router.push('/transaction-import?mode=file&source=file' as Href);
   }
 
-  function openImportMenu() {
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title: 'Importa con Flownd AI',
-          options: ['Annulla', 'Dalla libreria foto', 'Dai file'],
-          cancelButtonIndex: 0,
-        },
-        (index) => {
-          if (index === 1) openPhotoLibrary();
-          if (index === 2) openFilePicker();
-        },
-      );
-      return;
+  function launchPendingPicker() {
+    const picker = pendingPicker.current;
+    if (!picker) return;
+    pendingPicker.current = null;
+    void picker().finally(() => {
+      pickerBusy.current = false;
+    });
+  }
+
+  function closeImportMenu(afterClose?: () => Promise<void>) {
+    if (afterClose && pickerBusy.current) return;
+    if (afterClose) {
+      pickerBusy.current = true;
+      pendingPicker.current = afterClose;
     }
-    Alert.alert('Importa con Flownd AI', 'Scegli da dove importare.', [
-      { text: 'Annulla', style: 'cancel' },
-      { text: 'Libreria foto', onPress: openPhotoLibrary },
-      { text: 'File', onPress: openFilePicker },
-    ]);
+    Animated.timing(importSheetTranslateY, {
+      toValue: 480,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => {
+      setImportMenuOpen(false);
+      if (!afterClose) return;
+      // Android versions that do not emit onDismiss still need to continue.
+      // On iOS, onDismiss wins this race and guarantees that presentation ended.
+      setTimeout(launchPendingPicker, Platform.OS === 'ios' ? 600 : 80);
+    });
+  }
+
+  function openImportMenu() {
+    if (pickerBusy.current) return;
+    setImportMenuOpen(true);
   }
 
   return (
@@ -359,6 +432,60 @@ export default function AddTransactionScreen() {
           Aggiungi {kind === 'income' ? 'entrata' : 'uscita'}
         </PrimaryButton>
       </Screen>
+      <Modal
+        visible={importMenuOpen}
+        transparent
+        animationType="fade"
+        presentationStyle="overFullScreen"
+        onDismiss={launchPendingPicker}
+        onRequestClose={() => closeImportMenu()}>
+        <View style={styles.sheetOverlay}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Chiudi menu importazione"
+            style={StyleSheet.absoluteFill}
+            onPress={() => closeImportMenu()}
+          />
+          <Animated.View
+            style={[
+              styles.importSheet,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                transform: [{ translateY: importSheetTranslateY }],
+              },
+            ]}>
+            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+            <Text style={[styles.sheetTitle, { color: colors.text }]}>Importa con Flownd AI</Text>
+            <Text style={[styles.sheetCopy, { color: colors.textSecondary }]}>Scegli una foto oppure un documento CSV, PDF o XLSX.</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => closeImportMenu(openPhotoLibrary)}
+              style={({ pressed }) => [styles.sheetOption, { borderColor: colors.border }, pressed && styles.pressed]}>
+              <View style={[styles.sheetOptionIcon, { backgroundColor: colors.accentSoft }]}>
+                <Text style={[styles.sheetMaterialIcon, { color: colors.accent }]}>photo_library</Text>
+              </View>
+              <View style={styles.sheetOptionCopy}>
+                <Text style={[styles.sheetOptionTitle, { color: colors.text }]}>Libreria foto</Text>
+                <Text style={[styles.sheetOptionSubtitle, { color: colors.textSecondary }]}>Screenshot bancari e foto già scattate</Text>
+              </View>
+              {planTier === 'free' ? <Text style={[styles.proBadge, { color: colors.accent }]}>PRO</Text> : null}
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => closeImportMenu(openFilePicker)}
+              style={({ pressed }) => [styles.sheetOption, { borderColor: colors.border }, pressed && styles.pressed]}>
+              <View style={[styles.sheetOptionIcon, { backgroundColor: colors.accentSoft }]}>
+                <Text style={[styles.sheetMaterialIcon, { color: colors.accent }]}>description</Text>
+              </View>
+              <View style={styles.sheetOptionCopy}>
+                <Text style={[styles.sheetOptionTitle, { color: colors.text }]}>File</Text>
+                <Text style={[styles.sheetOptionSubtitle, { color: colors.textSecondary }]}>CSV, PDF oppure XLSX</Text>
+              </View>
+            </Pressable>
+          </Animated.View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -375,6 +502,18 @@ const styles = StyleSheet.create({
   quickAddCopy: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginBottom: 13 },
   quickActions: { flexDirection: 'row', gap: 10 },
   quickAction: { flex: 1 },
+  sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(4, 12, 9, 0.42)' },
+  importSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 34 },
+  sheetHandle: { width: 42, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+  sheetTitle: { fontFamily: font.displaySemiBold, fontSize: 21, marginBottom: 5 },
+  sheetCopy: { fontFamily: font.body, fontSize: 12, lineHeight: 18, marginBottom: 18 },
+  sheetOption: { minHeight: 70, borderWidth: 1, borderRadius: 14, padding: 12, marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  sheetOptionIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  sheetMaterialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 25 },
+  sheetOptionCopy: { flex: 1 },
+  sheetOptionTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
+  sheetOptionSubtitle: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 2 },
+  proBadge: { fontFamily: font.dataMedium, fontSize: 9, letterSpacing: 0.8 },
   manualDivider: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 18 },
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
   dividerText: { fontFamily: font.bodySemiBold, fontSize: 9, letterSpacing: 0.8 },

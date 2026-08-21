@@ -61,7 +61,7 @@ export default function BankConnectionScreen() {
     if (!connection || !accessToken) return;
     Alert.alert(
       'Rimuovere il collegamento?',
-      `Flownd interromperà la sincronizzazione con ${connection.aspsp_name}. Le transazioni già importate resteranno nello storico.`,
+      `Flownd interromperà la sincronizzazione con ${connection.aspsp_name}. Le transazioni già importate resteranno nello storico e potrai eliminarle singolarmente.`,
       [
         { text: 'Annulla', style: 'cancel' },
         {
