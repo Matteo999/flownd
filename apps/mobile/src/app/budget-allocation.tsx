@@ -1,6 +1,6 @@
 import { Slider } from '@expo/ui/community/slider';
 import { router, type Href } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card, PageHeader, ProgressBar, Screen, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
@@ -30,7 +30,8 @@ export default function BudgetAllocationScreen() {
   const [budgets, setBudgets] = useState<BudgetCategory[]>(() =>
     draft.budgets.filter((item) => item.selected),
   );
-  const [macroSliderVersions, setMacroSliderVersions] = useState<Record<string, number>>({});
+  const budgetsRef = useRef(budgets);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completeBudgets = useMemo(
     () => mergeSelectedBudgets(budgets, draft.budgets),
     [budgets, draft.budgets],
@@ -93,44 +94,24 @@ export default function BudgetAllocationScreen() {
       target.parentId ?? (target.id as 'needs' | 'wants' | 'savings'),
       percentage,
     );
-    const changedIndirectly = items.filter((item) => {
-      if (!item.isMacro || item.id === id) return false;
-      const groupId = item.parentId ?? (item.id as 'needs' | 'wants' | 'savings');
-      return item.percentage !== allocation[groupId];
-    });
-    if (changedIndirectly.length) {
-      setMacroSliderVersions((versions) => {
-        const next = { ...versions };
-        for (const item of changedIndirectly) {
-          next[item.id] = (next[item.id] ?? 0) + 1;
-        }
-        return next;
-      });
-    }
-    setBudgets(
-      items.map((item) =>
+    const next = items.map((item) =>
         item.isMacro
           ? { ...item, percentage: allocation[item.parentId ?? (item.id as 'needs' | 'wants' | 'savings')] }
           : item,
-      ),
-    );
-  }
-
-  function updateChildPercentage(id: string, percentage: number) {
-    setBudgets((items) => {
-      const mergedItems = mergeSelectedBudgets(items, draft.budgets);
-      const target = mergedItems.find((item) => item.id === id);
-      if (!target) return mergedItems;
-      const siblings = mergedItems
-        .filter((item) => !item.isMacro && item.id !== id && item.parentId === target.parentId)
-        .reduce((sum, item) => sum + item.percentage, 0);
-      const next = Math.max(1, Math.min(100 - siblings, Math.round(percentage)));
-      return mergedItems.map((item) => (item.id === id ? { ...item, percentage: next } : item));
-    });
+      );
+    budgetsRef.current = next;
+    setBudgets(next);
   }
 
   function persistBudget() {
-    void saveBudgetAllocations(materialized, Math.max(1, budgetMonthlyIncome));
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const latest = materializeBudgetAmounts(
+        mergeSelectedBudgets(budgetsRef.current, draft.budgets),
+        budgetMonthlyIncome,
+      );
+      void saveBudgetAllocations(latest, Math.max(1, budgetMonthlyIncome));
+    }, 350);
   }
 
   return (
@@ -174,7 +155,6 @@ export default function BudgetAllocationScreen() {
                   onTouchCancel={persistBudget}
                   style={styles.sliderTouchArea}>
                   <Slider
-                    key={`${group.macro.id}-${macroSliderVersions[group.macro.id] ?? 0}`}
                     value={group.macro.percentage}
                     minimumValue={5}
                     maximumValue={90}
@@ -219,28 +199,9 @@ export default function BudgetAllocationScreen() {
                           {formatEuro(child.amount)} pianificati
                         </Text>
                       </View>
-                      <View style={styles.childAllocation}>
-                        <Text style={[styles.childPercentage, { color: colors.accent }]}>{Math.round(child.percentage)}%</Text>
-                        <View onTouchEnd={persistBudget} onTouchCancel={persistBudget} style={styles.childSliderTouchArea}>
-                          <Slider
-                            value={child.percentage}
-                            minimumValue={1}
-                            maximumValue={Math.max(
-                              1,
-                              100 -
-                                group.children
-                                  .filter((item) => item.id !== child.id)
-                                  .reduce((sum, item) => sum + item.percentage, 0),
-                            )}
-                            step={1}
-                            minimumTrackTintColor={colors.accent}
-                            maximumTrackTintColor={colors.sunken}
-                            thumbTintColor={colors.accent}
-                            onValueChange={(value) => updateChildPercentage(child.id, value)}
-                            style={styles.childSlider}
-                          />
-                        </View>
-                      </View>
+                      <Text style={[styles.childPercentage, { color: colors.accent }]}>
+                        {child.budgetEnabled === false ? 'Nessun budget' : `${Math.round(child.percentage)}%`}
+                      </Text>
                     </View>
                   ))}
                 </View>
@@ -299,10 +260,7 @@ const styles = StyleSheet.create({
   childCopy: { flex: 1 },
   childName: { fontFamily: font.bodySemiBold, fontSize: 11 },
   childSpent: { fontFamily: font.body, fontSize: 9, lineHeight: 13, marginTop: 2 },
-  childAllocation: { width: 105, alignItems: 'flex-end' },
-  childPercentage: { fontFamily: font.dataMedium, fontSize: 10 },
-  childSliderTouchArea: { width: '100%', paddingVertical: 4 },
-  childSlider: { height: 20 },
+  childPercentage: { fontFamily: font.dataMedium, fontSize: 10, textAlign: 'right' },
   hint: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 12 },
   pressed: { opacity: 0.68 },
 });

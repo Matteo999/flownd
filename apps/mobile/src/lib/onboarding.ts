@@ -6,6 +6,8 @@ export type BudgetCategory = {
   percentage: number;
   selected: boolean;
   parentId?: BudgetGroupKey;
+  parentCategoryId?: string | null;
+  budgetEnabled?: boolean;
   isMacro?: boolean;
 };
 
@@ -176,6 +178,7 @@ export function materializeBudgetAmounts(
   plannedMonthlyIncome: number,
 ) {
   const macroAmounts = new Map<BudgetGroupKey, number>();
+  const categoryAmounts = new Map<string, number>();
   for (const item of items) {
     if (!item.isMacro) continue;
     const group = item.parentId ?? (item.id as BudgetGroupKey);
@@ -183,17 +186,33 @@ export function materializeBudgetAmounts(
       group,
       Math.round((plannedMonthlyIncome * item.percentage) / 100),
     );
+    categoryAmounts.set(item.id, Math.round((plannedMonthlyIncome * item.percentage) / 100));
   }
 
-  return items.map((item) => {
+  for (const item of items) {
+    if (item.isMacro || item.parentCategoryId) continue;
     const parentAmount = macroAmounts.get(
       item.parentId ?? categoryToBudgetGroup(item.name),
     ) ?? 0;
+    categoryAmounts.set(
+      item.id,
+      item.budgetEnabled === false ? 0 : Math.round((parentAmount * item.percentage) / 100),
+    );
+  }
+
+  return items.map((item) => {
+    const parentAmount = item.parentCategoryId
+      ? categoryAmounts.get(item.parentCategoryId) ?? 0
+      : macroAmounts.get(item.parentId ?? categoryToBudgetGroup(item.name)) ?? 0;
+    const amount = item.isMacro
+      ? categoryAmounts.get(item.id) ?? 0
+      : item.budgetEnabled === false
+        ? 0
+        : Math.round((parentAmount * item.percentage) / 100);
+    categoryAmounts.set(item.id, amount);
     return {
       ...item,
-      amount: item.isMacro
-        ? Math.round((plannedMonthlyIncome * item.percentage) / 100)
-        : Math.round((parentAmount * item.percentage) / 100),
+      amount,
     };
   });
 }
