@@ -572,6 +572,12 @@ function configuredImportModel(provider) {
     : process.env.OPENAI_IMPORT_MODEL || process.env.OPENAI_COACH_MODEL || 'gpt-5.6-sol'
 }
 
+export function configuredImportTimeoutMs() {
+  const configured = Number(process.env.AI_IMPORT_TIMEOUT_MS)
+  if (!Number.isFinite(configured) || configured <= 0) return 240_000
+  return Math.max(30_000, Math.min(270_000, Math.round(configured)))
+}
+
 export async function extractFileWithAI(buffer, extension) {
   const provider = configuredAiProvider()
   if (provider === 'openai' && !process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY missing')
@@ -594,7 +600,9 @@ export async function extractFileWithAI(buffer, extension) {
         sourceRows: fileParts.flatMap((part) => part.sourceRows || []),
       }
   const controller = new AbortController()
-  const deadline = setTimeout(() => controller.abort(), 45_000)
+  const timeoutMs = configuredImportTimeoutMs()
+  const requestStartedAt = Date.now()
+  const deadline = setTimeout(() => controller.abort(), timeoutMs)
   try {
     // Una sola richiesta per file. Eventuali retry sono lasciati all'utente per
     // evitare chiamate fatturate multiple quando il provider è saturo.
@@ -608,6 +616,10 @@ export async function extractFileWithAI(buffer, extension) {
   } catch (error) {
     // Non presentare come risultato IA il parser locale: una causale integrale
     // sembrerebbe un riconoscimento riuscito e potrebbe essere importata per errore.
+    if (error && typeof error === 'object') {
+      error.aiElapsedMs = Date.now() - requestStartedAt
+      error.aiTimeoutMs = timeoutMs
+    }
     throw error
   } finally {
     clearTimeout(deadline)
@@ -632,6 +644,7 @@ export async function processImportJob({
   model,
   extract = extractFileWithAI,
 }) {
+  const jobStartedAt = Date.now()
   const startedAt = new Date().toISOString()
   try {
     const { error: startError } = await service
@@ -672,6 +685,7 @@ export async function processImportJob({
       provider,
       model,
       transactions: transactions.length,
+      elapsedMs: Date.now() - jobStartedAt,
     })
   } catch (error) {
     const transient = isTransientAiError(error)
@@ -702,6 +716,8 @@ export async function processImportJob({
       providerStatus: error?.providerStatus || null,
       providerCode: error?.providerCode || null,
       transient,
+      elapsedMs: error?.aiElapsedMs || Date.now() - jobStartedAt,
+      timeoutMs: error?.aiTimeoutMs || configuredImportTimeoutMs(),
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : null,
     })

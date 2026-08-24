@@ -4,6 +4,7 @@ import test from 'node:test'
 import fs from 'node:fs'
 
 import {
+  configuredImportTimeoutMs,
   extractFileWithAI,
   fileChunks,
   isTransientAiError,
@@ -13,6 +14,21 @@ import {
   rowsCandidates,
   spreadsheetCandidates,
 } from './_transaction-import.js'
+
+test('usa quattro minuti per il job IA e limita valori fuori soglia', () => {
+  const previous = process.env.AI_IMPORT_TIMEOUT_MS
+  try {
+    delete process.env.AI_IMPORT_TIMEOUT_MS
+    assert.equal(configuredImportTimeoutMs(), 240_000)
+    process.env.AI_IMPORT_TIMEOUT_MS = '5000'
+    assert.equal(configuredImportTimeoutMs(), 30_000)
+    process.env.AI_IMPORT_TIMEOUT_MS = '999999'
+    assert.equal(configuredImportTimeoutMs(), 270_000)
+  } finally {
+    if (previous == null) delete process.env.AI_IMPORT_TIMEOUT_MS
+    else process.env.AI_IMPORT_TIMEOUT_MS = previous
+  }
+})
 
 test('accetta più oggetti JSON consecutivi restituiti dal modello', () => {
   const parsed = parseModelJson([
