@@ -5,10 +5,11 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -104,6 +105,31 @@ export default function TransactionImportScreen() {
     ),
   );
   const selected = selectedIndexes.map((index) => candidates[index]);
+  const waitingForStoredResult = Boolean(
+    jobId && !candidates.length && !analysisError,
+  );
+
+  const toggleCandidate = useCallback((index: number, duplicate: boolean) => {
+    if (duplicate) {
+      setIncludedDuplicates((current) => {
+        const next = new Set(current);
+        if (next.has(index)) next.delete(index);
+        else next.add(index);
+        return next;
+      });
+      return;
+    }
+    setExcluded((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  const editCandidate = useCallback((index: number) => {
+    setEditingIndex(index);
+  }, []);
 
   const showOperationalError = useCallback(async (context: string, reason: unknown) => {
     setAnalysisError(GENERIC_OPERATION_ERROR);
@@ -358,7 +384,9 @@ export default function TransactionImportScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      {!candidates.length ? (
+      {waitingForStoredResult ? (
+        <ImportReviewSkeleton />
+      ) : !candidates.length ? (
         <>
           <Text style={[uiStyles.title, { color: colors.text }]}>
             {mode === 'ai' ? 'Da immagine a transazione' : 'Carica il tuo estratto'}
@@ -428,65 +456,17 @@ export default function TransactionImportScreen() {
               const omitted = excluded.has(index);
               const duplicateIncluded = includedDuplicates.has(index);
               const active = (!duplicate || duplicateIncluded) && !omitted;
-              const category = item.category ?? suggestTransactionCategory(item.description, item.kind ?? 'expense');
               return (
-                <View
+                <ImportTransactionRow
                   key={`${item.occurredAt}:${item.amount}:${index}`}
-                  style={[
-                    styles.transaction,
-                    { backgroundColor: colors.surface, borderColor: colors.border },
-                    !active && styles.inactive,
-                  ]}>
-                  <Pressable
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: active }}
-                    hitSlop={8}
-                    onPress={() => {
-                      if (duplicate) {
-                        setIncludedDuplicates((current) => {
-                          const next = new Set(current);
-                          if (next.has(index)) next.delete(index);
-                          else next.add(index);
-                          return next;
-                        });
-                        return;
-                      }
-                      setExcluded((current) => {
-                        const next = new Set(current);
-                        if (next.has(index)) next.delete(index);
-                        else next.add(index);
-                        return next;
-                      });
-                    }}>
-                    <Text style={[styles.check, { color: duplicate ? colors.warning : colors.accent }]}>
-                      {active ? 'check_circle' : duplicate ? 'difference' : 'radio_button_unchecked'}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Modifica ${item.description}`}
-                    onPress={() => setEditingIndex(index)}
-                    style={styles.transactionCopy}>
-                    <Text numberOfLines={1} style={[styles.description, { color: colors.text }]}>{item.description}</Text>
-                    <Text style={[styles.meta, { color: colors.textSecondary }]}>
-                      {formatDateItalian(item.occurredAt ?? '')} · {category}
-                      {duplicate ? duplicateIncluded ? ' · Duplicato incluso' : ' · Possibile duplicato' : ''}
-                      {(item.importConfidence ?? 1) < 0.65 ? ' · Da verificare' : ''}
-                    </Text>
-                  </Pressable>
-                  <View style={styles.transactionTrailing}>
-                    <Text style={[styles.amount, { color: item.kind === 'income' ? colors.positive : colors.text }]}>
-                      {item.kind === 'income' ? '+' : '−'}{formatEuro(item.amount)}
-                    </Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Modifica ${item.description}`}
-                      hitSlop={8}
-                      onPress={() => setEditingIndex(index)}>
-                      <Text style={[styles.editIcon, { color: colors.accent }]}>edit</Text>
-                    </Pressable>
-                  </View>
-                </View>
+                  active={active}
+                  duplicate={duplicate}
+                  duplicateIncluded={duplicateIncluded}
+                  index={index}
+                  item={item}
+                  onEdit={editCandidate}
+                  onToggle={toggleCandidate}
+                />
               );
             })}
           </View>
@@ -530,6 +510,117 @@ export default function TransactionImportScreen() {
     </Screen>
   );
 }
+
+function ImportReviewSkeleton() {
+  const { colors } = useFlowndTheme();
+  const [opacity] = useState(() => new Animated.Value(0.45));
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.9,
+          duration: 520,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.45,
+          duration: 520,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [opacity]);
+
+  return (
+    <>
+      <Text style={[uiStyles.title, { color: colors.text }]}>Controlla prima di importare</Text>
+      <Text style={[uiStyles.subtitle, { color: colors.textSecondary }]}>Recupero del resoconto…</Text>
+      <Animated.View style={[styles.skeletonList, { opacity }]}>
+        {Array.from({ length: 6 }, (_, index) => (
+          <View
+            key={index}
+            style={[styles.skeletonRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={[styles.skeletonCheck, { backgroundColor: colors.sunken }]} />
+            <View style={styles.skeletonCopy}>
+              <View style={[styles.skeletonTitle, { backgroundColor: colors.sunken }]} />
+              <View style={[styles.skeletonMeta, { backgroundColor: colors.sunken }]} />
+            </View>
+            <View style={[styles.skeletonAmount, { backgroundColor: colors.sunken }]} />
+          </View>
+        ))}
+      </Animated.View>
+    </>
+  );
+}
+
+const ImportTransactionRow = memo(function ImportTransactionRow({
+  active,
+  duplicate,
+  duplicateIncluded,
+  index,
+  item,
+  onEdit,
+  onToggle,
+}: {
+  active: boolean;
+  duplicate: boolean;
+  duplicateIncluded: boolean;
+  index: number;
+  item: ImportedTransaction;
+  onEdit: (index: number) => void;
+  onToggle: (index: number, duplicate: boolean) => void;
+}) {
+  const { colors } = useFlowndTheme();
+  const category = item.category ?? suggestTransactionCategory(
+    item.description,
+    item.kind ?? 'expense',
+  );
+  return (
+    <View
+      style={[
+        styles.transaction,
+        { backgroundColor: colors.surface, borderColor: colors.border },
+        !active && styles.inactive,
+      ]}>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: active }}
+        hitSlop={8}
+        onPress={() => onToggle(index, duplicate)}>
+        <Text style={[styles.check, { color: duplicate ? colors.warning : colors.accent }]}>
+          {active ? 'check_circle' : duplicate ? 'difference' : 'radio_button_unchecked'}
+        </Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Modifica ${item.description}`}
+        onPress={() => onEdit(index)}
+        style={styles.transactionCopy}>
+        <Text numberOfLines={1} style={[styles.description, { color: colors.text }]}>{item.description}</Text>
+        <Text style={[styles.meta, { color: colors.textSecondary }]}>
+          {formatDateItalian(item.occurredAt ?? '')} · {category}
+          {duplicate ? duplicateIncluded ? ' · Duplicato incluso' : ' · Possibile duplicato' : ''}
+          {(item.importConfidence ?? 1) < 0.65 ? ' · Da verificare' : ''}
+        </Text>
+      </Pressable>
+      <View style={styles.transactionTrailing}>
+        <Text style={[styles.amount, { color: item.kind === 'income' ? colors.positive : colors.text }]}>
+          {item.kind === 'income' ? '+' : '−'}{formatEuro(item.amount)}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Modifica ${item.description}`}
+          hitSlop={8}
+          onPress={() => onEdit(index)}>
+          <Text style={[styles.editIcon, { color: colors.accent }]}>edit</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+});
 
 function CandidateEditor({
   transaction,
@@ -756,6 +847,21 @@ const styles = StyleSheet.create({
   loadingRow: { marginTop: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   loadingText: { fontFamily: font.bodyMedium, fontSize: 12 },
   list: { gap: 9, marginTop: 20 },
+  skeletonList: { gap: 9, marginTop: 20 },
+  skeletonRow: {
+    minHeight: 68,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  skeletonCheck: { width: 21, height: 21, borderRadius: 11 },
+  skeletonCopy: { flex: 1, gap: 7 },
+  skeletonTitle: { width: '72%', height: 12, borderRadius: 6 },
+  skeletonMeta: { width: '48%', height: 8, borderRadius: 4 },
+  skeletonAmount: { width: 56, height: 11, borderRadius: 6 },
   transaction: { borderWidth: 1, borderRadius: 12, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
   inactive: { opacity: 0.48 },
   check: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21, lineHeight: 24 },

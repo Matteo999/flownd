@@ -184,7 +184,7 @@ test('non presenta il riconoscimento locale come risultato IA se il provider non
   }
 })
 
-test('rifiuta una causale bancaria integrale restituita come descrizione IA', async () => {
+test('isola una causale bancaria integrale senza annullare le altre righe', async () => {
   const previousFetch = globalThis.fetch
   const previousProvider = process.env.AI_PROVIDER
   const previousKey = process.env.GEMINI_API_KEY
@@ -196,10 +196,10 @@ test('rifiuta una causale bancaria integrale restituita come descrizione IA', as
     const inputRows = JSON.parse(request.contents[0].parts[0].text)
     return new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: JSON.stringify({
-        rows: inputRows.map((row) => ({
+        rows: inputRows.map((row, index) => ({
           sourceIndex: row.sourceIndex,
           include: true,
-          description: narrative,
+          description: index === 0 ? narrative : 'Trenitalia',
           identityType: 'merchant',
           occurredTime: null,
           category: 'Trasporti',
@@ -209,13 +209,18 @@ test('rifiuta una causale bancaria integrale restituita come descrizione IA', as
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
   try {
-    await assert.rejects(
-      extractFileWithAI(
-        Buffer.from(`Data;Descrizione;Importo\n05/03/2026;${narrative};-2,95`),
-        'csv',
-      ),
-      /bank narrative/,
+    const transactions = await extractFileWithAI(
+      Buffer.from([
+        'Data;Descrizione;Importo',
+        `05/03/2026;${narrative};-2,95`,
+        '05/03/2026;Biglietto ferroviario presso TRENITALIA;-12,50',
+      ].join('\n')),
+      'csv',
     )
+    assert.equal(transactions.length, 2)
+    assert.equal(transactions[0].description, 'Transazione da verificare')
+    assert.equal(transactions[0].importConfidence, 0)
+    assert.equal(transactions[1].description, 'Trenitalia')
   } finally {
     globalThis.fetch = previousFetch
     if (previousProvider == null) delete process.env.AI_PROVIDER
