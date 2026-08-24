@@ -180,8 +180,7 @@ type AppContextValue = {
   createBudgetSubcategory: (
     parentId: BudgetGroupKey,
     name: string,
-    percentage: number,
-    options?: { parentCategoryId?: string | null; budgetEnabled?: boolean },
+    parentCategoryId?: string | null,
   ) => Promise<BudgetCategory | null>;
   deleteBudgetSubcategory: (categoryId: string) => Promise<boolean>;
   updateBudgetCycleSettings: (
@@ -1398,16 +1397,13 @@ export function AppProvider({ children }: PropsWithChildren) {
   async function createBudgetSubcategory(
     parentId: BudgetGroupKey,
     name: string,
-    percentage: number,
-    options: { parentCategoryId?: string | null; budgetEnabled?: boolean } = {},
+    parentCategoryId: string | null = null,
   ) {
     if (!session) {
       setError('La sessione è scaduta. Accedi di nuovo.');
       return null;
     }
     const trimmedName = name.trim();
-    const budgetEnabled = options.budgetEnabled !== false;
-    const parentCategoryId = options.parentCategoryId ?? null;
     const directParent = parentCategoryId
       ? draft.budgets.find(
           (item) => !item.isMacro && !item.parentCategoryId && item.id === parentCategoryId,
@@ -1417,18 +1413,14 @@ export function AppProvider({ children }: PropsWithChildren) {
       setError('La sottocategoria selezionata non è valida.');
       return null;
     }
-    const safePercentage = budgetEnabled ? Math.round(percentage) : 0;
-    const siblingTotal = draft.budgets
-      .filter(
-        (item) =>
-          !item.isMacro &&
-          item.budgetEnabled !== false &&
-          item.parentId === parentId &&
-          (item.parentCategoryId ?? null) === parentCategoryId,
-      )
-      .reduce((sum, item) => sum + item.percentage, 0);
-    if (!trimmedName || (budgetEnabled && (safePercentage < 1 || siblingTotal + safePercentage > 100))) {
-      setError('La sottocategoria deve lasciare il totale della macro entro il 100%.');
+    const duplicate = draft.budgets.some(
+      (item) =>
+        !item.isMacro &&
+        item.parentId === parentId &&
+        item.name.trim().localeCompare(trimmedName, 'it', { sensitivity: 'base' }) === 0,
+    );
+    if (!trimmedName || duplicate) {
+      setError(duplicate ? 'Esiste già una categoria con questo nome.' : 'Inserisci un nome per la categoria.');
       return null;
     }
     const parent = draft.budgets.find(
@@ -1443,10 +1435,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       .replace(/^-|-$/g, '')
       .slice(0, 32);
     const categoryKey = `${parentId}-${normalizedName || 'categoria'}-${Date.now().toString(36)}`;
-    const parentAmount = directParent?.amount ?? parent.amount;
-    const amount = budgetEnabled
-      ? Math.round((parentAmount * safePercentage) / 100)
-      : 0;
     setSaving(true);
     setError(null);
     const { data, error: insertError } = await supabase
@@ -1456,11 +1444,11 @@ export function AppProvider({ children }: PropsWithChildren) {
         category_key: categoryKey,
         name: trimmedName,
         emoji: null,
-        monthly_limit: amount,
-        allocation_percentage: safePercentage,
+        monthly_limit: 0,
+        allocation_percentage: 0,
         parent_key: parentId,
         parent_category_key: parentCategoryId,
-        budget_enabled: budgetEnabled,
+        budget_enabled: false,
         is_macro: false,
       })
       .select('category_key,name,emoji,monthly_limit,allocation_percentage,parent_key,parent_category_key,budget_enabled,is_macro')
@@ -1481,7 +1469,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       selected: true,
       parentId: data.parent_key as BudgetGroupKey,
       parentCategoryId: data.parent_category_key,
-      budgetEnabled: data.budget_enabled !== false,
+      budgetEnabled: false,
       isMacro: Boolean(data.is_macro),
     };
     setDraft((current) => ({
