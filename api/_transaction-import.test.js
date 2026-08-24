@@ -94,10 +94,7 @@ test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing
           sourceIndex: row.sourceIndex,
           include: !/^Saldo/i.test(row.rawDescription),
           description: 'Openmove',
-          merchantName: 'Openmove',
-          counterpartyName: '',
-          memo: '',
-          bankReference: 'REF-123',
+          identityType: 'merchant',
           category: 'Trasporti',
           confidence: 0.98,
         })),
@@ -117,7 +114,7 @@ test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing
     assert.ok(transactions.every((item) => item.importConfidence === 0.98))
     assert.ok(transactions.every((item) => !/^Saldo/i.test(item.rawDescription)))
     assert.equal(requests.length, 3)
-    assert.equal(requests[0].generationConfig.responseFormat.text.mimeType, 'application/json')
+    assert.equal(requests[0].generationConfig.responseFormat.text.mimeType, 'APPLICATION_JSON')
     assert.equal(requests[0].generationConfig.responseFormat.text.schema.required[0], 'rows')
   } finally {
     globalThis.fetch = previousFetch
@@ -128,7 +125,7 @@ test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing
   }
 })
 
-test('usa il riconoscimento locale se il provider IA non risponde in tempo', async () => {
+test('non presenta il riconoscimento locale come risultato IA se il provider non risponde', async () => {
   const previousFetch = globalThis.fetch
   const previousProvider = process.env.AI_PROVIDER
   const previousKey = process.env.GEMINI_API_KEY
@@ -140,12 +137,53 @@ test('usa il riconoscimento locale se il provider IA non risponde in tempo', asy
     throw error
   }
   try {
-    const transactions = await extractFileWithAI(
-      fs.readFileSync(new URL('../prompt/2147483647.csv', import.meta.url)),
-      'csv',
+    await assert.rejects(
+      extractFileWithAI(
+        fs.readFileSync(new URL('../prompt/2147483647.csv', import.meta.url)),
+        'csv',
+      ),
+      /aborted/,
     )
-    assert.ok(transactions.length > 200)
-    assert.ok(transactions.every((item) => item.rawDescription))
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousProvider == null) delete process.env.AI_PROVIDER
+    else process.env.AI_PROVIDER = previousProvider
+    if (previousKey == null) delete process.env.GEMINI_API_KEY
+    else process.env.GEMINI_API_KEY = previousKey
+  }
+})
+
+test('rifiuta una causale bancaria integrale restituita come descrizione IA', async () => {
+  const previousFetch = globalThis.fetch
+  const previousProvider = process.env.AI_PROVIDER
+  const previousKey = process.env.GEMINI_API_KEY
+  process.env.AI_PROVIDER = 'gemini'
+  process.env.GEMINI_API_KEY = 'test-key'
+  const narrative = 'Operazione Mastercard del 05/03/2026 alle ore 07:38 con Carta xxxxxxxxxxxx0593 presso OPENMOVE.COM'
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body)
+    const inputRows = JSON.parse(request.contents[0].parts[0].text)
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({
+        rows: inputRows.map((row) => ({
+          sourceIndex: row.sourceIndex,
+          include: true,
+          description: narrative,
+          identityType: 'merchant',
+          category: 'Trasporti',
+          confidence: 0.9,
+        })),
+      }) }] } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    await assert.rejects(
+      extractFileWithAI(
+        Buffer.from(`Data;Descrizione;Importo\n05/03/2026;${narrative};-2,95`),
+        'csv',
+      ),
+      /bank narrative/,
+    )
   } finally {
     globalThis.fetch = previousFetch
     if (previousProvider == null) delete process.env.AI_PROVIDER

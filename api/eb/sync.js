@@ -123,6 +123,19 @@ async function reconcileTransaction({
 
   let transactionId = await linkedTransaction(service, imported.id)
   if (transactionId) {
+    const rawStoredDescription = normalized.rawDescription.slice(0, 180)
+    if (normalized.description !== rawStoredDescription) {
+      const { error: descriptionError } = await service
+        .from('transactions')
+        .update({
+          description: normalized.description,
+          category: normalized.category,
+        })
+        .eq('id', transactionId)
+        .eq('source', 'open_banking')
+        .eq('description', rawStoredDescription)
+      if (descriptionError) throw descriptionError
+    }
     const linkedUpdate = {
       bank_status: normalized.status,
       financial_account_id: financialAccountId,

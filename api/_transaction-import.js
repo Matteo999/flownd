@@ -17,7 +17,7 @@ const CATEGORIES = [
 
 const aiInstructions = `Sei il motore multilingue di importazione bancaria di Flownd. Ricevi una porzione di CSV, XLSX o PDF bancario, potenzialmente con colonne e formati non standard e in qualsiasi lingua. Estrai ogni movimento reale senza inventare dati. Escludi saldi, totali e intestazioni. Se è presente sourceIndex, riportalo invariato. Seleziona semanticamente merchantName, counterpartyName, memo e bankReference; usa null quando il dato non è esplicito. description deve essere una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo, senza formule tecniche della banca, date, orari, numeri carta, importi o IBAN. Mantieni i nomi propri nella lingua originale. rawDescription deve contenere il testo originale rilevante solo quando sourceIndex non è disponibile. confidence è un numero tra 0 e 1. amount deve essere positivo, kind deve essere expense o income, occurredAt deve essere ISO 8601 e category deve appartenere alle categorie consentite.`
 
-const enrichmentInstructions = `Sei il livello semantico multilingue di Flownd. Ricevi movimenti già validati per data, importo e tipo, quindi non devi rigenerare questi dati. Per ogni sourceIndex restituisci una decisione: include=false per saldi iniziali/finali, disponibilità, totali, intestazioni o righe che non sono movimenti reali; include=true per le transazioni. Per le transazioni estrai merchantName, counterpartyName, memo e bankReference senza basarti su parole di una lingua specifica. description deve essere soltanto una breve etichetta esplicativa derivata da merchantName, counterpartyName o memo, mantenendo i nomi propri originali e rimuovendo formule tecniche, date, orari, numeri carta, importi e IBAN. Non inventare dati. category deve appartenere alle categorie consentite e confidence deve essere tra 0 e 1.`
+const enrichmentInstructions = `Sei il livello semantico multilingue di Flownd. Ricevi movimenti già validati per data, importo e tipo, quindi non devi rigenerare questi dati. Per ogni sourceIndex restituisci esattamente una decisione. Usa include=false per saldi iniziali/finali, disponibilità, totali, intestazioni o righe che non sono movimenti reali; include=true per le transazioni. description deve essere una sola etichetta breve, idealmente il nome dell'esercente o della controparte, mai l'intera causale bancaria e mai più di 60 caratteri. Rimuovi formule tecniche, tipo di operazione, date, orari, numeri carta, importi, valuta, IBAN e riferimenti. Mantieni i nomi propri nella lingua originale e non inventare dati. Indica con identityType se l'etichetta rappresenta merchant, counterparty, memo oppure unknown. Esempi: "Operazione Mastercard ... presso OPENMOVE.COM" diventa "OPENMOVE.COM"; "Prelievo carta ... presso CASSA RURALE ALTOGARD" diventa "CASSA RURALE ALTOGARD"; "Card purchase ... at STARBUCKS" diventa "STARBUCKS". category deve appartenere alle categorie consentite e confidence deve essere tra 0 e 1.`
 
 const enrichmentSchema = {
   type: 'object',
@@ -30,14 +30,11 @@ const enrichmentSchema = {
           sourceIndex: { type: 'integer' },
           include: { type: 'boolean' },
           description: { type: 'string' },
-          merchantName: { type: ['string', 'null'] },
-          counterpartyName: { type: ['string', 'null'] },
-          memo: { type: ['string', 'null'] },
-          bankReference: { type: ['string', 'null'] },
+          identityType: { type: 'string', enum: ['merchant', 'counterparty', 'memo', 'unknown'] },
           category: { type: 'string', enum: CATEGORIES },
           confidence: { type: 'number' },
         },
-        required: ['sourceIndex', 'include', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'category', 'confidence'],
+        required: ['sourceIndex', 'include', 'description', 'identityType', 'category', 'confidence'],
         additionalProperties: false,
       },
     },
@@ -134,6 +131,21 @@ function cleanImportedText(value, limit = 500) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, limit)
+}
+
+function semanticLabel(value, rawDescription) {
+  const description = cleanImportedText(value, 180)
+  const identity = normalized(description).replace(/[^a-z0-9]+/g, '')
+  const rawIdentity = normalized(rawDescription).replace(/[^a-z0-9]+/g, '')
+  if (!description) return ''
+  if (
+    description.length > 60
+    || identity === rawIdentity
+    || identity.length > 40 && rawIdentity.startsWith(identity)
+  ) {
+    throw new SyntaxError('AI returned a bank narrative instead of a semantic label')
+  }
+  return description
 }
 
 function candidate(description, signedAmount, occurredAt) {
@@ -310,9 +322,9 @@ function aiTransactions(value, chunk) {
     const rawDescription = sourceRow?.rawDescription
       || cleanImportedText(item.rawDescription, 1000)
       || cleanImportedText(item.description, 1000)
-    const description = cleanImportedText(
+    const description = semanticLabel(
       merchantName || counterpartyName || item.description || memo,
-      180,
+      rawDescription,
     )
     if (!description) return []
     return [{
@@ -340,21 +352,20 @@ function enrichedTransactions(value, candidates) {
   return candidates.flatMap((candidate, sourceIndex) => {
     const row = byIndex.get(sourceIndex)
     if (!row?.include) return []
-    const merchantName = cleanImportedText(row.merchantName, 180) || null
-    const counterpartyName = cleanImportedText(row.counterpartyName, 180) || null
-    const memo = cleanImportedText(row.memo, 500) || null
-    const description = cleanImportedText(
-      merchantName || counterpartyName || row.description || memo,
-      180,
+    const description = semanticLabel(
+      row.description,
+      candidate.rawDescription || candidate.description,
     )
     if (!description) return []
+    const identityType = ['merchant', 'counterparty', 'memo'].includes(row.identityType)
+      ? row.identityType
+      : 'unknown'
     return [{
       ...candidate,
       description,
-      merchantName,
-      counterpartyName,
-      memo,
-      bankReference: cleanImportedText(row.bankReference, 180) || null,
+      merchantName: identityType === 'merchant' ? description : null,
+      counterpartyName: identityType === 'counterparty' ? description : null,
+      memo: identityType === 'memo' ? description : null,
       category: CATEGORIES.includes(row.category) ? row.category : 'Altro',
       importConfidence: Math.max(0, Math.min(1, Number(row.confidence) || 0)),
     }]
@@ -400,7 +411,7 @@ async function geminiEnrich(candidates, signal) {
       contents: [{ role: 'user', parts: [{ text: enrichmentPrompt(candidates) }] }],
       generationConfig: {
         responseFormat: {
-          text: { mimeType: 'application/json', schema: enrichmentSchema },
+          text: { mimeType: 'APPLICATION_JSON', schema: enrichmentSchema },
         },
         maxOutputTokens: 12000,
       },
@@ -413,7 +424,13 @@ async function geminiEnrich(candidates, signal) {
     throw error
   }
   const output = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('')
-  return enrichedTransactions(parseModelJson(output), candidates)
+  const transactions = enrichedTransactions(parseModelJson(output), candidates)
+  console.info('Flownd Gemini import enrichment completed', {
+    model,
+    inputRows: candidates.length,
+    outputTransactions: transactions.length,
+  })
+  return transactions
 }
 
 async function openAIExtract(chunk, signal) {
@@ -462,7 +479,7 @@ async function geminiExtract(chunk, signal) {
       ] }],
       generationConfig: {
         responseFormat: {
-          text: { mimeType: 'application/json', schema: transactionExtractionSchema },
+          text: { mimeType: 'APPLICATION_JSON', schema: transactionExtractionSchema },
         },
         maxOutputTokens: 30000,
       },
@@ -583,9 +600,21 @@ async function mapWithConcurrency(items, concurrency, operation) {
   return results
 }
 
+function configuredAiProvider() {
+  return process.env.AI_PROVIDER?.toLowerCase() === 'gemini'
+    || (!process.env.OPENAI_API_KEY && process.env.GEMINI_API_KEY)
+    ? 'gemini'
+    : 'openai'
+}
+
+function configuredImportModel(provider) {
+  return provider === 'gemini'
+    ? process.env.GEMINI_IMPORT_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.7-flash'
+    : process.env.OPENAI_IMPORT_MODEL || process.env.OPENAI_COACH_MODEL || 'gpt-5.6-sol'
+}
+
 export async function extractFileWithAI(buffer, extension) {
-  const provider = process.env.AI_PROVIDER?.toLowerCase() === 'gemini' || (!process.env.OPENAI_API_KEY && process.env.GEMINI_API_KEY)
-    ? 'gemini' : 'openai'
+  const provider = configuredAiProvider()
   if (provider === 'openai' && !process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY missing')
   if (provider === 'gemini' && !process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY missing')
   let localFallback = []
@@ -618,7 +647,8 @@ export async function extractFileWithAI(buffer, extension) {
     )
     return batches.flat()
   } catch (error) {
-    if (localFallback.length) return localFallback
+    // Non presentare come risultato IA il parser locale: una causale integrale
+    // sembrerebbe un riconoscimento riuscito e potrebbe essere importata per errore.
     throw error
   } finally {
     clearTimeout(deadline)
@@ -631,6 +661,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Metodo non supportato' })
   }
   const reportId = randomUUID()
+  const provider = configuredAiProvider()
+  const model = configuredImportModel(provider)
   try {
     await authenticateUserRequest(req)
     const name = String(req.body?.name || '')
@@ -648,11 +680,20 @@ export default async function handler(req, res) {
     if (!transactions.length) {
       throw new Error('AI extracted zero transactions')
     }
+    console.info('Flownd transaction import completed', {
+      reportId,
+      provider,
+      model,
+      extension,
+      transactions: transactions.length,
+    })
     return res.status(200).json({ transactions: transactions.slice(0, 500) })
   } catch (error) {
     const transient = isTransientAiError(error)
     console.error('Flownd transaction import failed', {
       reportId,
+      provider,
+      model,
       providerStatus: error?.providerStatus || null,
       providerCode: error?.providerCode || null,
       transient,

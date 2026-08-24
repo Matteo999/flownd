@@ -37,6 +37,26 @@ function indicator(transaction) {
   return value.includes('CRDT') || value.includes('CREDIT') ? 'credit' : 'debit'
 }
 
+function narrativeEntity(value) {
+  const text = clean(value)
+  if (!text) return null
+  // Questo fallback è linguistico, non specifico per banca. I campi PSD2
+  // strutturati hanno sempre la precedenza quando il provider li valorizza.
+  const patterns = [
+    /\b(?:presso|at|chez|bei)\s+(.+?)(?=\s+(?:tessera|card|carte|karte|causale|reason|date|datum|via\b|[-–]\s*transa(?:zione|ction))|$)/i,
+    /\b(?:merchant|eserc(?:ente|izio)?\.?|beneficiario|beneficiary|payee|b[ée]n[ée]ficiaire|begünstigter)\s*[:\-]\s*(.+?)(?=\s+(?:causale|reason|date|datum|ref(?:erence)?\.?|id\.?|$))/i,
+    /\bc\/o\s+(.+?)(?=\s+(?:tessera|card|causale|date)|$)/i,
+  ]
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    const entity = clean(match?.[1]).replace(/[.,;:\-–]+$/g, '').trim()
+    if (!entity || entity.length > 100) continue
+    const digits = (entity.match(/\d/g) || []).length
+    if (digits / entity.length < 0.25) return entity
+  }
+  return null
+}
+
 function describe(transaction) {
   const direction = indicator(transaction)
   const lines = remittanceLines(transaction)
@@ -46,11 +66,12 @@ function describe(transaction) {
       ? transaction.creditor?.name
       : transaction.debtor?.name,
   )
-  const merchant = clean(
+  const structuredMerchant = clean(
     transaction.merchant?.name
       || transaction.merchant_name
       || transaction.card_acceptor?.name,
   )
+  const merchant = structuredMerchant || narrativeEntity(fullRemittance)
   const conciseRemittance = lines
     .filter((line) => {
       const compact = clean(line)
