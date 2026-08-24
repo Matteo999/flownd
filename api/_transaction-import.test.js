@@ -9,6 +9,7 @@ import {
   isTransientAiError,
   parseModelJson,
   pdfCandidates,
+  processImportJob,
   rowsCandidates,
   spreadsheetCandidates,
 } from './_transaction-import.js'
@@ -200,4 +201,47 @@ test('rifiuta una causale bancaria integrale restituita come descrizione IA', as
 test('riconosce gli errori temporanei senza avviare retry automatici', () => {
   assert.equal(isTransientAiError(new Error('high demand')), true)
   assert.equal(isTransientAiError(Object.assign(new Error('unavailable'), { providerStatus: 503 })), true)
+})
+
+test('completa un job persistente e crea la notifica che apre la revisione', async () => {
+  const operations = []
+  const service = {
+    from(table) {
+      return {
+        insert(values) {
+          operations.push({ table, type: 'insert', values })
+          return Promise.resolve({ error: null })
+        },
+        update(values) {
+          operations.push({ table, type: 'update', values })
+          const query = {
+            eq() { return query },
+            then(resolve) { resolve({ error: null }) },
+          }
+          return query
+        },
+      }
+    },
+  }
+  await processImportJob({
+    service,
+    job: {
+      id: '11111111-1111-4111-8111-111111111111',
+      userId: '22222222-2222-4222-8222-222222222222',
+      name: 'movimenti.csv',
+      extension: 'csv',
+      base64: Buffer.from('file').toString('base64'),
+    },
+    reportId: '33333333-3333-4333-8333-333333333333',
+    provider: 'gemini',
+    model: 'gemini-3.7-flash',
+    extract: async () => [{ description: 'Openmove', amount: 2.95 }],
+  })
+  const completion = operations.find(
+    (item) => item.table === 'transaction_import_jobs' && item.values.status === 'completed',
+  )
+  assert.equal(completion.values.file_base64, null)
+  assert.equal(completion.values.result.transactions[0].description, 'Openmove')
+  const notification = operations.find((item) => item.table === 'goal_notifications')
+  assert.match(notification.values.action_route, /jobId=11111111/)
 })

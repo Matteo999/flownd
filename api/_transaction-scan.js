@@ -1,5 +1,6 @@
 import { authenticateRequest, ApiError } from './eb/_supabase.js'
 import { randomUUID } from 'node:crypto'
+import { geminiStructuredGenerationConfig } from './_gemini-config.js'
 
 const CATEGORIES = [
   'Spesa', 'Casa', 'Bollette', 'Trasporti', 'Salute', 'Ristoranti',
@@ -124,12 +125,7 @@ export async function geminiScan(dataUrl) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: instructions }] },
       contents: [{ role: 'user', parts: [{ text: 'Estrai le transazioni presenti.' }, { inlineData: { mimeType, data: base64 } }] }],
-      generationConfig: {
-        responseFormat: {
-          text: { mimeType: 'APPLICATION_JSON', schema: scanSchema },
-        },
-        thinkingConfig: { thinkingLevel: 'LOW' },
-      },
+      generationConfig: geminiStructuredGenerationConfig(model, scanSchema),
     }),
   })
   const body = await response.text()

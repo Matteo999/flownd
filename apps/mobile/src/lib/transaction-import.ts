@@ -51,6 +51,23 @@ async function post<T>(path: string, accessToken: string, body: object) {
   return data;
 }
 
+async function get<T>(path: string, accessToken: string) {
+  const url = endpoint(path);
+  if (!url) throw new Error('API URL missing');
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const responseBody = await response.text();
+  let data: T & { error?: string };
+  try {
+    data = JSON.parse(responseBody) as T & { error?: string };
+  } catch {
+    throw new Error(`Invalid API response (${response.status}): ${responseBody.slice(0, 180)}`);
+  }
+  if (!response.ok) throw new Error(`API ${path} failed (${response.status}): ${data.error ?? 'no message'}`);
+  return data;
+}
+
 export async function reportClientError(
   accessToken: string | undefined,
   context: string,
@@ -84,10 +101,22 @@ export async function analyzeTransactionFile(
   accessToken: string,
   file: { name: string; base64: string },
 ) {
-  return post<{ transactions: ImportedTransaction[] }>(
+  return post<{ id: string; status: 'queued' }>(
     '/api/transaction-tools?action=import',
     accessToken,
     file,
+  );
+}
+
+export async function getTransactionImportJob(accessToken: string, jobId: string) {
+  return get<{
+    id: string;
+    status: 'queued' | 'processing' | 'completed' | 'failed';
+    fileName: string;
+    transactions: ImportedTransaction[];
+  }>(
+    `/api/transaction-tools?action=import&jobId=${encodeURIComponent(jobId)}`,
+    accessToken,
   );
 }
 

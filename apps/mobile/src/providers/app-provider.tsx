@@ -180,14 +180,6 @@ type AppContextValue = {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-function isTransientNetworkError(error: { message?: string; details?: string } | null) {
-  const detail = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase();
-  return detail.includes('network connection was lost')
-    || detail.includes('fetch failed')
-    || detail.includes('network request failed')
-    || detail.includes('timed out');
-}
-
 type TransactionHistoryRow = {
   id: string;
   description: string;
@@ -816,15 +808,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       .insert(insertPayload)
       .select('id,description,amount,category,source,kind,occurred_at,internal_transfer,excluded_from_totals')
       .single();
-    let insertResult = await insertTransaction();
-    for (
-      let attempt = 0;
-      source !== 'manual' && attempt < 2 && isTransientNetworkError(insertResult.error);
-      attempt += 1
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
-      insertResult = await insertTransaction();
-    }
+    const insertResult = await insertTransaction();
     const { data, error: insertError } = insertResult;
     setSaving(false);
 

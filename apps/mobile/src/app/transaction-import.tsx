@@ -35,6 +35,7 @@ import {
   analyzeTransactionFile,
   duplicateIndexes,
   GENERIC_OPERATION_ERROR,
+  getTransactionImportJob,
   type ImportedTransaction,
   reportClientError,
   scanTransactionImage,
@@ -57,6 +58,7 @@ export default function TransactionImportScreen() {
     assetWidth?: string | string[];
     assetName?: string | string[];
     assetSize?: string | string[];
+    jobId?: string | string[];
   }>();
   const firstParam = (value: string | string[] | undefined) =>
     Array.isArray(value) ? value[0] : value;
@@ -66,6 +68,7 @@ export default function TransactionImportScreen() {
   const assetWidth = Number(firstParam(params.assetWidth)) || 1600;
   const assetName = firstParam(params.assetName);
   const assetSize = Number(firstParam(params.assetSize)) || 0;
+  const jobId = firstParam(params.jobId);
   const mode: ImportMode = requestedMode === 'ai' ? 'ai' : 'file';
   const {
     addTransaction,
@@ -83,6 +86,7 @@ export default function TransactionImportScreen() {
   const [excluded, setExcluded] = useState<Set<number>>(() => new Set());
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const autoLaunchRef = useRef(false);
+  const jobLoadRef = useRef(false);
   const pickerBusyRef = useRef(false);
   const isPaid = planTier !== 'free';
   const duplicates = useMemo(
@@ -130,13 +134,28 @@ export default function TransactionImportScreen() {
         name: asset.name,
         base64,
       });
-      showCandidates(response.transactions);
+      if (!response.id) throw new Error('Import job missing');
+      router.dismissAll();
     } catch (reason) {
       await showOperationalError('transaction_file_import', reason);
     } finally {
       setAnalyzing(false);
     }
-  }, [clearError, session, showCandidates, showOperationalError]);
+  }, [clearError, session, showOperationalError]);
+
+  useEffect(() => {
+    if (!jobId || !session?.access_token || jobLoadRef.current) return;
+    jobLoadRef.current = true;
+    setAnalyzing(true);
+    void getTransactionImportJob(session.access_token, jobId)
+      .then((job) => {
+        if (job.status === 'completed') showCandidates(job.transactions);
+        else if (job.status === 'failed') setAnalysisError(GENERIC_OPERATION_ERROR);
+        else setAnalysisError('L’importazione è ancora in elaborazione. Riceverai una notifica quando sarà pronta.');
+      })
+      .catch((reason) => showOperationalError('transaction_import_job_load', reason))
+      .finally(() => setAnalyzing(false));
+  }, [jobId, session?.access_token, showCandidates, showOperationalError]);
 
   const chooseFile = useCallback(async () => {
     if (pickerBusyRef.current) return;
@@ -268,25 +287,25 @@ export default function TransactionImportScreen() {
     takeReceiptPhoto,
   ]);
 
-  async function importSelected() {
-    for (const item of selected) {
-      const saved = await addTransaction({
-        ...item,
-        category:
-          item.category ??
-          suggestTransactionCategory(item.description, item.kind ?? 'expense'),
-        source: mode === 'ai' ? 'ai_scan' : 'file_import',
-      });
-      if (!saved) {
-        await showOperationalError('transaction_import_save', new Error('addTransaction returned false'));
-        return;
+  function importSelected() {
+    const pending = [...selected];
+    const accessToken = session?.access_token;
+    router.dismissAll();
+    void (async () => {
+      for (const item of pending) {
+        const saved = await addTransaction({
+          ...item,
+          category:
+            item.category ??
+            suggestTransactionCategory(item.description, item.kind ?? 'expense'),
+          source: mode === 'ai' ? 'ai_scan' : 'file_import',
+        });
+        if (!saved) {
+          await reportClientError(accessToken, 'transaction_import_save', new Error('addTransaction returned false'));
+          return;
+        }
       }
-    }
-    Alert.alert(
-      'Transazioni importate',
-      `${selected.length} ${selected.length === 1 ? 'transazione aggiunta' : 'transazioni aggiunte'} senza duplicati.`,
-      [{ text: 'Fine', onPress: () => router.dismissAll() }],
-    );
+    })();
   }
 
   const title = mode === 'ai' ? 'Scansiona con Flownd AI' : 'Importa con Flownd AI';
