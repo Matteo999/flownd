@@ -140,6 +140,12 @@ function normalizedIdentity(value: string | null | undefined) {
 }
 
 function transactionBase(transaction: ImportedTransaction | ExpenseDraft) {
+  const minute = (transaction.occurredAt ?? '').slice(0, 16);
+  const amount = Math.round(Number(transaction.amount) * 100);
+  return `${minute}:${transaction.kind ?? 'expense'}:${amount}`;
+}
+
+function transactionReferenceBase(transaction: ImportedTransaction | ExpenseDraft) {
   const day = (transaction.occurredAt ?? '').slice(0, 10);
   const amount = Math.round(Number(transaction.amount) * 100);
   return `${day}:${transaction.kind ?? 'expense'}:${amount}`;
@@ -153,9 +159,19 @@ function transactionIdentity(transaction: ImportedTransaction | ExpenseDraft) {
   );
 }
 
+function narrativeIdentity(transaction: ImportedTransaction | ExpenseDraft) {
+  return normalizedIdentity(transaction.rawDescription);
+}
+
+function narrativeContainsTime(transaction: ImportedTransaction | ExpenseDraft) {
+  return /\b(?:[01]?\d|2[0-3])[:.]([0-5]\d)\b/.test(
+    transaction.rawDescription ?? '',
+  );
+}
+
 export function transactionFingerprint(transaction: ImportedTransaction | ExpenseDraft) {
   const reference = normalizedIdentity(transaction.bankReference);
-  if (reference) return `${transactionBase(transaction)}:reference:${reference}`;
+  if (reference) return `${transactionReferenceBase(transaction)}:reference:${reference}`;
   return `${transactionBase(transaction)}:${transactionIdentity(transaction)}`;
 }
 
@@ -180,9 +196,17 @@ export function duplicateIndexes(
     existing
       .map((item) => {
         const reference = normalizedIdentity(item.bankReference);
-        return reference ? `${transactionBase(item)}:${reference}` : '';
+        return reference ? `${transactionReferenceBase(item)}:${reference}` : '';
       })
       .filter(Boolean),
+  );
+  const timedNarratives = new Set(
+    existing
+      .filter(narrativeContainsTime)
+      .map((item) => (
+        `${transactionReferenceBase(item)}:${narrativeIdentity(item)}`
+      ))
+      .filter((key) => !key.endsWith(':')),
   );
   const byBase = new Map<string, (ImportedTransaction | ExpenseDraft)[]>();
   existing.forEach((item) => {
@@ -193,14 +217,23 @@ export function duplicateIndexes(
   candidates.forEach((candidate, index) => {
     const reference = normalizedIdentity(candidate.bankReference);
     const base = transactionBase(candidate);
-    const referenceKey = reference ? `${base}:${reference}` : '';
+    const referenceKey = reference
+      ? `${transactionReferenceBase(candidate)}:${reference}`
+      : '';
+    const narrativeKey = narrativeContainsTime(candidate)
+      ? `${transactionReferenceBase(candidate)}:${narrativeIdentity(candidate)}`
+      : '';
     const matchesReference = Boolean(referenceKey && references.has(referenceKey));
+    const matchesLegacyNarrative = Boolean(
+      narrativeKey && timedNarratives.has(narrativeKey),
+    );
     const matchesContent = (byBase.get(base) ?? []).some((item) =>
       compatibleIdentity(candidate, item),
     );
-    if (matchesReference || matchesContent) duplicates.add(index);
+    if (matchesReference || matchesLegacyNarrative || matchesContent) duplicates.add(index);
     else {
       if (referenceKey) references.add(referenceKey);
+      if (narrativeKey) timedNarratives.add(narrativeKey);
       byBase.set(base, [...(byBase.get(base) ?? []), candidate]);
     }
   });

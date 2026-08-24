@@ -29,6 +29,7 @@ export default function GoalsScreen() {
     deleteGoal,
     goalContributions,
     budgetCycleStartDay,
+    transactions,
   } = useApp();
   const [completedOpen, setCompletedOpen] = useState(false);
   const orderedGoals = [...goals].sort(
@@ -44,7 +45,11 @@ export default function GoalsScreen() {
     (sum, loan) => sum + loan.monthlyPayment,
     0,
   );
-  const currentCycle = financialCycleForDate(new Date(), budgetCycleStartDay);
+  const currentCycle = financialCycleForDate(
+    new Date(),
+    budgetCycleStartDay,
+    transactions,
+  );
   const currentCycleContributions = goalContributions.reduce(
     (totals, contribution) => {
       const occurredAt = new Date(contribution.createdAt);

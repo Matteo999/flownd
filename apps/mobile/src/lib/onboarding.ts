@@ -107,6 +107,7 @@ export type ExpenseDraft = {
   memo?: string | null;
   bankReference?: string | null;
   importConfidence?: number | null;
+  forceImportDuplicate?: boolean;
   kind?: 'expense' | 'income';
   financialAccountId?: string | null;
   bankStatus?: string | null;
