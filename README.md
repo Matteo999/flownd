@@ -89,3 +89,9 @@ Gli import di file vengono accodati in `transaction_import_jobs`: l’API rispon
 appena il job è salvato, l’elaborazione prosegue sul server e il risultato viene
 aperto dalla notifica “Importazione pronta”. Il contenuto temporaneo del file
 viene cancellato dalla tabella al termine dell’elaborazione.
+
+Il riconoscimento file ha un timeout predefinito di quattro minuti, configurabile
+con `AI_IMPORT_TIMEOUT_MS` tra 30 e 270 secondi. La funzione Vercel
+`api/transaction-tools.js` ha una durata massima di 300 secondi, lasciando tempo
+per registrare il risultato e generare la notifica anche dopo una risposta lenta
+del provider.
