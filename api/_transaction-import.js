@@ -31,7 +31,7 @@ const enrichmentSchema = {
         properties: {
           sourceIndex: { type: 'integer' },
           include: { type: 'boolean' },
-          description: { type: 'string' },
+          description: { type: 'string', maxLength: 60 },
           identityType: { type: 'string', enum: ['merchant', 'counterparty', 'memo', 'unknown'] },
           occurredTime: { type: ['string', 'null'] },
           category: { type: 'string', enum: CATEGORIES },
@@ -144,12 +144,14 @@ function cleanImportedText(value, limit = 500) {
 
 function semanticLabel(value, rawDescription) {
   const description = cleanImportedText(value, 180)
+  const raw = cleanImportedText(rawDescription, 1000)
   const identity = normalized(description).replace(/[^a-z0-9]+/g, '')
-  const rawIdentity = normalized(rawDescription).replace(/[^a-z0-9]+/g, '')
+  const rawIdentity = normalized(raw).replace(/[^a-z0-9]+/g, '')
+  const rawLooksLikeNarrative = raw.length > 60 || raw.split(/\s+/).length > 8
   if (!description) return ''
   if (
     description.length > 60
-    || identity === rawIdentity
+    || identity === rawIdentity && rawLooksLikeNarrative
     || identity.length > 40 && rawIdentity.startsWith(identity)
   ) {
     throw new SyntaxError('AI returned a bank narrative instead of a semantic label')
@@ -358,15 +360,26 @@ export function enrichedTransactions(value, candidates) {
   if (byIndex.size !== candidates.length) {
     throw new SyntaxError(`AI enrichment returned ${byIndex.size}/${candidates.length} rows`)
   }
-  return candidates.flatMap((candidate, sourceIndex) => {
+  let rejectedNarratives = 0
+  const transactions = candidates.flatMap((candidate, sourceIndex) => {
     const row = byIndex.get(sourceIndex)
     if (!row?.include) return []
-    const description = semanticLabel(
-      row.description,
-      candidate.rawDescription || candidate.description,
-    )
+    let description
+    let invalidDescription = false
+    try {
+      description = semanticLabel(
+        row.description,
+        candidate.rawDescription || candidate.description,
+      )
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error
+      rejectedNarratives += 1
+      invalidDescription = true
+      description = 'Transazione da verificare'
+    }
     if (!description) return []
-    const identityType = ['merchant', 'counterparty', 'memo'].includes(row.identityType)
+    const identityType = !invalidDescription
+      && ['merchant', 'counterparty', 'memo'].includes(row.identityType)
       ? row.identityType
       : 'unknown'
     const time = String(row.occurredTime || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/)
@@ -382,9 +395,19 @@ export function enrichedTransactions(value, candidates) {
       counterpartyName: identityType === 'counterparty' ? description : null,
       memo: identityType === 'memo' ? description : null,
       category: CATEGORIES.includes(row.category) ? row.category : 'Altro',
-      importConfidence: Math.max(0, Math.min(1, Number(row.confidence) || 0)),
+      importConfidence: invalidDescription
+        ? 0
+        : Math.max(0, Math.min(1, Number(row.confidence) || 0)),
     }]
   })
+  if (rejectedNarratives) {
+    console.warn('Flownd AI enrichment rejected narrative labels', {
+      rejectedNarratives,
+      reviewTransactions: rejectedNarratives,
+      totalTransactions: transactions.length,
+    })
+  }
+  return transactions
 }
 
 function enrichmentPrompt(candidates) {

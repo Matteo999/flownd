@@ -2,7 +2,14 @@ import { router, type Href, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import * as Haptics from 'expo-haptics';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
 import { Card, PrimaryButton, Screen, font, useFlowndTheme } from '@/components/flownd-ui';
 import { supabase } from '@/lib/supabase';
@@ -20,6 +27,15 @@ type NotificationItem = {
   createdAt: string;
   actionRoute: string | null;
 };
+
+const SWIPE_ACTION_WIDTH = 86;
+const SWIPE_DELETE_THRESHOLD = 168;
+const SWIPE_DISMISS_DISTANCE = 520;
+const SWIPE_SPRING = { damping: 22, stiffness: 240, mass: 0.82 };
+
+function deleteThresholdHaptic() {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+}
 
 export default function NotificationsScreen() {
   const { colors, isDark } = useFlowndTheme();
@@ -68,9 +84,10 @@ export default function NotificationsScreen() {
     }, [session]),
   );
 
-  async function openNotification(item: NotificationItem) {
+  function openNotification(item: NotificationItem) {
     if (!session) return;
-    if (!item.readAt) {
+    if (item.actionRoute) router.push(item.actionRoute as Href);
+    if (!item.readAt) void (async () => {
       const readAt = new Date().toISOString();
       const { error } = await supabase
         .from('goal_notifications')
@@ -85,8 +102,7 @@ export default function NotificationsScreen() {
         );
         await dismissGoalNotice(item.id);
       }
-    }
-    if (item.actionRoute) router.push(item.actionRoute as Href);
+    })();
   }
 
   async function deleteNotification(item: NotificationItem) {
@@ -190,60 +206,12 @@ export default function NotificationsScreen() {
       ) : items.length ? (
         <View style={styles.list}>
           {items.map((item) => (
-            <Swipeable
+            <SwipeNotificationRow
               key={item.id}
-              overshootRight={false}
-              rightThreshold={42}
-              renderRightActions={() => (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${jobIdFromActionRoute(item.actionRoute) ? 'Scarta' : 'Elimina'} ${item.title}`}
-                  onPress={() => void deleteNotification(item)}
-                  style={[
-                    styles.swipeDelete,
-                    { backgroundColor: colors.negative },
-                  ]}>
-                  <Text style={[styles.materialIcon, { color: '#FFFFFF' }]}>delete</Text>
-                  <Text style={styles.swipeDeleteText}>
-                    {jobIdFromActionRoute(item.actionRoute) ? 'Scarta' : 'Elimina'}
-                  </Text>
-                </Pressable>
-              )}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${item.title}. ${item.readAt ? 'Letta' : 'Non letta'}`}
-                onPress={() => void openNotification(item)}
-                style={({ pressed }) => pressed && styles.pressed}>
-                <Card
-                  style={[
-                    styles.notification,
-                    !item.readAt && {
-                      backgroundColor: colors.accentSoft,
-                      borderColor: colors.accent,
-                    },
-                  ]}>
-                  <View
-                    style={[
-                      styles.notificationIcon,
-                      { backgroundColor: item.readAt ? colors.sunken : colors.surface },
-                    ]}>
-                    <Text style={[styles.materialIcon, { color: colors.accent }]}>notifications</Text>
-                  </View>
-                  <View style={styles.flex}>
-                    <View style={styles.titleRow}>
-                      <Text style={[styles.title, { color: colors.text }]}>{item.title}</Text>
-                      {!item.readAt ? (
-                        <View style={[styles.unreadDot, { backgroundColor: colors.accent }]} />
-                      ) : null}
-                    </View>
-                    <Text style={[styles.body, { color: colors.textSecondary }]}>{item.body}</Text>
-                    <Text style={[styles.date, { color: colors.textSecondary }]}>
-                      {formatNotificationDate(item.createdAt)}
-                    </Text>
-                  </View>
-                </Card>
-              </Pressable>
-            </Swipeable>
+              item={item}
+              onDelete={() => void deleteNotification(item)}
+              onOpen={() => openNotification(item)}
+            />
           ))}
         </View>
       ) : (
@@ -282,6 +250,140 @@ export default function NotificationsScreen() {
         </View>
       </Modal>
     </Screen>
+  );
+}
+
+function SwipeNotificationRow({
+  item,
+  onDelete,
+  onOpen,
+}: {
+  item: NotificationItem;
+  onDelete: () => void;
+  onOpen: () => void;
+}) {
+  const { colors } = useFlowndTheme();
+  const translateX = useSharedValue(0);
+  const gestureStart = useSharedValue(0);
+  const deleteArmed = useSharedValue(false);
+  const actionLabel = jobIdFromActionRoute(item.actionRoute) ? 'Scarta' : 'Elimina';
+
+  const rowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+  const actionStyle = useAnimatedStyle(() => ({
+    width: Math.max(SWIPE_ACTION_WIDTH, -translateX.value),
+  }));
+  const panGesture = Gesture.Pan()
+    .activeOffsetX([-9, 9])
+    .failOffsetY([-12, 12])
+    .onStart(() => {
+      gestureStart.value = translateX.value;
+    })
+    .onUpdate((event) => {
+      // Reanimated SharedValues are intentionally mutable on the UI thread.
+      // eslint-disable-next-line react-hooks/immutability
+      translateX.value = Math.min(0, gestureStart.value + event.translationX);
+      const crossed = -translateX.value >= SWIPE_DELETE_THRESHOLD;
+      if (crossed && !deleteArmed.value) {
+        deleteArmed.value = true;
+        runOnJS(deleteThresholdHaptic)();
+      } else if (!crossed && deleteArmed.value) {
+        deleteArmed.value = false;
+      }
+    })
+    .onEnd(() => {
+      if (deleteArmed.value) {
+        // eslint-disable-next-line react-hooks/immutability
+        translateX.value = withSpring(
+          -SWIPE_DISMISS_DISTANCE,
+          SWIPE_SPRING,
+          (finished) => {
+            if (finished) runOnJS(onDelete)();
+          },
+        );
+        return;
+      }
+      translateX.value = withSpring(
+        translateX.value <= -SWIPE_ACTION_WIDTH / 2 ? -SWIPE_ACTION_WIDTH : 0,
+        SWIPE_SPRING,
+      );
+    })
+    .onFinalize(() => {
+      deleteArmed.value = false;
+    });
+
+  const deleteFromButton = useCallback(() => {
+    // eslint-disable-next-line react-hooks/immutability
+    translateX.value = withSpring(
+      -SWIPE_DISMISS_DISTANCE,
+      SWIPE_SPRING,
+      (finished) => {
+        if (finished) runOnJS(onDelete)();
+      },
+    );
+  }, [onDelete, translateX]);
+
+  return (
+    <View style={styles.swipeRow}>
+      <Animated.View
+        style={[styles.swipeDelete, { backgroundColor: colors.negative }, actionStyle]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${actionLabel} ${item.title}`}
+          onPress={deleteFromButton}
+          style={styles.swipeDeletePressable}>
+          <Text style={[styles.materialIcon, { color: '#FFFFFF' }]}>delete</Text>
+          <Text style={styles.swipeDeleteText}>{actionLabel}</Text>
+        </Pressable>
+      </Animated.View>
+      <GestureDetector gesture={panGesture}>
+        <Animated.View style={rowStyle}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${item.title}. ${item.readAt ? 'Letta' : 'Non letta'}`}
+          accessibilityActions={[{ name: 'delete', label: actionLabel }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'delete') onDelete();
+          }}
+          onPress={() => {
+            if (translateX.value < 0) {
+              // eslint-disable-next-line react-hooks/immutability
+              translateX.value = withSpring(0, SWIPE_SPRING);
+            } else onOpen();
+          }}>
+          <Card
+            style={[
+              styles.notification,
+              !item.readAt && {
+                backgroundColor: colors.accentSoft,
+                borderColor: colors.accent,
+              },
+            ]}>
+            <View
+              style={[
+                styles.notificationIcon,
+                { backgroundColor: item.readAt ? colors.sunken : colors.surface },
+              ]}>
+              <Text style={[styles.materialIcon, { color: colors.accent }]}>notifications</Text>
+            </View>
+            <View style={styles.flex}>
+              <View style={styles.titleRow}>
+                <Text style={[styles.title, { color: colors.text }]}>{item.title}</Text>
+                {!item.readAt ? (
+                  <View style={[styles.unreadDot, { backgroundColor: colors.accent }]} />
+                ) : null}
+              </View>
+              <Text style={[styles.body, { color: colors.textSecondary }]}>{item.body}</Text>
+              <Text style={[styles.date, { color: colors.textSecondary }]}>
+                {formatNotificationDate(item.createdAt)}
+              </Text>
+            </View>
+          </Card>
+        </Pressable>
+        </Animated.View>
+      </GestureDetector>
+    </View>
   );
 }
 
@@ -332,6 +434,7 @@ const styles = StyleSheet.create({
   deleteAllText: { fontFamily: font.bodySemiBold, fontSize: 11 },
   loader: { marginTop: 30 },
   list: { gap: 9 },
+  swipeRow: { position: 'relative', overflow: 'hidden', borderRadius: 16 },
   notification: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
   notificationIcon: {
     width: 38,
@@ -346,9 +449,15 @@ const styles = StyleSheet.create({
   body: { fontFamily: font.body, fontSize: 11, lineHeight: 17, marginTop: 3 },
   date: { fontFamily: font.data, fontSize: 9, marginTop: 7 },
   swipeDelete: {
-    width: 86,
-    marginLeft: 8,
-    borderRadius: 16,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  swipeDeletePressable: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
