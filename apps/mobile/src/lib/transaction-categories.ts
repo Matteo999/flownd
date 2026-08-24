@@ -19,6 +19,7 @@ export const expenseTransactionCategories = [
   'Tasse e Multe',
   'Trasporti e Auto',
   'Viaggi e Vacanze',
+  'Giroconto',
 ] as const;
 
 export const incomeTransactionCategories = [

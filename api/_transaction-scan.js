@@ -5,10 +5,10 @@ import { geminiStructuredGenerationConfig } from './_gemini-config.js'
 const CATEGORIES = [
   'Spesa', 'Casa', 'Bollette', 'Trasporti', 'Salute', 'Ristoranti',
   'Shopping', 'Tempo libero', 'Viaggi', 'Abbonamenti', 'Educazione',
-  'Assicurazioni', 'Investimenti', 'Regali', 'Stipendio', 'Rimborsi', 'Altro',
+  'Assicurazioni', 'Investimenti', 'Regali', 'Stipendio', 'Rimborsi', 'Giroconto', 'Altro',
 ]
 
-const instructions = `Analizza una foto di scontrino o uno screenshot bancario in qualsiasi lingua. Estrai solo transazioni chiaramente visibili. Per ogni transazione separa semanticamente merchantName, counterpartyName, memo e bankReference, usando null quando il dato non è esplicito. description è una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo; rawDescription conserva il testo originale rilevante. Mantieni i nomi propri nella lingua originale e non inventare dati. confidence è tra 0 e 1; amount è positivo; kind è expense o income; occurredAt è ISO 8601; category deve essere una delle categorie consentite. Se la data non è visibile usa null e se non ci sono transazioni restituisci un array vuoto.`
+const instructions = `Analizza una foto di scontrino o uno screenshot bancario in qualsiasi lingua. Estrai solo transazioni chiaramente visibili. Per ogni transazione separa semanticamente merchantName, counterpartyName, memo e bankReference, usando null quando il dato non è esplicito. description è una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo; rawDescription conserva il testo originale rilevante. Mantieni i nomi propri nella lingua originale e non inventare dati. Usa Giroconto solo quando il testo indica esplicitamente un trasferimento fra conti dello stesso titolare, mai per un normale bonifico a terzi. confidence è tra 0 e 1; amount è positivo; kind è expense o income; occurredAt è ISO 8601; category deve essere una delle categorie consentite. Se la data non è visibile usa null e se non ci sono transazioni restituisci un array vuoto.`
 
 const scanSchema = {
   type: 'object',

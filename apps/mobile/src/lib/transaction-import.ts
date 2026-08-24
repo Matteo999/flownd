@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 
 import type { ExpenseDraft } from '@/lib/onboarding';
+import { supabase } from '@/lib/supabase';
 
 export type ImportedTransaction = Pick<
   ExpenseDraft,
@@ -51,23 +52,6 @@ async function post<T>(path: string, accessToken: string, body: object) {
   return data;
 }
 
-async function get<T>(path: string, accessToken: string) {
-  const url = endpoint(path);
-  if (!url) throw new Error('API URL missing');
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const responseBody = await response.text();
-  let data: T & { error?: string };
-  try {
-    data = JSON.parse(responseBody) as T & { error?: string };
-  } catch {
-    throw new Error(`Invalid API response (${response.status}): ${responseBody.slice(0, 180)}`);
-  }
-  if (!response.ok) throw new Error(`API ${path} failed (${response.status}): ${data.error ?? 'no message'}`);
-  return data;
-}
-
 export async function reportClientError(
   accessToken: string | undefined,
   context: string,
@@ -108,16 +92,37 @@ export async function analyzeTransactionFile(
   );
 }
 
-export async function getTransactionImportJob(accessToken: string, jobId: string) {
-  return get<{
-    id: string;
-    status: 'queued' | 'processing' | 'completed' | 'failed';
-    fileName: string;
-    transactions: ImportedTransaction[];
-  }>(
-    `/api/transaction-tools?action=import&jobId=${encodeURIComponent(jobId)}`,
-    accessToken,
-  );
+export async function getTransactionImportJob(userId: string, jobId: string) {
+  const { data, error } = await supabase
+    .from('transaction_import_jobs')
+    .select('id,status,result,file_name')
+    .eq('user_id', userId)
+    .eq('id', jobId)
+    .single();
+  if (error || !data) throw error ?? new Error('Import job unavailable');
+  const result = data.result as { transactions?: ImportedTransaction[] } | null;
+  return {
+    id: data.id,
+    status: data.status as 'queued' | 'processing' | 'completed' | 'failed',
+    fileName: data.file_name,
+    transactions: data.status === 'completed' ? result?.transactions ?? [] : [],
+  };
+}
+
+export async function deleteTransactionImportJob(userId: string, jobId: string) {
+  const actionRoute = `/transaction-import?mode=file&jobId=${encodeURIComponent(jobId)}`;
+  const { error } = await supabase
+    .from('transaction_import_jobs')
+    .delete()
+    .eq('user_id', userId)
+    .eq('id', jobId);
+  if (error) throw error;
+  const { error: notificationError } = await supabase
+    .from('goal_notifications')
+    .delete()
+    .eq('user_id', userId)
+    .eq('action_route', actionRoute);
+  if (notificationError) throw notificationError;
 }
 
 export async function scanTransactionImage(

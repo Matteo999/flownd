@@ -712,7 +712,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       : 'manual';
     const category = normalizeTransactionCategory(transaction.category, kind);
     const incomeTreatment =
-      kind === 'income' ? incomeTreatmentForCategory(category) : null;
+      kind === 'income' || category === 'Giroconto'
+        ? incomeTreatmentForCategory(category)
+        : null;
     const manualAccount = transaction.financialAccountId
       ? financialAccounts.find(
           (account) =>
@@ -1097,9 +1099,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       transaction.kind,
     );
     const incomeTreatment =
-      transaction.kind === 'income'
+      transaction.kind === 'income' || nextCategory === 'Giroconto'
         ? incomeTreatmentForCategory(nextCategory)
         : null;
+    const internalTransfer = incomeTreatment?.incomeType === 'internal_transfer';
     if (!nextDescription || !nextCategory || transaction.amount <= 0) return false;
 
     const existingTransaction = transactions.find((item) => item.id === transactionId);
@@ -1132,7 +1135,10 @@ export function AppProvider({ children }: PropsWithChildren) {
             category: nextCategory,
             kind: transaction.kind,
             income_type: incomeTreatment?.incomeType ?? null,
-            excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
+            excluded_from_budget:
+              internalTransfer || incomeTreatment?.excludedFromBudget || false,
+            internal_transfer: internalTransfer,
+            excluded_from_totals: internalTransfer,
             occurred_at: transaction.occurredAt,
           })
           .eq('id', transactionId)
@@ -1156,7 +1162,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       category: nextCategory,
       kind: transaction.kind,
       incomeType: incomeTreatment?.incomeType,
-      excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
+      excludedFromBudget:
+        internalTransfer || incomeTreatment?.excludedFromBudget || false,
+      internalTransfer,
+      excludedFromTotals: internalTransfer,
       occurredAt: transaction.occurredAt,
     };
 
@@ -1207,11 +1216,17 @@ export function AppProvider({ children }: PropsWithChildren) {
       | 'income';
     const nextCategory = normalizeTransactionCategory(category, kind);
     const incomeTreatment =
-      kind === 'income' ? incomeTreatmentForCategory(nextCategory) : null;
+      kind === 'income' || nextCategory === 'Giroconto'
+        ? incomeTreatmentForCategory(nextCategory)
+        : null;
+    const internalTransfer = incomeTreatment?.incomeType === 'internal_transfer';
     const updatedFields: Partial<ExpenseDraft> = {
       category: nextCategory,
       incomeType: incomeTreatment?.incomeType,
-      excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
+      excludedFromBudget:
+        internalTransfer || incomeTreatment?.excludedFromBudget || false,
+      internalTransfer,
+      excludedFromTotals: internalTransfer,
     };
 
     setSaving(true);
