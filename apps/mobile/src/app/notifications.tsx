@@ -326,6 +326,10 @@ function SwipeNotificationRow({
 
   return (
     <View style={styles.swipeRow}>
+      <View
+        pointerEvents="none"
+        style={[styles.swipeDeleteBackground, { backgroundColor: colors.negative }]}
+      />
       <Animated.View
         style={[styles.swipeDelete, { backgroundColor: colors.negative }, actionStyle]}>
         <Pressable
@@ -434,8 +438,14 @@ const styles = StyleSheet.create({
   deleteAllText: { fontFamily: font.bodySemiBold, fontSize: 11 },
   loader: { marginTop: 30 },
   list: { gap: 9 },
-  swipeRow: { position: 'relative', overflow: 'hidden', borderRadius: 16 },
-  notification: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
+  swipeRow: { position: 'relative', overflow: 'hidden', borderRadius: 18 },
+  notification: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 11,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
   notificationIcon: {
     width: 38,
     height: 38,
@@ -456,8 +466,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  swipeDeleteBackground: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 18,
+  },
   swipeDeletePressable: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },

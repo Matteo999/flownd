@@ -32,7 +32,11 @@ import {
   type LoanDraft,
 } from '@/lib/goals';
 import { supabase } from '@/lib/supabase';
-import { transactionFingerprint } from '@/lib/transaction-import';
+import {
+  GENERIC_OPERATION_ERROR,
+  reportClientError,
+  transactionFingerprint,
+} from '@/lib/transaction-import';
 import {
   incomeTreatmentForCategory,
   normalizeTransactionCategory,
@@ -93,6 +97,16 @@ export type GoalContributionSummary = {
   amount: number;
   createdAt: string;
 };
+
+function isTransientBudgetSaveError(error: { message?: string; details?: string }) {
+  const message = `${error.message ?? ''} ${error.details ?? ''}`.toLocaleLowerCase('en');
+  return (
+    message.includes('network connection was lost') ||
+    message.includes('fetch failed') ||
+    message.includes('network request failed') ||
+    message.includes('timeout')
+  );
+}
 
 type AppContextValue = {
   session: Session | null;
@@ -167,7 +181,9 @@ type AppContextValue = {
     parentId: BudgetGroupKey,
     name: string,
     percentage: number,
+    options?: { parentCategoryId?: string | null; budgetEnabled?: boolean },
   ) => Promise<BudgetCategory | null>;
+  deleteBudgetSubcategory: (categoryId: string) => Promise<boolean>;
   updateBudgetCycleSettings: (
     startDay: number,
     rolloverMode: BudgetRolloverMode,
@@ -281,7 +297,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     ] = await Promise.all([
       supabase
         .from('budget_categories')
-        .select('category_key,name,emoji,monthly_limit,allocation_percentage,parent_key,is_macro')
+        .select('category_key,name,emoji,monthly_limit,allocation_percentage,parent_key,parent_category_key,budget_enabled,is_macro')
         .eq('user_id', userId)
         .order('created_at'),
       supabase
@@ -376,6 +392,8 @@ export function AppProvider({ children }: PropsWithChildren) {
         percentage: Number(item.allocation_percentage),
         selected: true,
         parentId: item.parent_key as BudgetGroupKey | undefined,
+        parentCategoryId: item.parent_category_key,
+        budgetEnabled: item.budget_enabled !== false,
         isMacro: Boolean(item.is_macro),
       }),
     );
@@ -1013,26 +1031,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       return false;
     }
 
-    setSaving(true);
-    setError(null);
     const selectedBudgets = budgets.filter((item) => item.selected);
-    const { error: updateError } = await supabase.rpc('save_budget_allocations', {
-      p_planned_monthly_income: plannedMonthlyIncome,
-      p_allocations: selectedBudgets.map((item) => ({
-        id: item.id,
-        percentage: item.percentage,
-        isMacro: Boolean(item.isMacro),
-        parentId: item.parentId,
-      })),
-    });
-    setSaving(false);
-
-    if (updateError) {
-      if (__DEV__) console.error('Flownd budget allocation update failed', updateError);
-      setError('Non siamo riusciti ad aggiornare il piano budget. Riprova.');
-      return false;
-    }
-
     const materialized = materializeBudgetAmounts(
       selectedBudgets,
       plannedMonthlyIncome,
@@ -1050,6 +1049,35 @@ export function AppProvider({ children }: PropsWithChildren) {
       },
       budgets: materialized,
     }));
+
+    const payload = {
+      p_planned_monthly_income: plannedMonthlyIncome,
+      p_allocations: materialized.map((item) => ({
+        id: item.id,
+        percentage: item.percentage,
+        isMacro: Boolean(item.isMacro),
+        parentId: item.parentId,
+        parentCategoryId: item.parentCategoryId ?? null,
+        budgetEnabled: item.budgetEnabled !== false,
+      })),
+    };
+    setSaving(true);
+    setError(null);
+    let { error: updateError } = await supabase.rpc('save_budget_allocations', payload);
+    for (const delay of [600, 1400]) {
+      if (!updateError || !isTransientBudgetSaveError(updateError)) break;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      ({ error: updateError } = await supabase.rpc('save_budget_allocations', payload));
+    }
+    setSaving(false);
+
+    if (updateError) {
+      if (__DEV__) console.error('Flownd budget allocation update failed', updateError);
+      await reportClientError(session.access_token, 'budget_allocation_update', updateError);
+      setError(GENERIC_OPERATION_ERROR);
+      return false;
+    }
+
     return true;
   }
 
@@ -1371,17 +1399,35 @@ export function AppProvider({ children }: PropsWithChildren) {
     parentId: BudgetGroupKey,
     name: string,
     percentage: number,
+    options: { parentCategoryId?: string | null; budgetEnabled?: boolean } = {},
   ) {
     if (!session) {
       setError('La sessione è scaduta. Accedi di nuovo.');
       return null;
     }
     const trimmedName = name.trim();
-    const safePercentage = Math.round(percentage);
+    const budgetEnabled = options.budgetEnabled !== false;
+    const parentCategoryId = options.parentCategoryId ?? null;
+    const directParent = parentCategoryId
+      ? draft.budgets.find(
+          (item) => !item.isMacro && !item.parentCategoryId && item.id === parentCategoryId,
+        )
+      : null;
+    if (parentCategoryId && (!directParent || directParent.parentId !== parentId)) {
+      setError('La sottocategoria selezionata non è valida.');
+      return null;
+    }
+    const safePercentage = budgetEnabled ? Math.round(percentage) : 0;
     const siblingTotal = draft.budgets
-      .filter((item) => !item.isMacro && item.parentId === parentId)
+      .filter(
+        (item) =>
+          !item.isMacro &&
+          item.budgetEnabled !== false &&
+          item.parentId === parentId &&
+          (item.parentCategoryId ?? null) === parentCategoryId,
+      )
       .reduce((sum, item) => sum + item.percentage, 0);
-    if (!trimmedName || safePercentage < 1 || siblingTotal + safePercentage > 100) {
+    if (!trimmedName || (budgetEnabled && (safePercentage < 1 || siblingTotal + safePercentage > 100))) {
       setError('La sottocategoria deve lasciare il totale della macro entro il 100%.');
       return null;
     }
@@ -1397,9 +1443,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       .replace(/^-|-$/g, '')
       .slice(0, 32);
     const categoryKey = `${parentId}-${normalizedName || 'categoria'}-${Date.now().toString(36)}`;
-    const amount = Math.round(
-      (budgetMonthlyIncome * parent.percentage * safePercentage) / 10000,
-    );
+    const parentAmount = directParent?.amount ?? parent.amount;
+    const amount = budgetEnabled
+      ? Math.round((parentAmount * safePercentage) / 100)
+      : 0;
     setSaving(true);
     setError(null);
     const { data, error: insertError } = await supabase
@@ -1409,17 +1456,20 @@ export function AppProvider({ children }: PropsWithChildren) {
         category_key: categoryKey,
         name: trimmedName,
         emoji: null,
-        monthly_limit: Math.max(1, amount),
+        monthly_limit: amount,
         allocation_percentage: safePercentage,
         parent_key: parentId,
+        parent_category_key: parentCategoryId,
+        budget_enabled: budgetEnabled,
         is_macro: false,
       })
-      .select('category_key,name,emoji,monthly_limit,allocation_percentage,parent_key,is_macro')
+      .select('category_key,name,emoji,monthly_limit,allocation_percentage,parent_key,parent_category_key,budget_enabled,is_macro')
       .single();
     setSaving(false);
     if (insertError) {
       if (__DEV__) console.error('Flownd budget subcategory insert failed', insertError);
-      setError('Non siamo riusciti a creare la sottocategoria.');
+      await reportClientError(session.access_token, 'budget_subcategory_create', insertError);
+      setError(GENERIC_OPERATION_ERROR);
       return null;
     }
     const created: BudgetCategory = {
@@ -1430,6 +1480,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       percentage: Number(data.allocation_percentage),
       selected: true,
       parentId: data.parent_key as BudgetGroupKey,
+      parentCategoryId: data.parent_category_key,
+      budgetEnabled: data.budget_enabled !== false,
       isMacro: Boolean(data.is_macro),
     };
     setDraft((current) => ({
@@ -1437,6 +1489,41 @@ export function AppProvider({ children }: PropsWithChildren) {
       budgets: [...current.budgets, created],
     }));
     return created;
+  }
+
+  async function deleteBudgetSubcategory(categoryId: string) {
+    if (!session) {
+      setError('La sessione è scaduta. Accedi di nuovo.');
+      return false;
+    }
+    const target = draft.budgets.find((item) => item.id === categoryId && !item.isMacro);
+    if (!target) return false;
+    const ids = [
+      categoryId,
+      ...draft.budgets
+        .filter((item) => item.parentCategoryId === categoryId)
+        .map((item) => item.id),
+    ];
+    setSaving(true);
+    setError(null);
+    const { error: deleteError } = await supabase
+      .from('budget_categories')
+      .delete()
+      .eq('user_id', session.user.id)
+      .in('category_key', ids);
+    setSaving(false);
+    if (deleteError) {
+      if (__DEV__) console.error('Flownd budget subcategory delete failed', deleteError);
+      await reportClientError(session.access_token, 'budget_subcategory_delete', deleteError);
+      setError(GENERIC_OPERATION_ERROR);
+      return false;
+    }
+    const removed = new Set(ids);
+    setDraft((current) => ({
+      ...current,
+      budgets: current.budgets.filter((item) => !removed.has(item.id)),
+    }));
+    return true;
   }
 
   async function createGoal(goal: OnboardingDraft['goal']) {
@@ -1923,6 +2010,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     updateBudgetAmount,
     saveBudgetAllocations,
     createBudgetSubcategory,
+    deleteBudgetSubcategory,
     updateBudgetCycleSettings,
     dismissFirstVisit: () => setFirstDashboardVisit(false),
     toggleAmountsVisible,
