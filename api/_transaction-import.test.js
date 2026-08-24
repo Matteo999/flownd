@@ -11,7 +11,6 @@ import {
   pdfCandidates,
   rowsCandidates,
   spreadsheetCandidates,
-  withAiRetry,
 } from './_transaction-import.js'
 
 test('accetta più oggetti JSON consecutivi restituiti dal modello', () => {
@@ -77,7 +76,7 @@ test('suddivide il CSV reale in blocchi adatti alla IA', async () => {
   assert.ok(chunks.every((chunk) => chunk.text.startsWith('Formato CSV.')))
 })
 
-test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing', async () => {
+test('analizza tutto il CSV con una sola richiesta IA', async () => {
   const previousFetch = globalThis.fetch
   const previousProvider = process.env.AI_PROVIDER
   const previousKey = process.env.GEMINI_API_KEY
@@ -113,8 +112,10 @@ test('ricompone risposte IA JSON da più blocchi senza esporre errori di parsing
     assert.ok(transactions.every((item) => item.category === 'Trasporti'))
     assert.ok(transactions.every((item) => item.importConfidence === 0.98))
     assert.ok(transactions.every((item) => !/^Saldo/i.test(item.rawDescription)))
-    assert.equal(requests.length, 3)
+    assert.equal(requests.length, 1)
+    assert.equal(JSON.parse(requests[0].contents[0].parts[0].text).length, 235)
     assert.equal(requests[0].generationConfig.responseFormat.text.mimeType, 'APPLICATION_JSON')
+    assert.equal(requests[0].generationConfig.thinkingConfig.thinkingLevel, 'LOW')
     assert.equal(requests[0].generationConfig.responseFormat.text.schema.required[0], 'rows')
   } finally {
     globalThis.fetch = previousFetch
@@ -131,7 +132,9 @@ test('non presenta il riconoscimento locale come risultato IA se il provider non
   const previousKey = process.env.GEMINI_API_KEY
   process.env.AI_PROVIDER = 'gemini'
   process.env.GEMINI_API_KEY = 'test-key'
+  let calls = 0
   globalThis.fetch = async () => {
+    calls += 1
     const error = new Error('The operation was aborted')
     error.name = 'AbortError'
     throw error
@@ -144,6 +147,7 @@ test('non presenta il riconoscimento locale come risultato IA se il provider non
       ),
       /aborted/,
     )
+    assert.equal(calls, 1)
   } finally {
     globalThis.fetch = previousFetch
     if (previousProvider == null) delete process.env.AI_PROVIDER
@@ -193,37 +197,7 @@ test('rifiuta una causale bancaria integrale restituita come descrizione IA', as
   }
 })
 
-test('ritenta gli errori temporanei di capacità del provider', async () => {
-  let calls = 0
-  const result = await withAiRetry(async () => {
-    calls += 1
-    if (calls < 3) throw new Error('This model is currently experiencing high demand.')
-    return 'ok'
-  }, { delay: async () => {} })
-  assert.equal(result, 'ok')
-  assert.equal(calls, 3)
+test('riconosce gli errori temporanei senza avviare retry automatici', () => {
   assert.equal(isTransientAiError(new Error('high demand')), true)
-})
-
-test('ritenta una risposta JSON malformata del modello', async () => {
-  let calls = 0
-  const result = await withAiRetry(async () => {
-    calls += 1
-    if (calls === 1) JSON.parse('{"transactions":')
-    return 'ok'
-  }, { delay: async () => {} })
-  assert.equal(result, 'ok')
-  assert.equal(calls, 2)
-})
-
-test('non ritenta gli errori permanenti del provider', async () => {
-  let calls = 0
-  await assert.rejects(
-    withAiRetry(async () => {
-      calls += 1
-      throw new Error('API key not valid')
-    }, { delay: async () => {} }),
-    /API key not valid/,
-  )
-  assert.equal(calls, 1)
+  assert.equal(isTransientAiError(Object.assign(new Error('unavailable'), { providerStatus: 503 })), true)
 })

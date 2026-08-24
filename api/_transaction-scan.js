@@ -128,6 +128,7 @@ export async function geminiScan(dataUrl) {
         responseFormat: {
           text: { mimeType: 'APPLICATION_JSON', schema: scanSchema },
         },
+        thinkingConfig: { thinkingLevel: 'LOW' },
       },
     }),
   })
@@ -189,7 +190,10 @@ export default async function handler(req, res) {
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : null,
     })
-    return res.status(Number(error?.status) || 500).json({
+    const providerStatus = Number(error?.providerStatus)
+    const responseStatus = Number(error?.status)
+      || ([429, 503].includes(providerStatus) ? 503 : 500)
+    return res.status(responseStatus).json({
       error: 'Si è verificato un errore. Il resoconto è stato inviato agli sviluppatori.',
       reportId,
     })
