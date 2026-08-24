@@ -114,7 +114,7 @@ async function openAI(dataUrl) {
   return parseModelJson(text)
 }
 
-async function gemini(dataUrl) {
+export async function geminiScan(dataUrl) {
   const [meta, base64] = dataUrl.split(',', 2)
   const mimeType = meta.match(/^data:([^;]+)/)?.[1] || 'image/jpeg'
   const model = process.env.GEMINI_VISION_MODEL || process.env.GEMINI_COACH_MODEL || 'gemini-3.7-flash'
@@ -126,7 +126,7 @@ async function gemini(dataUrl) {
       contents: [{ role: 'user', parts: [{ text: 'Estrai le transazioni presenti.' }, { inlineData: { mimeType, data: base64 } }] }],
       generationConfig: {
         responseFormat: {
-          text: { mimeType: 'application/json', schema: scanSchema },
+          text: { mimeType: 'APPLICATION_JSON', schema: scanSchema },
         },
       },
     }),
@@ -170,7 +170,7 @@ export default async function handler(req, res) {
     if (provider === 'openai' && !process.env.OPENAI_API_KEY) throw new ApiError(503, 'Riconoscimento IA non configurato')
     if (provider === 'gemini' && !process.env.GEMINI_API_KEY) throw new ApiError(503, 'Riconoscimento IA non configurato')
     stage = provider === 'gemini' ? 'call_gemini' : 'call_openai'
-    const parsed = provider === 'gemini' ? await gemini(dataUrl) : await openAI(dataUrl)
+    const parsed = provider === 'gemini' ? await geminiScan(dataUrl) : await openAI(dataUrl)
     stage = 'validate_ai_response'
     const transactions = safeTransactions(parsed)
     if (!transactions.length) throw new ApiError(422, 'AI extracted zero transactions')

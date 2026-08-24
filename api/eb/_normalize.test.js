@@ -64,7 +64,28 @@ test('mantiene anche gli entry_reference brevi restituiti da ING', () => {
   )
   assert.equal(transaction.stableKey, 'entry:9127')
   assert.equal(transaction.occurredOn, '2026-07-11')
+  assert.equal(transaction.description, 'BAR CENTRALE')
+  assert.equal(transaction.merchantName, 'BAR CENTRALE')
   assert.equal(transaction.category, 'Bar e ristoranti')
+})
+
+test('estrae la controparte da una causale carta senza salvarla integralmente', () => {
+  const transaction = normalizeBankTransaction(
+    {
+      entry_reference: 'withdrawal-1',
+      transaction_amount: { amount: '50', currency: 'EUR' },
+      credit_debit_indicator: 'DBIT',
+      status: 'BOOK',
+      booking_date: '2026-08-19',
+      remittance_information: [
+        'Prelievo carta del 19/08/2026 alle ore 10:01 con Carta xxxxxxxxxxxx0593 di Abi Div=EUR Importo in divisa=50 / Importo in Euro=50 presso CASSA RURALE ALTOGARD',
+      ],
+    },
+    'conto',
+  )
+  assert.equal(transaction.description, 'CASSA RURALE ALTOGARD')
+  assert.equal(transaction.rawDescription.startsWith('Prelievo carta del'), true)
+  assert.equal(transaction.category, 'ATM (prelievo contante)')
 })
 
 test('usa un fingerprint idempotente nei payload CRBZ senza identificativi', async () => {

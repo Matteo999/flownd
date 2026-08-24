@@ -110,11 +110,7 @@ export default function TransactionImportScreen() {
       };
     });
     setCandidates(prepared);
-    setExcluded(new Set(
-      prepared.flatMap((item, index) =>
-        (item.importConfidence ?? 1) < 0.65 ? [index] : [],
-      ),
-    ));
+    setExcluded(new Set());
     setAnalysisError(null);
   }, [planTier, transactions]);
 
