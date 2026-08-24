@@ -33,6 +33,7 @@ import { TransactionDateField } from '@/components/transaction-date-field';
 import { type ExpenseDraft, formatDateItalian, formatEuro } from '@/lib/onboarding';
 import {
   analyzeTransactionFile,
+  deleteTransactionImportJob,
   duplicateIndexes,
   GENERIC_OPERATION_ERROR,
   getTransactionImportJob,
@@ -155,7 +156,7 @@ export default function TransactionImportScreen() {
     if (!jobId || !session?.access_token || jobLoadRef.current) return;
     jobLoadRef.current = true;
     setAnalyzing(true);
-    void getTransactionImportJob(session.access_token, jobId)
+    void getTransactionImportJob(session.user.id, jobId)
       .then((job) => {
         if (job.status === 'completed') showCandidates(job.transactions);
         else if (job.status === 'failed') setAnalysisError(GENERIC_OPERATION_ERROR);
@@ -163,7 +164,7 @@ export default function TransactionImportScreen() {
       })
       .catch((reason) => showOperationalError('transaction_import_job_load', reason))
       .finally(() => setAnalyzing(false));
-  }, [jobId, session?.access_token, showCandidates, showOperationalError]);
+  }, [jobId, session?.access_token, session?.user.id, showCandidates, showOperationalError]);
 
   const chooseFile = useCallback(async () => {
     if (pickerBusyRef.current) return;
@@ -302,6 +303,7 @@ export default function TransactionImportScreen() {
         duplicates.has(index) && includedDuplicates.has(index),
     }));
     const accessToken = session?.access_token;
+    const userId = session?.user.id;
     router.dismissAll();
     void (async () => {
       for (const { item, forceImportDuplicate } of pending) {
@@ -318,7 +320,24 @@ export default function TransactionImportScreen() {
           return;
         }
       }
+      if (jobId && userId) {
+        try {
+          await deleteTransactionImportJob(userId, jobId);
+        } catch (reason) {
+          await reportClientError(accessToken, 'transaction_import_cleanup', reason);
+        }
+      }
     })();
+  }
+
+  async function discardImport() {
+    if (!jobId || !session) return;
+    try {
+      await deleteTransactionImportJob(session.user.id, jobId);
+      router.dismissAll();
+    } catch (reason) {
+      await showOperationalError('transaction_import_discard', reason);
+    }
   }
 
   const title = mode === 'ai' ? 'Scansiona con Flownd AI' : 'Importa con Flownd AI';
@@ -477,6 +496,14 @@ export default function TransactionImportScreen() {
           <PrimaryButton disabled={!selected.length} loading={saving} onPress={importSelected}>
             Importa {selected.length || ''} transazioni
           </PrimaryButton>
+          {jobId ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void discardImport()}
+              style={({ pressed }) => [styles.discardButton, pressed && styles.pressed]}>
+              <Text style={[styles.discardText, { color: colors.negative }]}>Scarta importazione</Text>
+            </Pressable>
+          ) : null}
         </>
       )}
       {editingIndex != null && candidates[editingIndex] ? (
@@ -763,4 +790,7 @@ const styles = StyleSheet.create({
   dropdownOption: { minHeight: 42, marginHorizontal: 5, paddingHorizontal: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
   dropdownOptionText: { flex: 1, fontFamily: font.body, fontSize: 12 },
   optionCheck: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 18, lineHeight: 21 },
+  discardButton: { alignItems: 'center', paddingVertical: 14 },
+  discardText: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  pressed: { opacity: 0.7 },
 });

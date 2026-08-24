@@ -10,6 +10,7 @@ import { IBMPlexSans_600SemiBold } from '@expo-google-fonts/ibm-plex-sans/600Sem
 import { IBMPlexMono_400Regular } from '@expo-google-fonts/ibm-plex-mono/400Regular';
 import { IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono/500Medium';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols/400Regular';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AppProvider } from '@/providers/app-provider';
 import {
@@ -36,9 +37,11 @@ export default function RootLayout() {
   if (!loaded && !error) return null;
 
   return (
-    <FlowndThemeProvider>
-      <RootNavigation />
-    </FlowndThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <FlowndThemeProvider>
+        <RootNavigation />
+      </FlowndThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 

@@ -1,11 +1,15 @@
 import { router, type Href, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 
-import { Card, Screen, font, useFlowndTheme } from '@/components/flownd-ui';
+import { Card, PrimaryButton, Screen, font, useFlowndTheme } from '@/components/flownd-ui';
 import { supabase } from '@/lib/supabase';
-import { reportClientError } from '@/lib/transaction-import';
+import {
+  deleteTransactionImportJob,
+  reportClientError,
+} from '@/lib/transaction-import';
 import { useApp } from '@/providers/app-provider';
 
 type NotificationItem = {
@@ -23,6 +27,8 @@ export default function NotificationsScreen() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -37,6 +43,13 @@ export default function NotificationsScreen() {
         .then(({ data, error }) => {
           if (!active) return;
           setLoadError(Boolean(error));
+          if (error) {
+            void reportClientError(
+              session.access_token,
+              'notifications_load',
+              error,
+            );
+          }
           setItems(
             (data ?? []).map((item) => ({
               id: item.id,
@@ -76,40 +89,72 @@ export default function NotificationsScreen() {
     if (item.actionRoute) router.push(item.actionRoute as Href);
   }
 
-  function deleteNotification(item: NotificationItem) {
+  async function deleteNotification(item: NotificationItem) {
     if (!session) return;
-    Alert.alert(
-      'Elimina notifica',
-      'Vuoi eliminare definitivamente questa notifica?',
-      [
-        { text: 'Annulla', style: 'cancel' },
-        {
-          text: 'Elimina',
-          style: 'destructive',
-          onPress: () => void (async () => {
-            const { error } = await supabase
-              .from('goal_notifications')
-              .delete()
-              .eq('user_id', session.user.id)
-              .eq('id', item.id);
-            if (error) {
-              await reportClientError(
-                session.access_token,
-                'notification_delete',
-                error,
-              );
-              Alert.alert(
-                'Si è verificato un errore',
-                'Il resoconto è stato inviato agli sviluppatori.',
-              );
-              return;
-            }
-            setItems((current) => current.filter((entry) => entry.id !== item.id));
-            await dismissGoalNotice(item.id);
-          })(),
-        },
-      ],
-    );
+    const importJobId = jobIdFromActionRoute(item.actionRoute);
+    if (importJobId) {
+      try {
+        await deleteTransactionImportJob(session.user.id, importJobId);
+        setItems((current) => current.filter((entry) => entry.id !== item.id));
+        await dismissGoalNotice(item.id);
+      } catch (error) {
+        setLoadError(true);
+        await reportClientError(session.access_token, 'notification_delete', error);
+      }
+      return;
+    }
+    const { error } = await supabase
+      .from('goal_notifications')
+      .delete()
+      .eq('user_id', session.user.id)
+      .eq('id', item.id);
+    if (error) {
+      setLoadError(true);
+      await reportClientError(session.access_token, 'notification_delete', error);
+      return;
+    }
+    setItems((current) => current.filter((entry) => entry.id !== item.id));
+    await dismissGoalNotice(item.id);
+  }
+
+  async function deleteAllNotifications() {
+    if (!session || deletingAll) return;
+    setDeletingAll(true);
+    const { error: jobsError } = await supabase
+      .from('transaction_import_jobs')
+      .delete()
+      .eq('user_id', session.user.id)
+      .in('status', ['completed', 'failed']);
+    if (jobsError) {
+      setDeletingAll(false);
+      setDeleteAllOpen(false);
+      setLoadError(true);
+      await reportClientError(
+        session.access_token,
+        'notification_import_jobs_delete_all',
+        jobsError,
+      );
+      return;
+    }
+    const { error } = await supabase
+      .from('goal_notifications')
+      .delete()
+      .eq('user_id', session.user.id);
+    setDeletingAll(false);
+    if (error) {
+      setDeleteAllOpen(false);
+      setLoadError(true);
+      await reportClientError(
+        session.access_token,
+        'notifications_delete_all',
+        error,
+      );
+      return;
+    }
+    const visibleNoticeId = items.find((item) => !item.readAt)?.id ?? items[0]?.id;
+    setItems([]);
+    setDeleteAllOpen(false);
+    if (visibleNoticeId) await dismissGoalNotice(visibleNoticeId);
   }
 
   return (
@@ -123,7 +168,15 @@ export default function NotificationsScreen() {
           <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Notifiche</Text>
-        <View style={styles.headerSpacer} />
+        {items.length ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Elimina tutte le notifiche"
+            onPress={() => setDeleteAllOpen(true)}
+            style={({ pressed }) => pressed && styles.pressed}>
+            <Text style={[styles.deleteAllText, { color: colors.negative }]}>Elimina tutte</Text>
+          </Pressable>
+        ) : <View style={styles.headerSpacer} />}
       </View>
 
       {loading ? (
@@ -131,57 +184,66 @@ export default function NotificationsScreen() {
       ) : loadError ? (
         <Card>
           <Text style={[styles.emptyCopy, { color: colors.textSecondary }]}> 
-            Non riesco a caricare le notifiche in questo momento.
+            Si è verificato un errore. Il resoconto è stato inviato agli sviluppatori.
           </Text>
         </Card>
       ) : items.length ? (
         <View style={styles.list}>
           {items.map((item) => (
-            <Pressable
+            <Swipeable
               key={item.id}
-              accessibilityRole="button"
-              accessibilityLabel={`${item.title}. ${item.readAt ? 'Letta' : 'Non letta'}`}
-              onPress={() => void openNotification(item)}
-              style={({ pressed }) => pressed && styles.pressed}>
-              <Card
-                style={[
-                  styles.notification,
-                  !item.readAt && {
-                    backgroundColor: colors.accentSoft,
-                    borderColor: colors.accent,
-                  },
-                ]}>
-                <View
-                  style={[
-                    styles.notificationIcon,
-                    { backgroundColor: item.readAt ? colors.sunken : colors.surface },
-                  ]}>
-                  <Text style={[styles.materialIcon, { color: colors.accent }]}>notifications</Text>
-                </View>
-                <View style={styles.flex}>
-                  <View style={styles.titleRow}>
-                    <Text style={[styles.title, { color: colors.text }]}>{item.title}</Text>
-                    {!item.readAt ? (
-                      <View style={[styles.unreadDot, { backgroundColor: colors.accent }]} />
-                    ) : null}
-                  </View>
-                  <Text style={[styles.body, { color: colors.textSecondary }]}>{item.body}</Text>
-                  <Text style={[styles.date, { color: colors.textSecondary }]}> 
-                    {formatNotificationDate(item.createdAt)}
-                  </Text>
-                </View>
+              overshootRight={false}
+              rightThreshold={42}
+              renderRightActions={() => (
                 <Pressable
-                  accessibilityLabel={`Elimina ${item.title}`}
                   accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    deleteNotification(item);
-                  }}>
-                  <Text style={[styles.deleteIcon, { color: colors.textSecondary }]}>delete</Text>
+                  accessibilityLabel={`${jobIdFromActionRoute(item.actionRoute) ? 'Scarta' : 'Elimina'} ${item.title}`}
+                  onPress={() => void deleteNotification(item)}
+                  style={[
+                    styles.swipeDelete,
+                    { backgroundColor: colors.negative },
+                  ]}>
+                  <Text style={[styles.materialIcon, { color: '#FFFFFF' }]}>delete</Text>
+                  <Text style={styles.swipeDeleteText}>
+                    {jobIdFromActionRoute(item.actionRoute) ? 'Scarta' : 'Elimina'}
+                  </Text>
                 </Pressable>
-              </Card>
-            </Pressable>
+              )}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${item.title}. ${item.readAt ? 'Letta' : 'Non letta'}`}
+                onPress={() => void openNotification(item)}
+                style={({ pressed }) => pressed && styles.pressed}>
+                <Card
+                  style={[
+                    styles.notification,
+                    !item.readAt && {
+                      backgroundColor: colors.accentSoft,
+                      borderColor: colors.accent,
+                    },
+                  ]}>
+                  <View
+                    style={[
+                      styles.notificationIcon,
+                      { backgroundColor: item.readAt ? colors.sunken : colors.surface },
+                    ]}>
+                    <Text style={[styles.materialIcon, { color: colors.accent }]}>notifications</Text>
+                  </View>
+                  <View style={styles.flex}>
+                    <View style={styles.titleRow}>
+                      <Text style={[styles.title, { color: colors.text }]}>{item.title}</Text>
+                      {!item.readAt ? (
+                        <View style={[styles.unreadDot, { backgroundColor: colors.accent }]} />
+                      ) : null}
+                    </View>
+                    <Text style={[styles.body, { color: colors.textSecondary }]}>{item.body}</Text>
+                    <Text style={[styles.date, { color: colors.textSecondary }]}>
+                      {formatNotificationDate(item.createdAt)}
+                    </Text>
+                  </View>
+                </Card>
+              </Pressable>
+            </Swipeable>
           ))}
         </View>
       ) : (
@@ -193,8 +255,44 @@ export default function NotificationsScreen() {
           </Text>
         </Card>
       )}
+      <Modal
+        animationType="fade"
+        transparent
+        visible={deleteAllOpen}
+        onRequestClose={() => setDeleteAllOpen(false)}>
+        <View style={styles.confirmRoot}>
+          <Pressable
+            accessibilityLabel="Chiudi conferma"
+            onPress={() => setDeleteAllOpen(false)}
+            style={[StyleSheet.absoluteFill, styles.confirmBackdrop]}
+          />
+          <Card style={[styles.confirmCard, { backgroundColor: colors.background }]}>
+            <Text style={[styles.confirmTitle, { color: colors.text }]}>Eliminare tutte le notifiche?</Text>
+            <Text style={[styles.confirmCopy, { color: colors.textSecondary }]}>Questa operazione non può essere annullata.</Text>
+            <PrimaryButton loading={deletingAll} onPress={() => void deleteAllNotifications()}>
+              Elimina tutte
+            </PrimaryButton>
+            <Pressable
+              disabled={deletingAll}
+              onPress={() => setDeleteAllOpen(false)}
+              style={styles.cancelButton}>
+              <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Annulla</Text>
+            </Pressable>
+          </Card>
+        </View>
+      </Modal>
     </Screen>
   );
+}
+
+function jobIdFromActionRoute(actionRoute: string | null) {
+  const match = actionRoute?.match(/[?&]jobId=([^&]+)/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
 }
 
 function formatNotificationDate(value: string) {
@@ -231,6 +329,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   headerSpacer: { width: 40 },
+  deleteAllText: { fontFamily: font.bodySemiBold, fontSize: 11 },
   loader: { marginTop: 30 },
   list: { gap: 9 },
   notification: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
@@ -246,7 +345,21 @@ const styles = StyleSheet.create({
   unreadDot: { width: 7, height: 7, borderRadius: 4 },
   body: { fontFamily: font.body, fontSize: 11, lineHeight: 17, marginTop: 3 },
   date: { fontFamily: font.data, fontSize: 9, marginTop: 7 },
-  deleteIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 20 },
+  swipeDelete: {
+    width: 86,
+    marginLeft: 8,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  swipeDeleteText: { color: '#FFFFFF', fontFamily: font.bodySemiBold, fontSize: 10 },
+  confirmRoot: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  confirmBackdrop: { backgroundColor: 'rgba(4, 16, 24, 0.48)' },
+  confirmCard: { width: '100%', maxWidth: 360, padding: 22 },
+  confirmTitle: { fontFamily: font.bodySemiBold, fontSize: 17 },
+  confirmCopy: { fontFamily: font.body, fontSize: 12, lineHeight: 18, marginTop: 7, marginBottom: 20 },
+  cancelButton: { alignItems: 'center', paddingTop: 14 },
+  cancelText: { fontFamily: font.bodySemiBold, fontSize: 12 },
   empty: { alignItems: 'center', paddingVertical: 28 },
   emptyIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 30 },
   emptyTitle: { fontFamily: font.bodySemiBold, fontSize: 14, marginTop: 8 },
