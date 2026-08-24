@@ -48,6 +48,7 @@ export default function BudgetCycleScreen() {
     saving,
     error,
     clearError,
+    transactions,
   } = useApp();
   const [startDay, setStartDay] = useState(budgetCycleStartDay);
   const [rolloverMode, setRolloverMode] =
@@ -56,7 +57,7 @@ export default function BudgetCycleScreen() {
   const rolloverModeRef = useRef(rolloverMode);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const [daysOpen, setDaysOpen] = useState(false);
-  const cycle = financialCycleForDate(new Date(), startDay);
+  const cycle = financialCycleForDate(new Date(), startDay, transactions);
 
   function saveSettings(day: number, mode: BudgetRolloverMode) {
     saveQueue.current = saveQueue.current.then(async () => {
@@ -81,7 +82,7 @@ export default function BudgetCycleScreen() {
 
       <Text style={[uiStyles.title, { color: colors.text }]}>Quando inizia il tuo mese?</Text>
       <Text style={[uiStyles.subtitle, { color: colors.textSecondary }]}> 
-        Scegli il giorno in cui ricevi normalmente lo stipendio. Il budget verrà calcolato fino al giorno precedente del mese successivo.
+        Scegli il giorno in cui ricevi normalmente lo stipendio. Se arriva prima per weekend, festività o a dicembre, Flownd usa automaticamente l’intera giornata dell’accredito reale.
       </Text>
 
       <Text style={[styles.label, { color: colors.text }]}>Giorno di inizio</Text>

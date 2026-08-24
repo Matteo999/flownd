@@ -638,7 +638,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   }, [hydrateUserData, onboardingComplete, session?.user.id]);
 
   const budgetMonthlyIncome = useMemo(() => {
-    const cycle = financialCycleForDate(new Date(), budgetCycleStartDay);
+    const cycle = financialCycleForDate(new Date(), budgetCycleStartDay, transactions);
     const incomeCandidates = incomeCandidatesForFinancialCycle(transactions, cycle);
     const currentCycleIncome = budgetIncomeForFinancialCycle(transactions, cycle)
       .reduce((sum, transaction) => sum + transaction.amount, 0);
@@ -789,11 +789,13 @@ export function AppProvider({ children }: PropsWithChildren) {
         financial_account_id: null,
         ...(source !== 'manual'
           ? {
-              import_fingerprint: transactionFingerprint({
-                ...transaction,
-                occurredAt,
-                kind,
-              }),
+              import_fingerprint: transaction.forceImportDuplicate
+                ? null
+                : transactionFingerprint({
+                    ...transaction,
+                    occurredAt,
+                    kind,
+                  }),
               raw_description: transaction.rawDescription ?? transaction.description,
               merchant_name: transaction.merchantName ?? null,
               counterparty_name: transaction.counterpartyName ?? null,
@@ -1570,6 +1572,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const currentCycle = financialCycleForDate(
       new Date(),
       budgetCycleStartDay,
+      transactions,
     );
     setGoals(remaining);
     setCompletedGoals((current) =>

@@ -5,6 +5,7 @@ import fs from 'node:fs'
 
 import {
   configuredImportTimeoutMs,
+  enrichedTransactions,
   extractFileWithAI,
   fileChunks,
   isTransientAiError,
@@ -76,6 +77,14 @@ test('riconosce colonne dare e avere da righe XLSX', () => {
   ])
 })
 
+test('mantiene ore e minuti presenti nella colonna data', () => {
+  const [transaction] = rowsCandidates([
+    ['Data operazione', 'Causale', 'Importo'],
+    ['05/03/2026 07:38', 'Biglietto treno', '-2,95'],
+  ], 'xlsx')
+  assert.equal(transaction.occurredAt, '2026-03-05T07:38:00.000Z')
+})
+
 test('estrae una riga da PDF testuale senza usare IA', () => {
   const transactions = pdfCandidates('20/08/2026 21/08/2026 PAGAMENTO CARTA SUPERMERCATO -45,90 EUR')
   assert.equal(transactions.length, 1)
@@ -111,6 +120,7 @@ test('analizza tutto il CSV con una sola richiesta IA', async () => {
           include: !/^Saldo/i.test(row.rawDescription),
           description: 'Openmove',
           identityType: 'merchant',
+          occurredTime: null,
           category: 'Trasporti',
           confidence: 0.98,
         })),
@@ -191,6 +201,7 @@ test('rifiuta una causale bancaria integrale restituita come descrizione IA', as
           include: true,
           description: narrative,
           identityType: 'merchant',
+          occurredTime: null,
           category: 'Trasporti',
           confidence: 0.9,
         })),
@@ -217,6 +228,28 @@ test('rifiuta una causale bancaria integrale restituita come descrizione IA', as
 test('riconosce gli errori temporanei senza avviare retry automatici', () => {
   assert.equal(isTransientAiError(new Error('high demand')), true)
   assert.equal(isTransientAiError(Object.assign(new Error('unavailable'), { providerStatus: 503 })), true)
+})
+
+test('conserva l’orario esplicito per distinguere movimenti uguali nello stesso giorno', () => {
+  const base = {
+    description: 'Operazione carta',
+    rawDescription: 'Operazione carta alle ore 07:38 presso OPENMOVE.COM',
+    amount: 2.95,
+    kind: 'expense',
+    occurredAt: '2026-03-05T12:00:00.000Z',
+  }
+  const [transaction] = enrichedTransactions({
+    rows: [{
+      sourceIndex: 0,
+      include: true,
+      description: 'OPENMOVE.COM',
+      identityType: 'merchant',
+      occurredTime: '07:38',
+      category: 'Trasporti',
+      confidence: 0.98,
+    }],
+  }, [base])
+  assert.equal(transaction.occurredAt, '2026-03-05T07:38:00.000Z')
 })
 
 test('completa un job persistente e crea la notifica che apre la revisione', async () => {

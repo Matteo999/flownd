@@ -20,13 +20,18 @@ export default function AddGoalContributionScreen() {
     addGoalContribution,
     saving,
     error,
+    transactions,
   } = useApp();
   const params = useLocalSearchParams<{ goalId?: string }>();
   const openedGoal = goals.find((goal) => goal.id === params.goalId);
   const [amount, setAmount] = useState('');
   const [goalId, setGoalId] = useState<string | null>(openedGoal?.id ?? null);
   const numericAmount = Number(amount.replace(',', '.')) || 0;
-  const cycle = financialCycleForDate(new Date(), budgetCycleStartDay);
+  const cycle = financialCycleForDate(
+    new Date(),
+    budgetCycleStartDay,
+    transactions,
+  );
   const savedThisCycle = goalContributions
     .filter((contribution) => {
       const createdAt = new Date(contribution.createdAt);

@@ -1,10 +1,11 @@
 import { router, type Href, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card, Screen, font, useFlowndTheme } from '@/components/flownd-ui';
 import { supabase } from '@/lib/supabase';
+import { reportClientError } from '@/lib/transaction-import';
 import { useApp } from '@/providers/app-provider';
 
 type NotificationItem = {
@@ -75,6 +76,42 @@ export default function NotificationsScreen() {
     if (item.actionRoute) router.push(item.actionRoute as Href);
   }
 
+  function deleteNotification(item: NotificationItem) {
+    if (!session) return;
+    Alert.alert(
+      'Elimina notifica',
+      'Vuoi eliminare definitivamente questa notifica?',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Elimina',
+          style: 'destructive',
+          onPress: () => void (async () => {
+            const { error } = await supabase
+              .from('goal_notifications')
+              .delete()
+              .eq('user_id', session.user.id)
+              .eq('id', item.id);
+            if (error) {
+              await reportClientError(
+                session.access_token,
+                'notification_delete',
+                error,
+              );
+              Alert.alert(
+                'Si è verificato un errore',
+                'Il resoconto è stato inviato agli sviluppatori.',
+              );
+              return;
+            }
+            setItems((current) => current.filter((entry) => entry.id !== item.id));
+            await dismissGoalNotice(item.id);
+          })(),
+        },
+      ],
+    );
+  }
+
   return (
     <Screen>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -133,6 +170,16 @@ export default function NotificationsScreen() {
                     {formatNotificationDate(item.createdAt)}
                   </Text>
                 </View>
+                <Pressable
+                  accessibilityLabel={`Elimina ${item.title}`}
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    deleteNotification(item);
+                  }}>
+                  <Text style={[styles.deleteIcon, { color: colors.textSecondary }]}>delete</Text>
+                </Pressable>
               </Card>
             </Pressable>
           ))}
@@ -199,6 +246,7 @@ const styles = StyleSheet.create({
   unreadDot: { width: 7, height: 7, borderRadius: 4 },
   body: { fontFamily: font.body, fontSize: 11, lineHeight: 17, marginTop: 3 },
   date: { fontFamily: font.data, fontSize: 9, marginTop: 7 },
+  deleteIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 20 },
   empty: { alignItems: 'center', paddingVertical: 28 },
   emptyIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 30 },
   emptyTitle: { fontFamily: font.bodySemiBold, fontSize: 14, marginTop: 8 },

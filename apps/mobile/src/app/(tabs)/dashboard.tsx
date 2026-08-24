@@ -26,7 +26,6 @@ import {
 import {
   financialCycleForDate,
   formatFinancialCycle,
-  previousFinancialCycle,
   transactionsForFinancialCycle,
 } from '@/lib/financial-cycle';
 import {
@@ -82,8 +81,13 @@ export default function DashboardScreen() {
   const financialCycle = financialCycleForDate(
     new Date(),
     budgetCycleStartDay,
+    transactions,
   );
-  const previousCycle = previousFinancialCycle(financialCycle);
+  const previousCycle = financialCycleForDate(
+    new Date(financialCycle.start.getTime() - 1),
+    budgetCycleStartDay,
+    transactions,
+  );
   const currentMonthTransactions = transactionsForFinancialCycle(
     transactions,
     financialCycle,

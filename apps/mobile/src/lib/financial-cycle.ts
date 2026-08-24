@@ -7,20 +7,69 @@ export type FinancialCycle = {
   end: Date;
 };
 
+// Covers weekends, public holidays and common December payroll advances while
+// keeping the configured day as the stable monthly anchor.
+const EARLY_SALARY_WINDOW_DAYS = 10;
+
+function nominalBoundary(year: number, month: number, startDay: number) {
+  const boundary = new Date(year, month, startDay);
+  boundary.setHours(0, 0, 0, 0);
+  return boundary;
+}
+
+function isSalary(transaction: ExpenseDraft) {
+  return transaction.kind === 'income' && (
+    transaction.incomeType === 'salary' || transaction.category === 'Stipendio'
+  );
+}
+
+function effectiveBoundary(
+  boundary: Date,
+  transactions: ExpenseDraft[],
+) {
+  const earliest = new Date(boundary);
+  earliest.setDate(earliest.getDate() - EARLY_SALARY_WINDOW_DAYS);
+  const salary = transactions
+    .filter(isSalary)
+    .map((transaction) => new Date(transaction.occurredAt ?? ''))
+    .filter((occurredAt) => (
+      !Number.isNaN(occurredAt.getTime()) &&
+      occurredAt >= earliest &&
+      occurredAt < boundary
+    ))
+    .sort((first, second) => second.getTime() - first.getTime())[0];
+  if (!salary) return boundary;
+  salary.setHours(0, 0, 0, 0);
+  return salary;
+}
+
 export function financialCycleForDate(
   date: Date,
   startDay: number,
+  transactions: ExpenseDraft[] = [],
 ): FinancialCycle {
   const safeStartDay = Math.min(28, Math.max(1, Math.round(startDay)));
-  const start = new Date(
-    date.getFullYear(),
-    date.getMonth() - (date.getDate() < safeStartDay ? 1 : 0),
-    safeStartDay,
+  const boundaries = Array.from({ length: 5 }, (_, index) => {
+    const monthOffset = index - 2;
+    const nominal = nominalBoundary(
+      date.getFullYear(),
+      date.getMonth() + monthOffset,
+      safeStartDay,
+    );
+    return effectiveBoundary(nominal, transactions);
+  }).sort((first, second) => first.getTime() - second.getTime());
+  const startIndex = Math.max(
+    0,
+    boundaries.findLastIndex((boundary) => boundary <= date),
   );
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start.getFullYear(), start.getMonth() + 1, safeStartDay);
-  end.setHours(0, 0, 0, 0);
-  return { start, end };
+  return {
+    start: boundaries[startIndex],
+    end: boundaries[startIndex + 1] ?? nominalBoundary(
+      boundaries[startIndex].getFullYear(),
+      boundaries[startIndex].getMonth() + 1,
+      safeStartDay,
+    ),
+  };
 }
 
 export function previousFinancialCycle(cycle: FinancialCycle): FinancialCycle {
@@ -52,25 +101,13 @@ export function incomeCandidatesForFinancialCycle(
   transactions: ExpenseDraft[],
   cycle: FinancialCycle,
 ) {
-  const earlySalaryStart = new Date(cycle.start);
-  earlySalaryStart.setDate(earlySalaryStart.getDate() - 4);
-  const nextCycleEarlySalaryStart = new Date(cycle.end);
-  nextCycleEarlySalaryStart.setDate(nextCycleEarlySalaryStart.getDate() - 4);
-
   return transactions.filter((transaction) => {
     if (transaction.kind !== 'income' || !transaction.occurredAt) {
       return false;
     }
     const occurredAt = new Date(transaction.occurredAt);
     if (Number.isNaN(occurredAt.getTime())) return false;
-    const salary =
-      transaction.incomeType === 'salary' ||
-      transaction.category === 'Stipendio';
-    if (!salary) return occurredAt >= cycle.start && occurredAt < cycle.end;
-    return (
-      (occurredAt >= earlySalaryStart && occurredAt < cycle.start) ||
-      (occurredAt >= cycle.start && occurredAt < nextCycleEarlySalaryStart)
-    );
+    return occurredAt >= cycle.start && occurredAt < cycle.end;
   });
 }
 

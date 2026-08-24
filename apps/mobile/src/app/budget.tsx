@@ -26,8 +26,8 @@ export default function BudgetScreen() {
   const { draft, transactions, budgetCycleStartDay, budgetMonthlyIncome } =
     useApp();
   const cycle = useMemo(
-    () => financialCycleForDate(new Date(), budgetCycleStartDay),
-    [budgetCycleStartDay],
+    () => financialCycleForDate(new Date(), budgetCycleStartDay, transactions),
+    [budgetCycleStartDay, transactions],
   );
   const incomeCount = useMemo(
     () => incomeCandidatesForFinancialCycle(transactions, cycle).length,

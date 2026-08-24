@@ -84,6 +84,7 @@ export default function TransactionImportScreen() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<ImportedTransaction[]>([]);
   const [excluded, setExcluded] = useState<Set<number>>(() => new Set());
+  const [includedDuplicates, setIncludedDuplicates] = useState<Set<number>>(() => new Set());
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const autoLaunchRef = useRef(false);
   const jobLoadRef = useRef(false);
@@ -93,9 +94,15 @@ export default function TransactionImportScreen() {
     () => duplicateIndexes(candidates, transactions),
     [candidates, transactions],
   );
-  const selected = candidates.filter(
-    (_, index) => !duplicates.has(index) && !excluded.has(index),
+  const selectedIndexes = candidates.flatMap(
+    (_, index) => (
+      (!duplicates.has(index) || includedDuplicates.has(index)) &&
+      !excluded.has(index)
+        ? [index]
+        : []
+    ),
   );
+  const selected = selectedIndexes.map((index) => candidates[index]);
 
   const showOperationalError = useCallback(async (context: string, reason: unknown) => {
     setAnalysisError(GENERIC_OPERATION_ERROR);
@@ -115,6 +122,7 @@ export default function TransactionImportScreen() {
     });
     setCandidates(prepared);
     setExcluded(new Set());
+    setIncludedDuplicates(new Set());
     setAnalysisError(null);
   }, [planTier, transactions]);
 
@@ -288,13 +296,18 @@ export default function TransactionImportScreen() {
   ]);
 
   function importSelected() {
-    const pending = [...selected];
+    const pending = selectedIndexes.map((index) => ({
+      item: candidates[index],
+      forceImportDuplicate:
+        duplicates.has(index) && includedDuplicates.has(index),
+    }));
     const accessToken = session?.access_token;
     router.dismissAll();
     void (async () => {
-      for (const item of pending) {
+      for (const { item, forceImportDuplicate } of pending) {
         const saved = await addTransaction({
           ...item,
+          forceImportDuplicate,
           category:
             item.category ??
             suggestTransactionCategory(item.description, item.kind ?? 'expense'),
@@ -388,13 +401,14 @@ export default function TransactionImportScreen() {
         <>
           <Text style={[uiStyles.title, { color: colors.text }]}>Controlla prima di importare</Text>
           <Text style={[uiStyles.subtitle, { color: colors.textSecondary }]}>
-            {selected.length} da importare · {duplicates.size} duplicati esclusi
+            {selected.length} da importare · {duplicates.size} possibili duplicati
           </Text>
           <View style={styles.list}>
             {candidates.map((item, index) => {
               const duplicate = duplicates.has(index);
               const omitted = excluded.has(index);
-              const active = !duplicate && !omitted;
+              const duplicateIncluded = includedDuplicates.has(index);
+              const active = (!duplicate || duplicateIncluded) && !omitted;
               const category = item.category ?? suggestTransactionCategory(item.description, item.kind ?? 'expense');
               return (
                 <View
@@ -406,17 +420,27 @@ export default function TransactionImportScreen() {
                   ]}>
                   <Pressable
                     accessibilityRole="checkbox"
-                    accessibilityState={{ checked: active, disabled: duplicate }}
-                    disabled={duplicate}
+                    accessibilityState={{ checked: active }}
                     hitSlop={8}
-                    onPress={() => setExcluded((current) => {
-                      const next = new Set(current);
-                      if (next.has(index)) next.delete(index);
-                      else next.add(index);
-                      return next;
-                    })}>
+                    onPress={() => {
+                      if (duplicate) {
+                        setIncludedDuplicates((current) => {
+                          const next = new Set(current);
+                          if (next.has(index)) next.delete(index);
+                          else next.add(index);
+                          return next;
+                        });
+                        return;
+                      }
+                      setExcluded((current) => {
+                        const next = new Set(current);
+                        if (next.has(index)) next.delete(index);
+                        else next.add(index);
+                        return next;
+                      });
+                    }}>
                     <Text style={[styles.check, { color: duplicate ? colors.warning : colors.accent }]}>
-                      {duplicate ? 'difference' : active ? 'check_circle' : 'radio_button_unchecked'}
+                      {active ? 'check_circle' : duplicate ? 'difference' : 'radio_button_unchecked'}
                     </Text>
                   </Pressable>
                   <Pressable
@@ -427,7 +451,7 @@ export default function TransactionImportScreen() {
                     <Text numberOfLines={1} style={[styles.description, { color: colors.text }]}>{item.description}</Text>
                     <Text style={[styles.meta, { color: colors.textSecondary }]}>
                       {formatDateItalian(item.occurredAt ?? '')} · {category}
-                      {duplicate ? ' · Duplicato' : ''}
+                      {duplicate ? duplicateIncluded ? ' · Duplicato incluso' : ' · Possibile duplicato' : ''}
                       {(item.importConfidence ?? 1) < 0.65 ? ' · Da verificare' : ''}
                     </Text>
                   </Pressable>

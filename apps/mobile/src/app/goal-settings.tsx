@@ -37,6 +37,7 @@ export default function GoalSettingsScreen() {
     setGoalAllocationMode,
     moveGoal,
     updateGoal,
+    transactions,
   } = useApp();
   const targetGoals = [...goals]
     .filter((goal) => goal.status === 'active')
@@ -47,7 +48,11 @@ export default function GoalSettingsScreen() {
     : draft.budgets
         .filter((item) => item.parentId === 'savings')
         .reduce((sum, item) => sum + item.amount, 0);
-  const cycle = financialCycleForDate(new Date(), budgetCycleStartDay);
+  const cycle = financialCycleForDate(
+    new Date(),
+    budgetCycleStartDay,
+    transactions,
+  );
   const savedThisCycle = goalContributions
     .filter((contribution) => {
       const createdAt = new Date(contribution.createdAt);

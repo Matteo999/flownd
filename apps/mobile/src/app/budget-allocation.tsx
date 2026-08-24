@@ -41,8 +41,8 @@ export default function BudgetAllocationScreen() {
   );
   const groups = useMemo(() => summarizeBudgets(materialized), [materialized]);
   const cycle = useMemo(
-    () => financialCycleForDate(new Date(), budgetCycleStartDay),
-    [budgetCycleStartDay],
+    () => financialCycleForDate(new Date(), budgetCycleStartDay, transactions),
+    [budgetCycleStartDay, transactions],
   );
   const expenses = useMemo(
     () =>
