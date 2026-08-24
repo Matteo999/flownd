@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { waitUntil } from '@vercel/functions'
 
-import { authenticateUserRequest } from './eb/_supabase.js'
+import { geminiStructuredGenerationConfig } from './_gemini-config.js'
+import { authenticateRequest } from './eb/_supabase.js'
 
 // Keeps the base64 JSON request below common serverless body limits.
 const MAX_FILE_BYTES = 3 * 1024 * 1024
@@ -409,13 +411,7 @@ async function geminiEnrich(candidates, signal) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: enrichmentInstructions }] },
       contents: [{ role: 'user', parts: [{ text: enrichmentPrompt(candidates) }] }],
-      generationConfig: {
-        responseFormat: {
-          text: { mimeType: 'APPLICATION_JSON', schema: enrichmentSchema },
-        },
-        thinkingConfig: { thinkingLevel: 'LOW' },
-        maxOutputTokens: 20000,
-      },
+      generationConfig: geminiStructuredGenerationConfig(model, enrichmentSchema, 20000),
     }),
   })
   const data = JSON.parse(await response.text())
@@ -478,13 +474,7 @@ async function geminiExtract(chunk, signal) {
           return { inlineData: { mimeType: meta.match(/^data:([^;]+)/)?.[1] || 'image/png', data } }
         }),
       ] }],
-      generationConfig: {
-        responseFormat: {
-          text: { mimeType: 'APPLICATION_JSON', schema: transactionExtractionSchema },
-        },
-        thinkingConfig: { thinkingLevel: 'LOW' },
-        maxOutputTokens: 30000,
-      },
+      generationConfig: geminiStructuredGenerationConfig(model, transactionExtractionSchema, 30000),
     }),
   })
   const body = await response.text()
@@ -624,16 +614,126 @@ export async function extractFileWithAI(buffer, extension) {
   }
 }
 
+async function notifyImport(service, userId, title, body, actionRoute = null) {
+  const { error } = await service.from('goal_notifications').insert({
+    user_id: userId,
+    title,
+    body,
+    action_route: actionRoute,
+  })
+  if (error) throw error
+}
+
+export async function processImportJob({
+  service,
+  job,
+  reportId,
+  provider,
+  model,
+  extract = extractFileWithAI,
+}) {
+  const startedAt = new Date().toISOString()
+  try {
+    const { error: startError } = await service
+      .from('transaction_import_jobs')
+      .update({ status: 'processing', started_at: startedAt })
+      .eq('id', job.id)
+      .eq('status', 'queued')
+    if (startError) throw startError
+
+    const buffer = Buffer.from(job.base64, 'base64')
+    const transactions = await extract(buffer, job.extension)
+    if (!transactions.length) throw new Error('AI extracted zero transactions')
+    const completedAt = new Date().toISOString()
+    const { error: completeError } = await service
+      .from('transaction_import_jobs')
+      .update({
+        status: 'completed',
+        result: { transactions: transactions.slice(0, 500) },
+        file_base64: null,
+        completed_at: completedAt,
+      })
+      .eq('id', job.id)
+    if (completeError) throw completeError
+    try {
+      await notifyImport(
+        service,
+        job.userId,
+        'Importazione pronta',
+        `${transactions.length} transazioni riconosciute da ${job.name}. Tocca per controllarle.`,
+        `/transaction-import?mode=file&jobId=${encodeURIComponent(job.id)}`,
+      )
+    } catch (notificationError) {
+      console.error('Flownd import completion notification failed', { reportId, notificationError })
+    }
+    console.info('Flownd transaction import job completed', {
+      reportId,
+      jobId: job.id,
+      provider,
+      model,
+      transactions: transactions.length,
+    })
+  } catch (error) {
+    const transient = isTransientAiError(error)
+    await service
+      .from('transaction_import_jobs')
+      .update({
+        status: 'failed',
+        file_base64: null,
+        report_id: reportId,
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+    try {
+      await notifyImport(
+        service,
+        job.userId,
+        'Importazione non completata',
+        'Il provider IA non ha completato l’elaborazione. Puoi riprovare quando vuoi.',
+      )
+    } catch (notificationError) {
+      console.error('Flownd import failure notification failed', { reportId, notificationError })
+    }
+    console.error('Flownd transaction import job failed', {
+      reportId,
+      jobId: job.id,
+      provider,
+      model,
+      providerStatus: error?.providerStatus || null,
+      providerCode: error?.providerCode || null,
+      transient,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : null,
+    })
+  }
+}
+
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST')
+  if (!['GET', 'POST'].includes(req.method)) {
+    res.setHeader('Allow', 'GET, POST')
     return res.status(405).json({ error: 'Metodo non supportato' })
   }
   const reportId = randomUUID()
   const provider = configuredAiProvider()
   const model = configuredImportModel(provider)
   try {
-    await authenticateUserRequest(req)
+    const { user, client, service } = await authenticateRequest(req)
+    if (req.method === 'GET') {
+      const jobId = String(req.query?.jobId || '')
+      if (!jobId) return res.status(400).json({ error: 'Job mancante' })
+      const { data, error } = await client
+        .from('transaction_import_jobs')
+        .select('id,status,result,file_name,created_at,completed_at')
+        .eq('id', jobId)
+        .single()
+      if (error || !data) return res.status(404).json({ error: 'Importazione non disponibile' })
+      return res.status(200).json({
+        id: data.id,
+        status: data.status,
+        fileName: data.file_name,
+        transactions: data.status === 'completed' ? data.result?.transactions || [] : [],
+      })
+    }
     const name = String(req.body?.name || '')
     const base64 = String(req.body?.base64 || '')
     const extension = name.split('.').at(-1)?.toLowerCase()
@@ -645,18 +745,31 @@ export default async function handler(req, res) {
       return res.status(413).json({ error: 'Il file deve essere più piccolo di 3 MB.' })
     }
 
-    const transactions = await extractFileWithAI(buffer, extension)
-    if (!transactions.length) {
-      throw new Error('AI extracted zero transactions')
-    }
-    console.info('Flownd transaction import completed', {
+    const { data: created, error: createError } = await service
+      .from('transaction_import_jobs')
+      .insert({
+        user_id: user.id,
+        file_name: name.slice(0, 255),
+        file_extension: extension,
+        file_base64: base64,
+        status: 'queued',
+        provider,
+        model,
+        report_id: reportId,
+      })
+      .select('id')
+      .single()
+    if (createError || !created) throw createError || new Error('Import job creation failed')
+    const task = processImportJob({
+      service,
+      job: { id: created.id, userId: user.id, name, extension, base64 },
       reportId,
       provider,
       model,
-      extension,
-      transactions: transactions.length,
     })
-    return res.status(200).json({ transactions: transactions.slice(0, 500) })
+    if (process.env.VERCEL) waitUntil(task)
+    else void task
+    return res.status(202).json({ id: created.id, status: 'queued' })
   } catch (error) {
     const transient = isTransientAiError(error)
     console.error('Flownd transaction import failed', {

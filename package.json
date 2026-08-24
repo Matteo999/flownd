@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
+    "@vercel/functions": "^3.9.5",
     "expo": "~57.0.14",
     "jose": "^6.2.3",
     "pdf-parse": "^2.4.5",

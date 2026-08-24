@@ -48,7 +48,8 @@ Il modello AI viene chiamato soltanto dalla funzione backend `api/coach.js`: non
 inserire mai una chiave AI in una variabile `EXPO_PUBLIC_*`.
 
 1. Crea `.env.local` dalla struttura di `.env.example` e imposta
-   `AI_PROVIDER=gemini`, `GEMINI_API_KEY` e `GEMINI_COACH_MODEL=gemini-3.6-flash`.
+   `AI_PROVIDER=gemini`, `GEMINI_API_KEY` e il modello desiderato, per esempio
+   `GEMINI_COACH_MODEL=gemini-3.6-flash`.
 2. Avvia il backend locale con `npm run dev:api`.
 3. Imposta `EXPO_PUBLIC_API_URL` in `.env.local` sull'URL raggiungibile dal
    dispositivo: `http://localhost:3000` per il simulatore iOS, oppure
@@ -77,3 +78,14 @@ Environment Variables** del progetto Vercel configura per l'ambiente
 
 Dopo aver aggiunto o modificato le variabili avvia un nuovo deployment. I file
 `.env.local` restano esclusivamente locali e non vengono copiati su Vercel.
+
+Gemini 3.6 e 3.7 possono essere usati contemporaneamente assegnandoli a funzioni
+diverse, ad esempio `GEMINI_COACH_MODEL=gemini-3.6-flash` e
+`GEMINI_IMPORT_MODEL=gemini-3.7-flash`. Il backend adatta automaticamente il
+payload strutturato alla versione scelta e non passa a un secondo modello in
+automatico, evitando chiamate aggiuntive fatturate.
+
+Gli import di file vengono accodati in `transaction_import_jobs`: l’API risponde
+appena il job è salvato, l’elaborazione prosegue sul server e il risultato viene
+aperto dalla notifica “Importazione pronta”. Il contenuto temporaneo del file
+viene cancellato dalla tabella al termine dell’elaborazione.

@@ -1,4 +1,4 @@
-import { router, useFocusEffect } from 'expo-router';
+import { router, type Href, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -13,6 +13,7 @@ type NotificationItem = {
   body: string;
   readAt: string | null;
   createdAt: string;
+  actionRoute: string | null;
 };
 
 export default function NotificationsScreen() {
@@ -28,7 +29,7 @@ export default function NotificationsScreen() {
       if (!session) return undefined;
       void supabase
         .from('goal_notifications')
-        .select('id,title,body,read_at,created_at')
+        .select('id,title,body,read_at,created_at,action_route')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })
         .limit(50)
@@ -42,6 +43,7 @@ export default function NotificationsScreen() {
               body: item.body,
               readAt: item.read_at,
               createdAt: item.created_at,
+              actionRoute: item.action_route,
             })),
           );
           setLoading(false);
@@ -52,21 +54,25 @@ export default function NotificationsScreen() {
     }, [session]),
   );
 
-  async function markAsRead(item: NotificationItem) {
-    if (!session || item.readAt) return;
-    const readAt = new Date().toISOString();
-    const { error } = await supabase
-      .from('goal_notifications')
-      .update({ read_at: readAt })
-      .eq('user_id', session.user.id)
-      .eq('id', item.id);
-    if (error) return;
-    setItems((current) =>
-      current.map((entry) =>
-        entry.id === item.id ? { ...entry, readAt } : entry,
-      ),
-    );
-    await dismissGoalNotice(item.id);
+  async function openNotification(item: NotificationItem) {
+    if (!session) return;
+    if (!item.readAt) {
+      const readAt = new Date().toISOString();
+      const { error } = await supabase
+        .from('goal_notifications')
+        .update({ read_at: readAt })
+        .eq('user_id', session.user.id)
+        .eq('id', item.id);
+      if (!error) {
+        setItems((current) =>
+          current.map((entry) =>
+            entry.id === item.id ? { ...entry, readAt } : entry,
+          ),
+        );
+        await dismissGoalNotice(item.id);
+      }
+    }
+    if (item.actionRoute) router.push(item.actionRoute as Href);
   }
 
   return (
@@ -98,7 +104,7 @@ export default function NotificationsScreen() {
               key={item.id}
               accessibilityRole="button"
               accessibilityLabel={`${item.title}. ${item.readAt ? 'Letta' : 'Non letta'}`}
-              onPress={() => void markAsRead(item)}
+              onPress={() => void openNotification(item)}
               style={({ pressed }) => pressed && styles.pressed}>
               <Card
                 style={[
