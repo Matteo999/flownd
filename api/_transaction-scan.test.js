@@ -25,9 +25,30 @@ test('invia a Gemini 3.7 il MIME enum richiesto per la scansione JSON', async ()
       request.generationConfig.responseFormat.text.schema.required,
       ['transactions'],
     )
+    assert.equal(request.generationConfig.thinkingConfig.thinkingLevel, 'LOW')
   } finally {
     globalThis.fetch = previousFetch
     if (previousKey == null) delete process.env.GEMINI_API_KEY
     else process.env.GEMINI_API_KEY = previousKey
+  }
+})
+
+test('non ritenta automaticamente la scansione se Gemini è saturo', async () => {
+  const previousFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return new Response(JSON.stringify({
+      error: { message: 'This model is currently experiencing high demand.', status: 'UNAVAILABLE' },
+    }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    await assert.rejects(
+      geminiScan('data:image/jpeg;base64,YQ=='),
+      /high demand/,
+    )
+    assert.equal(calls, 1)
+  } finally {
+    globalThis.fetch = previousFetch
   }
 })

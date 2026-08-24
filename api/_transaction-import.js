@@ -413,7 +413,8 @@ async function geminiEnrich(candidates, signal) {
         responseFormat: {
           text: { mimeType: 'APPLICATION_JSON', schema: enrichmentSchema },
         },
-        maxOutputTokens: 12000,
+        thinkingConfig: { thinkingLevel: 'LOW' },
+        maxOutputTokens: 20000,
       },
     }),
   })
@@ -481,6 +482,7 @@ async function geminiExtract(chunk, signal) {
         responseFormat: {
           text: { mimeType: 'APPLICATION_JSON', schema: transactionExtractionSchema },
         },
+        thinkingConfig: { thinkingLevel: 'LOW' },
         maxOutputTokens: 30000,
       },
     }),
@@ -567,39 +569,6 @@ export function isTransientAiError(error) {
     || message.includes('resource exhausted')
 }
 
-export async function withAiRetry(operation, {
-  attempts = 3,
-  delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
-} = {}) {
-  let lastError
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      return await operation(attempt)
-    } catch (error) {
-      lastError = error
-      if (!isTransientAiError(error) || attempt === attempts - 1) throw error
-      await delay(700 * 2 ** attempt + Math.floor(Math.random() * 250))
-    }
-  }
-  throw lastError
-}
-
-async function mapWithConcurrency(items, concurrency, operation) {
-  const results = new Array(items.length)
-  let nextIndex = 0
-  async function worker() {
-    while (nextIndex < items.length) {
-      const index = nextIndex
-      nextIndex += 1
-      results[index] = await operation(items[index], index)
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
-  )
-  return results
-}
-
 function configuredAiProvider() {
   return process.env.AI_PROVIDER?.toLowerCase() === 'gemini'
     || (!process.env.OPENAI_API_KEY && process.env.GEMINI_API_KEY)
@@ -625,27 +594,27 @@ export async function extractFileWithAI(buffer, extension) {
       // I file non standard proseguono comunque con il riconoscimento IA.
     }
   }
-  const chunks = localFallback.length
-    ? Array.from({ length: Math.ceil(localFallback.length / 80) }, (_, index) =>
-        localFallback.slice(index * 80, (index + 1) * 80),
-      )
-    : await fileChunks(buffer, extension)
-  if (!chunks.length) throw new Error('File contains no analyzable content')
+  const fileParts = localFallback.length ? [] : await fileChunks(buffer, extension)
+  if (!localFallback.length && !fileParts.length) throw new Error('File contains no analyzable content')
+  const input = localFallback.length
+    ? localFallback
+    : {
+        text: fileParts.map((part) => part.text).join('\n\n'),
+        images: fileParts.flatMap((part) => part.images || []),
+        sourceRows: fileParts.flatMap((part) => part.sourceRows || []),
+      }
   const controller = new AbortController()
-  const deadline = setTimeout(() => controller.abort(), 30_000)
+  const deadline = setTimeout(() => controller.abort(), 45_000)
   try {
-    // I blocchi semantici partono insieme per restare nel limite di Vercel,
-    // limitando al tempo stesso il numero di richieste e i picchi di quota.
-    const batches = await mapWithConcurrency(chunks, localFallback.length ? 3 : 2, (chunk) =>
-      withAiRetry(() => localFallback.length
-        ? provider === 'gemini'
-          ? geminiEnrich(chunk, controller.signal)
-          : openAIEnrich(chunk, controller.signal)
-        : provider === 'gemini'
-          ? geminiExtract(chunk, controller.signal)
-          : openAIExtract(chunk, controller.signal)),
-    )
-    return batches.flat()
+    // Una sola richiesta per file. Eventuali retry sono lasciati all'utente per
+    // evitare chiamate fatturate multiple quando il provider è saturo.
+    return localFallback.length
+      ? provider === 'gemini'
+        ? await geminiEnrich(input, controller.signal)
+        : await openAIEnrich(input, controller.signal)
+      : provider === 'gemini'
+        ? await geminiExtract(input, controller.signal)
+        : await openAIExtract(input, controller.signal)
   } catch (error) {
     // Non presentare come risultato IA il parser locale: una causale integrale
     // sembrerebbe un riconoscimento riuscito e potrebbe essere importata per errore.
