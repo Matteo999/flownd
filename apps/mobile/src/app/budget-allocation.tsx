@@ -7,7 +7,6 @@ import { Card, PageHeader, ProgressBar, Screen, font, uiStyles, useFlowndTheme }
 import {
   type BudgetCategory,
   categoryToBudgetGroup,
-  budgetCategoryIcon,
   formatEuro,
   materializeBudgetAmounts,
   summarizeBudgets,
@@ -74,13 +73,6 @@ export default function BudgetAllocationScreen() {
     [expenses, savedThisCycle],
   );
 
-  function spentForCategory(category: BudgetCategory) {
-    const names = [category.id, category.name].map((value) => value.trim().toLocaleLowerCase('it'));
-    return expenses
-      .filter((transaction) => names.includes(transaction.category.trim().toLocaleLowerCase('it')))
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
-  }
-
   function updateMacroPercentage(id: string, percentage: number) {
     const items = mergeSelectedBudgets(budgets, draft.budgets);
     const target = items.find((item) => item.id === id);
@@ -118,7 +110,7 @@ export default function BudgetAllocationScreen() {
     <Screen>
       <PageHeader title="Suddivisione" leading={<BackButton />} />
       <Text style={[styles.intro, { color: colors.textSecondary }]}>
-        Le tre quote sommano sempre al 100%. Tocca una macro-categoria per gestire i suoi sotto-budget.
+        Le tre quote sommano sempre al 100%. Tocca una macro-categoria per gestire le sue categorie.
       </Text>
       <View style={styles.list}>
         {groups.map((group) => {
@@ -130,7 +122,7 @@ export default function BudgetAllocationScreen() {
               <View style={styles.top}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Gestisci i sotto-budget di ${group.name}`}
+                  accessibilityLabel={`Gestisci le categorie di ${group.name}`}
                   onPress={() => router.push(`/budget-subcategory?parent=${group.id}` as Href)}
                   style={({ pressed }) => [styles.category, pressed && styles.pressed]}>
                   <View style={[styles.groupIcon, { backgroundColor: colors.accentSoft }]}>
@@ -140,8 +132,8 @@ export default function BudgetAllocationScreen() {
                     <Text style={[styles.name, { color: colors.text }]}>{group.name}</Text>
                     <Text style={[styles.groupCaption, { color: colors.textSecondary }]}>
                       {group.children.length
-                        ? `${group.children.length} sotto-budget`
-                        : 'Aggiungi un sotto-budget'}
+                        ? `${group.children.length} categorie`
+                        : 'Aggiungi una categoria'}
                     </Text>
                   </View>
                   <Text style={[styles.chevron, { color: colors.textSecondary }]}>chevron_right</Text>
@@ -187,25 +179,6 @@ export default function BudgetAllocationScreen() {
               </View>
               <ProgressBar value={progress} warning={group.id !== 'savings' && progress >= 0.8} />
 
-              {group.children.length ? (
-                <View style={[styles.children, { borderTopColor: colors.border }]}>
-                  {group.children.map((child) => (
-                    <View key={child.id} style={styles.childRow}>
-                      <Text style={[styles.childIcon, { color: colors.textSecondary }]}>{budgetCategoryIcon(child)}</Text>
-                      <View style={styles.childCopy}>
-                        <Text style={[styles.childName, { color: colors.text }]}>{child.name}</Text>
-                        <Text style={[styles.childSpent, { color: colors.textSecondary }]}>
-                          {group.id !== 'savings' ? `${formatEuro(spentForCategory(child))} utilizzati · ` : ''}
-                          {formatEuro(child.amount)} pianificati
-                        </Text>
-                      </View>
-                      <Text style={[styles.childPercentage, { color: colors.accent }]}>
-                        {child.budgetEnabled === false ? 'Nessun budget' : `${Math.round(child.percentage)}%`}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
             </Card>
           );
         })}
@@ -254,13 +227,6 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 7 },
   spent: { fontFamily: font.bodyMedium, fontSize: 11 },
   remaining: { fontFamily: font.body, fontSize: 10, textAlign: 'right' },
-  children: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: 16, paddingTop: 10, gap: 12 },
-  childRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  childIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 18 },
-  childCopy: { flex: 1 },
-  childName: { fontFamily: font.bodySemiBold, fontSize: 11 },
-  childSpent: { fontFamily: font.body, fontSize: 9, lineHeight: 13, marginTop: 2 },
-  childPercentage: { fontFamily: font.dataMedium, fontSize: 10, textAlign: 'right' },
   hint: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 12 },
   pressed: { opacity: 0.68 },
 });
