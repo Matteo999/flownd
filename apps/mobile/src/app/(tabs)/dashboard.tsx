@@ -1,8 +1,8 @@
 import PagerView, {
   type PagerViewRef,
 } from '@expo/ui/community/pager-view';
-import { router, type Href } from 'expo-router';
-import { useRef, useState, useTransition } from 'react';
+import { router, type Href, useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState, useTransition } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -33,7 +33,12 @@ import {
   formatEuro,
   summarizeBudgets,
 } from '@/lib/onboarding';
-import { buildNetWorthHistory } from '@/lib/wealth-history';
+import {
+  type FamilyDashboardSummary,
+  fetchFamilyDashboardSummary,
+  fetchFamilyGroups,
+  getActiveFamilyGroupId,
+} from '@/lib/family';
 import { useApp } from '@/providers/app-provider';
 
 const periodLabels: { id: DashboardPeriod; label: string }[] = [
@@ -50,6 +55,7 @@ export default function DashboardScreen() {
   const { colors, isDark } = useFlowndTheme();
   const {
     draft,
+    session,
     goals,
     transactions,
     goalContributions,
@@ -67,12 +73,43 @@ export default function DashboardScreen() {
   } = useApp();
   const overviewPager = useRef<PagerViewRef>(null);
   const [overviewPage, setOverviewPage] = useState(0);
+  const [familySummary, setFamilySummary] =
+    useState<FamilyDashboardSummary | null>(null);
   const [selectedPeriod, setSelectedPeriod] =
     useState<DashboardPeriod>('month');
   const [chartPeriod, setChartPeriod] = useState<DashboardPeriod>('month');
   const [periodPending, startPeriodTransition] = useTransition();
   const overviewForeground = isDark ? colors.background : colors.onAccent;
   const overviewSecondaryForeground = overviewForeground;
+
+  useFocusEffect(
+    useCallback(() => {
+      const userId = session?.user.id;
+      if (!userId) return undefined;
+      let active = true;
+      const timer = setTimeout(() => {
+        void Promise.all([
+          fetchFamilyGroups(userId),
+          getActiveFamilyGroupId(userId),
+        ])
+          .then(async ([groups, storedGroupId]) => {
+            const group = groups.find((item) => item.id === storedGroupId) ?? groups[0];
+            return group ? fetchFamilyDashboardSummary(group.id) : null;
+          })
+          .then((summary) => {
+            if (active) setFamilySummary(summary);
+          })
+          .catch((familyError) => {
+            if (__DEV__) console.error('Flownd family dashboard load failed', familyError);
+            if (active) setFamilySummary(null);
+          });
+      }, 0);
+      return () => {
+        active = false;
+        clearTimeout(timer);
+      };
+    }, [session?.user.id]),
+  );
 
   const selectedBudgets = draft.budgets.filter((item) => item.selected);
   const budgetSummary = summarizeBudgets(selectedBudgets).filter(
@@ -164,18 +201,6 @@ export default function DashboardScreen() {
     .filter((budget) => budget.id !== 'savings' && budget.progress >= 0.8)
     .sort((first, second) => second.progress - first.progress)[0];
 
-  const aggregatedNetWorth = financialAccounts.reduce(
-    (sum, account) => sum + account.balance,
-    0,
-  );
-  const netWorthHistory = buildNetWorthHistory({
-    currentNetWorth: aggregatedNetWorth,
-    financialAccountIds: financialAccounts.map((account) => account.id),
-    transactions,
-  });
-  const previousNetWorth = netWorthHistory[0]?.value ?? aggregatedNetWorth;
-  const hasPreviousNetWorth = financialAccounts.length > 0;
-  const netWorthDelta = aggregatedNetWorth - previousNetWorth;
   const featuredGoal = [...goals]
     .filter((goal) => goal.status !== 'free_savings')
     .sort((first, second) => first.priority - second.priority)[0];
@@ -333,40 +358,22 @@ export default function DashboardScreen() {
             </Pressable>
           </View>
 
-          <View key="net-worth" style={styles.overviewPage}>
-            <Text
-              style={[
-                styles.overviewLabel,
-                { color: overviewSecondaryForeground, opacity: 0.82 },
+          <View key="family" style={styles.overviewPage}>
+            <Pressable
+              accessibilityLabel="Apri il riepilogo famiglia"
+              accessibilityRole="button"
+              onPress={() => router.push('/family' as Href)}
+              style={({ pressed }) => [
+                styles.budgetPageButton,
+                pressed && styles.iconPressed,
               ]}>
-              PATRIMONIO AGGREGATO
-            </Text>
-            <Text style={[styles.primaryAmount, { color: overviewForeground }]}>
-              {financialAccounts.length
-                ? sensitiveEuro(aggregatedNetWorth, amountsVisible)
-                : 'Non disponibile'}
-            </Text>
-            {hasPreviousNetWorth ? (
-              <Text
-                style={[
-                  styles.delta,
-                  { color: overviewForeground },
-                ]}>
-                {amountsVisible
-                  ? `${netWorthDelta >= 0 ? '+' : '−'} ${formatEuro(Math.abs(netWorthDelta))} rispetto al mese scorso`
-                  : `${HIDDEN_AMOUNT} rispetto al mese scorso`}
-              </Text>
-            ) : (
-              <Text
-                style={[
-                  styles.overviewHint,
-                  { color: overviewSecondaryForeground, opacity: 0.82 },
-                ]}>
-                {financialAccounts.length
-                  ? 'Saldi bancari aggregati'
-                  : 'Collega un conto o aggiungi un saldo manuale.'}
-              </Text>
-            )}
+              <FamilyOverviewPage
+                amountsVisible={amountsVisible}
+                foreground={overviewForeground}
+                secondaryForeground={overviewSecondaryForeground}
+                summary={familySummary}
+              />
+            </Pressable>
           </View>
         </PagerView>
 
@@ -377,7 +384,7 @@ export default function DashboardScreen() {
               <Pressable
                 key={index}
                 accessibilityRole="tab"
-                accessibilityLabel={index === 0 ? 'Budget mensile' : 'Patrimonio aggregato'}
+                accessibilityLabel={index === 0 ? 'Budget mensile' : 'Riepilogo famiglia'}
                 accessibilityState={{ selected }}
                 hitSlop={8}
                 onPress={() => overviewPager.current?.setPage(index)}
@@ -635,6 +642,117 @@ export default function DashboardScreen() {
   );
 }
 
+function FamilyOverviewPage({
+  summary,
+  amountsVisible,
+  foreground,
+  secondaryForeground,
+}: {
+  summary: FamilyDashboardSummary | null;
+  amountsVisible: boolean;
+  foreground: string;
+  secondaryForeground: string;
+}) {
+  if (!summary) {
+    return (
+      <>
+        <Text style={[styles.overviewLabel, { color: secondaryForeground, opacity: 0.82 }]}>
+          FAMIGLIA E CONDIVISIONE
+        </Text>
+        <Text style={[styles.familyEmptyTitle, { color: foreground }]}>Crea il tuo gruppo</Text>
+        <Text style={[styles.overviewHint, { color: secondaryForeground, opacity: 0.82 }]}>
+          Invita famiglia o coinquilini e scegli cosa condividere.
+        </Text>
+      </>
+    );
+  }
+
+  const hasFamilyBudget = summary.budgetTotal > 0;
+  const remaining = Math.max(0, summary.budgetTotal - summary.budgetSpent);
+  return (
+    <>
+      <View style={styles.overviewLabelRow}>
+        <Text style={[styles.overviewLabel, { color: secondaryForeground, opacity: 0.82 }]}>
+          {hasFamilyBudget ? 'BUDGET FAMILIARE' : 'HUB FAMIGLIA'} · {summary.groupName.toLocaleUpperCase('it-IT')}
+        </Text>
+        <Text style={[styles.budgetSettingsIcon, { color: secondaryForeground, opacity: 0.82 }]}>group</Text>
+      </View>
+      <Text style={[styles.primaryAmount, { color: foreground }]}>
+        {hasFamilyBudget
+          ? amountsVisible
+            ? formatFamilyCurrency(remaining, summary.currency)
+            : HIDDEN_AMOUNT
+          : `${summary.memberCount} ${summary.memberCount === 1 ? 'membro' : 'membri'}`}
+        {hasFamilyBudget && amountsVisible ? (
+          <Text style={[styles.totalAmount, { color: secondaryForeground, opacity: 0.82 }]}> 
+            {' '}su {formatFamilyCurrency(summary.budgetTotal, summary.currency)}
+          </Text>
+        ) : null}
+      </Text>
+      <View style={styles.budgetSummary}>
+        <FamilyMetric
+          icon="group"
+          label="Membri"
+          value={String(summary.memberCount)}
+          foreground={foreground}
+          secondaryForeground={secondaryForeground}
+        />
+        <FamilyMetric
+          icon="flag"
+          label="Obiettivi"
+          value={String(summary.sharedGoalCount)}
+          foreground={foreground}
+          secondaryForeground={secondaryForeground}
+        />
+        <FamilyMetric
+          icon={hasFamilyBudget ? 'receipt_long' : 'account_balance_wallet'}
+          label={hasFamilyBudget ? 'Speso' : 'Patrimonio'}
+          value={amountsVisible
+            ? formatFamilyCurrency(
+                hasFamilyBudget ? summary.budgetSpent : summary.netWorthTotal,
+                summary.currency,
+              )
+            : HIDDEN_AMOUNT}
+          foreground={foreground}
+          secondaryForeground={secondaryForeground}
+        />
+      </View>
+    </>
+  );
+}
+
+function FamilyMetric({
+  icon,
+  label,
+  value,
+  foreground,
+  secondaryForeground,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  foreground: string;
+  secondaryForeground: string;
+}) {
+  return (
+    <View style={styles.budgetSummaryItem}>
+      <View style={styles.budgetSummaryNameRow}>
+        <Text style={[styles.budgetSummaryIcon, { color: secondaryForeground, opacity: 0.82 }]}>{icon}</Text>
+        <Text style={[styles.budgetSummaryName, { color: secondaryForeground, opacity: 0.82 }]}>{label}</Text>
+      </View>
+      <Text numberOfLines={1} style={[styles.budgetSummaryValue, { color: foreground }]}>{value}</Text>
+    </View>
+  );
+}
+
+function formatFamilyCurrency(amount: number, currency: string) {
+  return new Intl.NumberFormat('it-IT', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   privacyButton: {
@@ -679,6 +797,7 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
   totalAmount: { fontFamily: font.body, fontSize: 12 },
+  familyEmptyTitle: { fontFamily: font.displayBold, fontSize: 25, lineHeight: 33, marginTop: 10 },
   overviewHint: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 18 },
   delta: { fontFamily: font.dataMedium, fontSize: 11, lineHeight: 16, marginTop: 18 },
   budgetSummary: { flexDirection: 'row', gap: 5, marginTop: 18 },

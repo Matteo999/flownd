@@ -1,7 +1,16 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { supabase } from '@/lib/supabase';
 
 export type SharingAccess = 'none' | 'view' | 'edit';
 export type GroupRole = 'owner' | 'member' | 'readonly';
+
+export type SharingPreferences = {
+  shareMonthlyBudget: boolean;
+  shareNetWorth: boolean;
+  shareTransactions: boolean;
+  shareTransactionCategories: boolean;
+};
 
 export type FamilyGroup = {
   id: string;
@@ -12,17 +21,18 @@ export type FamilyGroup = {
   transactionsAccess: SharingAccess;
   budgetsAccess: SharingAccess;
   goalsAccess: SharingAccess;
-};
+} & SharingPreferences;
 
 export type GroupMember = {
   userId: string;
   displayName: string;
   email: string | null;
+  avatarUrl: string | null;
   role: GroupRole;
   transactionsAccess: SharingAccess;
   budgetsAccess: SharingAccess;
   goalsAccess: SharingAccess;
-};
+} & SharingPreferences;
 
 export type GroupInvite = {
   id: string;
@@ -43,6 +53,8 @@ export type FamilyGoalSummary = {
   savedAmount: number;
 };
 
+export type ShareableGoal = FamilyGoalSummary & { shared: boolean };
+
 export type FamilyBudgetSummary = {
   id: string;
   category: string;
@@ -60,6 +72,22 @@ export type FamilyGroupDetail = {
   goals: FamilyGoalSummary[];
   budgets: FamilyBudgetSummary[];
   balances: MemberBalance[];
+  shareableGoals: ShareableGoal[];
+};
+
+export type FamilyDashboardSummary = {
+  groupId: string;
+  groupName: string;
+  currency: string;
+  memberCount: number;
+  budgetTotal: number;
+  budgetSpent: number;
+  netWorthTotal: number;
+  sharedGoalCount: number;
+  goalSaved: number;
+  goalTarget: number;
+  transactionCount: number;
+  categoryCount: number;
 };
 
 type AccessDraft = {
@@ -72,7 +100,7 @@ type AccessDraft = {
 export async function fetchFamilyGroups(userId: string) {
   const { data: memberships, error: membershipsError } = await supabase
     .from('group_members')
-    .select('group_id,role,transactions_access,budgets_access,goals_access')
+    .select('group_id,role,transactions_access,budgets_access,goals_access,share_monthly_budget,share_net_worth,share_transactions,share_transaction_categories')
     .eq('user_id', userId)
     .order('joined_at');
   if (membershipsError) throw membershipsError;
@@ -97,6 +125,10 @@ export async function fetchFamilyGroups(userId: string) {
       transactionsAccess: membership.transactions_access as SharingAccess,
       budgetsAccess: membership.budgets_access as SharingAccess,
       goalsAccess: membership.goals_access as SharingAccess,
+      shareMonthlyBudget: Boolean(membership.share_monthly_budget),
+      shareNetWorth: Boolean(membership.share_net_worth),
+      shareTransactions: Boolean(membership.share_transactions),
+      shareTransactionCategories: Boolean(membership.share_transaction_categories),
     }];
   });
 }
@@ -115,11 +147,12 @@ export async function fetchReceivedInvites(email: string) {
 
 export async function fetchFamilyGroupDetail(
   group: FamilyGroup,
+  userId: string,
 ): Promise<FamilyGroupDetail> {
   const requests = [
     supabase
       .from('group_members')
-      .select('user_id,display_name,email,role,transactions_access,budgets_access,goals_access')
+      .select('user_id,display_name,email,avatar_url,role,transactions_access,budgets_access,goals_access,share_monthly_budget,share_net_worth,share_transactions,share_transaction_categories')
       .eq('group_id', group.id)
       .order('joined_at'),
     supabase
@@ -142,6 +175,32 @@ export async function fetchFamilyGroupDetail(
     .find((result) => result.error)?.error;
   if (firstError) throw firstError;
 
+  const [shareLinksResult, personalGoalsResult] = await Promise.all([
+    supabase
+      .from('goal_group_shares')
+      .select('goal_id')
+      .eq('group_id', group.id),
+    supabase
+      .from('goals')
+      .select('id,name,target_amount,saved_amount')
+      .eq('user_id', userId)
+      .is('group_id', null)
+      .eq('active', true)
+      .order('priority'),
+  ]);
+  if (shareLinksResult.error) throw shareLinksResult.error;
+  if (personalGoalsResult.error) throw personalGoalsResult.error;
+  const sharedGoalIds = (shareLinksResult.data ?? []).map((share) => share.goal_id);
+  const { data: explicitlySharedGoals, error: explicitlySharedGoalsError } =
+    sharedGoalIds.length
+      ? await supabase
+          .from('goals')
+          .select('id,name,target_amount,saved_amount')
+          .in('id', sharedGoalIds)
+          .eq('active', true)
+      : { data: [], error: null };
+  if (explicitlySharedGoalsError) throw explicitlySharedGoalsError;
+
   let pendingInvites: GroupInvite[] = [];
   if (group.role === 'owner') {
     const { data, error } = await supabase
@@ -160,18 +219,25 @@ export async function fetchFamilyGroupDetail(
       userId: member.user_id,
       displayName: member.display_name || member.email || 'Membro Flownd',
       email: member.email,
+      avatarUrl: member.avatar_url,
       role: member.role as GroupRole,
       transactionsAccess: member.transactions_access as SharingAccess,
       budgetsAccess: member.budgets_access as SharingAccess,
       goalsAccess: member.goals_access as SharingAccess,
+      shareMonthlyBudget: Boolean(member.share_monthly_budget),
+      shareNetWorth: Boolean(member.share_net_worth),
+      shareTransactions: Boolean(member.share_transactions),
+      shareTransactionCategories: Boolean(member.share_transaction_categories),
     })),
     pendingInvites,
-    goals: (goalsResult.data ?? []).map((goal) => ({
+    goals: [...(goalsResult.data ?? []), ...(explicitlySharedGoals ?? [])]
+      .filter((goal, index, goals) => goals.findIndex((item) => item.id === goal.id) === index)
+      .map((goal) => ({
       id: goal.id,
       name: goal.name,
       targetAmount: Number(goal.target_amount),
       savedAmount: Number(goal.saved_amount),
-    })),
+      })),
     budgets: (budgetsResult.data ?? []).map((budget) => ({
       id: budget.id,
       category: budget.category,
@@ -183,6 +249,13 @@ export async function fetchFamilyGroupDetail(
     }[]).map((balance) => ({
       userId: balance.user_id,
       balance: Number(balance.balance),
+    })),
+    shareableGoals: (personalGoalsResult.data ?? []).map((goal) => ({
+      id: goal.id,
+      name: goal.name,
+      targetAmount: Number(goal.target_amount),
+      savedAmount: Number(goal.saved_amount),
+      shared: sharedGoalIds.includes(goal.id),
     })),
   };
 }
@@ -219,14 +292,12 @@ async function attachGroupNames<
   }));
 }
 
-export async function createFamilyGroup(userId: string, name: string) {
-  const { data, error } = await supabase
-    .from('groups')
-    .insert({ name: name.trim(), owner_id: userId })
-    .select('id')
-    .single();
+export async function createFamilyGroup(name: string) {
+  const { data, error } = await supabase.rpc('create_family_group', {
+    p_name: name.trim(),
+  });
   if (error) throw error;
-  return data.id as string;
+  return data as string;
 }
 
 export async function createGroupInvite(
@@ -339,4 +410,86 @@ export async function updateGroupMemberAccess(
     .eq('group_id', groupId)
     .eq('user_id', userId);
   if (error) throw error;
+}
+
+export async function updateMyGroupSharing(
+  groupId: string,
+  preferences: SharingPreferences,
+) {
+  const { error } = await supabase.rpc('update_my_group_sharing', {
+    p_group_id: groupId,
+    p_share_monthly_budget: preferences.shareMonthlyBudget,
+    p_share_net_worth: preferences.shareNetWorth,
+    p_share_transactions: preferences.shareTransactions,
+    p_share_transaction_categories: preferences.shareTransactionCategories,
+  });
+  if (error) throw error;
+}
+
+export async function setGoalSharedWithGroup(
+  groupId: string,
+  goalId: string,
+  shared: boolean,
+) {
+  const { error } = await supabase.rpc('set_goal_group_sharing', {
+    p_group_id: groupId,
+    p_goal_id: goalId,
+    p_shared: shared,
+  });
+  if (error) throw error;
+}
+
+export async function leaveFamilyGroup(groupId: string) {
+  const { error } = await supabase.rpc('leave_family_group', {
+    p_group_id: groupId,
+  });
+  if (error) throw error;
+}
+
+export async function deleteFamilyGroup(groupId: string) {
+  const { error } = await supabase.rpc('delete_family_group', {
+    p_group_id: groupId,
+  });
+  if (error) throw error;
+}
+
+export async function fetchFamilyDashboardSummary(groupId: string) {
+  const { data, error } = await supabase.rpc('family_dashboard_summary', {
+    p_group_id: groupId,
+  });
+  if (error) throw error;
+  const summary = data as Record<string, unknown>;
+  return {
+    groupId: String(summary.groupId),
+    groupName: String(summary.groupName),
+    currency: String(summary.currency),
+    memberCount: Number(summary.memberCount),
+    budgetTotal: Number(summary.budgetTotal),
+    budgetSpent: Number(summary.budgetSpent),
+    netWorthTotal: Number(summary.netWorthTotal),
+    sharedGoalCount: Number(summary.sharedGoalCount),
+    goalSaved: Number(summary.goalSaved),
+    goalTarget: Number(summary.goalTarget),
+    transactionCount: Number(summary.transactionCount),
+    categoryCount: Number(summary.categoryCount),
+  } satisfies FamilyDashboardSummary;
+}
+
+function activeFamilyGroupKey(userId: string) {
+  return `flownd:active-family-group:${userId}`;
+}
+
+export async function getActiveFamilyGroupId(userId: string) {
+  return AsyncStorage.getItem(activeFamilyGroupKey(userId));
+}
+
+export async function setActiveFamilyGroupId(
+  userId: string,
+  groupId: string | null,
+) {
+  if (groupId) {
+    await AsyncStorage.setItem(activeFamilyGroupKey(userId), groupId);
+  } else {
+    await AsyncStorage.removeItem(activeFamilyGroupKey(userId));
+  }
 }
