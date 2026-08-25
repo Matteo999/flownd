@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
+import { AppState } from 'react-native';
 import React, {
   createContext,
   PropsWithChildren,
@@ -632,8 +633,16 @@ export function AppProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     const userId = session?.user.id;
     if (!userId || !onboardingComplete) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void hydrateUserData(userId);
+      }, 180);
+    };
     const channel = supabase
-      .channel(`goal-events:${userId}`)
+      .channel(`app-data:${userId}`)
       .on(
         'postgres_changes',
         {
@@ -645,11 +654,36 @@ export function AppProvider({ children }: PropsWithChildren) {
         (payload) => {
           const notice = payload.new as GoalNotice;
           setGoalNotice({ id: notice.id, title: notice.title, body: notice.body });
-          void hydrateUserData(userId);
+          scheduleRefresh();
         },
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'transactions',
+          filter: `user_id=eq.${userId}`,
+        },
+        scheduleRefresh,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'transactions',
+          filter: `user_id=eq.${userId}`,
+        },
+        scheduleRefresh,
+      )
       .subscribe();
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') scheduleRefresh();
+    });
     return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      appStateSubscription.remove();
       void supabase.removeChannel(channel);
     };
   }, [hydrateUserData, onboardingComplete, session?.user.id]);
