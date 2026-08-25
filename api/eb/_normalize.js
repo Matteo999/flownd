@@ -46,6 +46,9 @@ function narrativeEntity(value) {
     /\b(?:presso|at|chez|bei)\s+(.+?)(?=\s+(?:tessera|card|carte|karte|causale|reason|date|datum|via\b|[-–]\s*transa(?:zione|ction))|$)/i,
     /\b(?:merchant|eserc(?:ente|izio)?\.?|beneficiario|beneficiary|payee|b[ée]n[ée]ficiaire|begünstigter)\s*[:\-]\s*(.+?)(?=\s+(?:causale|reason|date|datum|ref(?:erence)?\.?|id\.?|$))/i,
     /\bc\/o\s+(.+?)(?=\s+(?:tessera|card|causale|date)|$)/i,
+    /\banagrafica\s+ordinante\s*[:\-]?\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i,
+    /\bordinante\s*[:\-]\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i,
+    /\b(?:originator|ordering\s+party|debtor|payer|donneur\s+d['’]ordre|auftraggeber)\s*[:\-]?\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i,
   ]
   for (const pattern of patterns) {
     const match = text.match(pattern)
@@ -71,7 +74,9 @@ function describe(transaction) {
       || transaction.merchant_name
       || transaction.card_acceptor?.name,
   )
-  const merchant = structuredMerchant || narrativeEntity(fullRemittance)
+  const narrativeParty = narrativeEntity(fullRemittance)
+  const merchant = structuredMerchant || (direction === 'debit' ? narrativeParty : '')
+  const narrativeCounterparty = direction === 'credit' ? narrativeParty : ''
   const conciseRemittance = lines
     .filter((line) => {
       const compact = clean(line)
@@ -89,6 +94,7 @@ function describe(transaction) {
   const description =
     merchant
     || counterparty
+    || narrativeCounterparty
     || ultimateParty
     || conciseRemittance
     || bankDescription
@@ -96,9 +102,9 @@ function describe(transaction) {
 
   return {
     description: description.slice(0, 180),
-    counterparty: (merchant || counterparty || ultimateParty || null),
+    counterparty: (merchant || counterparty || narrativeCounterparty || ultimateParty || null),
     merchantName: merchant || null,
-    counterpartyName: counterparty || ultimateParty || null,
+    counterpartyName: counterparty || narrativeCounterparty || ultimateParty || null,
     remittance: fullRemittance,
   }
 }

@@ -41,8 +41,11 @@ export function isInPeriod(
     currentPeriodStart.setMonth(0, 1);
   }
 
+  const tomorrow = new Date(actualNow);
+  tomorrow.setHours(0, 0, 0, 0);
+  tomorrow.setDate(tomorrow.getDate() + 1);
   const effectiveEnd = start.getTime() === currentPeriodStart.getTime()
-    ? actualNow
+    ? tomorrow
     : end;
   return occurred >= start && occurred < effectiveEnd;
 }
