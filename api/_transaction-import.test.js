@@ -102,6 +102,48 @@ test('suddivide il CSV reale in blocchi adatti alla IA', async () => {
   assert.ok(chunks.every((chunk) => chunk.text.startsWith('Formato CSV.')))
 })
 
+test('inoltra il PDF nativo alla IA senza inizializzare un renderer grafico', async () => {
+  const pdf = Buffer.from('%PDF-1.7\nexample')
+  const chunks = await fileChunks(pdf, 'pdf')
+
+  assert.equal(chunks.length, 1)
+  assert.equal(chunks[0].files[0].filename, 'estratto-conto.pdf')
+  assert.equal(
+    chunks[0].files[0].dataUrl,
+    `data:application/pdf;base64,${pdf.toString('base64')}`,
+  )
+})
+
+test('invia il PDF a Gemini come application/pdf in una sola richiesta', async () => {
+  const previousFetch = globalThis.fetch
+  const previousProvider = process.env.AI_PROVIDER
+  const previousKey = process.env.GEMINI_API_KEY
+  process.env.AI_PROVIDER = 'gemini'
+  process.env.GEMINI_API_KEY = 'test-key'
+  const requests = []
+  globalThis.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options.body))
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: '{"transactions":[]}' }] } }],
+    }))
+  }
+
+  try {
+    const transactions = await extractFileWithAI(Buffer.from('%PDF-1.7\nexample'), 'pdf')
+    assert.deepEqual(transactions, [])
+    assert.equal(requests.length, 1)
+    const inlineData = requests[0].contents[0].parts.find((part) => part.inlineData)?.inlineData
+    assert.equal(inlineData?.mimeType, 'application/pdf')
+    assert.equal(inlineData?.data, Buffer.from('%PDF-1.7\nexample').toString('base64'))
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousProvider == null) delete process.env.AI_PROVIDER
+    else process.env.AI_PROVIDER = previousProvider
+    if (previousKey == null) delete process.env.GEMINI_API_KEY
+    else process.env.GEMINI_API_KEY = previousKey
+  }
+})
+
 test('analizza tutto il CSV con una sola richiesta IA', async () => {
   const previousFetch = globalThis.fetch
   const previousProvider = process.env.AI_PROVIDER

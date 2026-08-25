@@ -27,6 +27,40 @@ function transactionEffect(transaction: ExpenseDraft) {
     : -transaction.amount;
 }
 
+function endOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function transactionMoment(transaction: ExpenseDraft, current: Date) {
+  if (!transaction.occurredAt) return null;
+  const storedDate = new Date(transaction.occurredAt);
+  if (Number.isNaN(storedDate.getTime())) return null;
+
+  const knownTime = transaction.occurredTime?.match(
+    /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?/,
+  );
+  if (knownTime) {
+    storedDate.setHours(
+      Number(knownTime[1]),
+      Number(knownTime[2]),
+      Number(knownTime[3] ?? 0),
+      0,
+    );
+    return storedDate;
+  }
+
+  // Open Banking often supplies only a booking date. The legacy noon UTC
+  // placeholder must not make a movement from today look like a future one:
+  // the bank balance already includes it, so it belongs to today's closing
+  // balance even when no real transaction time is available.
+  const movementDay = startOfDay(storedDate);
+  const currentDay = startOfDay(current);
+  if (movementDay.getTime() === currentDay.getTime()) return new Date(current);
+  return endOfDay(storedDate);
+}
+
 export function buildNetWorthHistory({
   currentNetWorth,
   financialAccountIds,
@@ -56,10 +90,9 @@ export function buildNetWorthHistory({
     ) {
       return [];
     }
-    if (!transaction.occurredAt) return [];
-    const occurredAt = new Date(transaction.occurredAt);
+    const occurredAt = transactionMoment(transaction, current);
     if (
-      Number.isNaN(occurredAt.getTime()) ||
+      !occurredAt ||
       occurredAt < rangeStart ||
       occurredAt > current
     ) {
