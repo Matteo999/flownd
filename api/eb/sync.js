@@ -105,6 +105,8 @@ async function reconcileTransaction({
         value_date: normalized.valueDate,
         transaction_date: normalized.transactionDate,
         occurred_on: normalized.occurredOn,
+        occurred_time: normalized.occurredTime,
+        occurred_time_source: normalized.occurredTimeSource,
         description: normalized.description,
         counterparty: normalized.counterparty,
         bank_code: normalized.bankCode,
@@ -144,6 +146,8 @@ async function reconcileTransaction({
       counterparty_name: normalized.counterpartyName,
       import_reference: normalized.entryReference || normalized.providerTransactionId,
       import_confidence: normalized.merchantName || normalized.counterpartyName ? 1 : 0.5,
+      occurred_time: normalized.occurredTime,
+      occurred_time_source: normalized.occurredTimeSource,
       ...(normalized.status !== 'booked' ? { excluded_from_totals: true } : {}),
     }
     const { error } = await service
@@ -151,6 +155,12 @@ async function reconcileTransaction({
       .update(linkedUpdate)
       .eq('id', transactionId)
     if (error) throw error
+    const { error: dateError } = await service
+      .from('transactions')
+      .update({ occurred_at: occurredAt(normalized.occurredOn) })
+      .eq('id', transactionId)
+      .eq('source', 'open_banking')
+    if (dateError) throw dateError
     return { imported: 0, linked: 0, pending: normalized.status === 'booked' ? 0 : 1 }
   }
 
@@ -197,6 +207,8 @@ async function reconcileTransaction({
       amount: normalized.amount,
       category: normalized.category,
       occurred_at: occurredAt(normalized.occurredOn),
+      occurred_time: normalized.occurredTime,
+      occurred_time_source: normalized.occurredTimeSource,
       source: 'open_banking',
       kind: normalized.kind,
       income_type:

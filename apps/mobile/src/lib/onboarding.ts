@@ -106,6 +106,8 @@ export type ExpenseDraft = {
   amount: number;
   category: string;
   occurredAt?: string;
+  occurredTime?: string | null;
+  occurredTimeSource?: 'structured' | 'narrative' | null;
   source?: string;
   rawDescription?: string | null;
   merchantName?: string | null;
