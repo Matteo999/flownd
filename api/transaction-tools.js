@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
 
 import clientErrorHandler from './_client-error.js'
+import groupInvitesHandler from './_group-invites.js'
 import transactionImportHandler from './_transaction-import.js'
 import transactionScanHandler from './_transaction-scan.js'
 
 const handlers = {
   error: clientErrorHandler,
+  'group-invite': groupInvitesHandler,
   import: transactionImportHandler,
   scan: transactionScanHandler,
 }
