@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
+import { Image } from 'expo-image';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   Card,
@@ -17,15 +18,22 @@ import {
   acceptGroupInvite,
   createFamilyGroup,
   createGroupInvite,
+  deleteFamilyGroup,
   type FamilyGroup,
   type FamilyGroupDetail,
   fetchFamilyGroupDetail,
   fetchFamilyGroups,
   fetchReceivedInvites,
+  getActiveFamilyGroupId,
   type GroupInvite,
   type GroupMember,
   type SharingAccess,
+  type SharingPreferences,
+  leaveFamilyGroup,
+  setActiveFamilyGroupId,
+  setGoalSharedWithGroup,
   updateGroupMemberAccess,
+  updateMyGroupSharing,
 } from '@/lib/family';
 import { useApp } from '@/providers/app-provider';
 
@@ -60,6 +68,9 @@ export default function FamilyScreen() {
   const [newGroupName, setNewGroupName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteAccess, setInviteAccess] = useState(initialInviteAccess);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,19 +84,25 @@ export default function FamilyScreen() {
     const userId = session?.user.id;
     const email = session?.user.email;
     if (!userId || !email) return;
-    const [nextGroups, nextInvites] = await Promise.all([
+    const [nextGroups, nextInvites, storedGroupId] = await Promise.all([
       fetchFamilyGroups(userId),
       fetchReceivedInvites(email),
+      getActiveFamilyGroupId(userId),
     ]);
     setGroups(nextGroups);
     setReceivedInvites(nextInvites);
     setSelectedGroupId((current) => {
-      const preferred = preferredGroupId ?? current;
+      const preferred = preferredGroupId ?? storedGroupId ?? current;
       return nextGroups.some((group) => group.id === preferred)
         ? preferred!
         : nextGroups[0]?.id ?? null;
     });
   }, [session?.user.email, session?.user.id]);
+
+  useEffect(() => {
+    if (!session?.user.id) return;
+    void setActiveFamilyGroupId(session.user.id, selectedGroupId);
+  }, [selectedGroupId, session?.user.id]);
 
   useEffect(() => {
     let active = true;
@@ -112,7 +129,8 @@ export default function FamilyScreen() {
         active = false;
       };
     }
-    fetchFamilyGroupDetail(selectedGroup)
+    if (!session?.user.id) return () => { active = false; };
+    fetchFamilyGroupDetail(selectedGroup, session.user.id)
       .then((nextDetail) => {
         if (active) setDetail(nextDetail);
       })
@@ -123,7 +141,7 @@ export default function FamilyScreen() {
     return () => {
       active = false;
     };
-  }, [scope, selectedGroup]);
+  }, [scope, selectedGroup, session?.user.id]);
 
   async function runAction(action: () => Promise<void>) {
     setSaving(true);
@@ -139,14 +157,13 @@ export default function FamilyScreen() {
   }
 
   async function refreshDetail(group = selectedGroup) {
-    if (!group) return;
-    setDetail(await fetchFamilyGroupDetail(group));
+    if (!group || !session?.user.id) return;
+    setDetail(await fetchFamilyGroupDetail(group, session.user.id));
   }
 
   return (
     <Screen>
       <PageHeader
-        eyebrow="FASE F"
         title="Famiglia e condivisione"
         leading={
           <Pressable
@@ -185,22 +202,13 @@ export default function FamilyScreen() {
         <PersonalView
           groups={groups}
           receivedInvites={receivedInvites}
-          newGroupName={newGroupName}
-          setNewGroupName={setNewGroupName}
           saving={saving}
+          onOpenCreate={() => setCreateModalOpen(true)}
           onSelectGroup={(groupId) => {
             setDetail(null);
             setSelectedGroupId(groupId);
             setScope('group');
           }}
-          onCreateGroup={() => void runAction(async () => {
-            if (!session || !newGroupName.trim()) return;
-            const groupId = await createFamilyGroup(session.user.id, newGroupName);
-            setNewGroupName('');
-            setDetail(null);
-            await loadGroups(groupId);
-            setScope('group');
-          })}
           onAcceptInvite={(inviteId) => void runAction(async () => {
             const groupId = await acceptGroupInvite(inviteId);
             setDetail(null);
@@ -212,20 +220,9 @@ export default function FamilyScreen() {
         <GroupView
           group={selectedGroup}
           detail={detail}
-          inviteEmail={inviteEmail}
-          setInviteEmail={setInviteEmail}
-          inviteAccess={inviteAccess}
-          setInviteAccess={setInviteAccess}
           saving={saving}
-          onInvite={() => void runAction(async () => {
-            if (!session || !inviteEmail.trim()) return;
-            await createGroupInvite(selectedGroup.id, inviteEmail, session.user.id, {
-              role: 'member',
-              ...inviteAccess,
-            });
-            setInviteEmail('');
-            await refreshDetail();
-          })}
+          currentUserId={session?.user.id ?? ''}
+          onOpenInvite={() => setInviteModalOpen(true)}
           onUpdateMember={(member, area, access) => void runAction(async () => {
             await updateGroupMemberAccess(selectedGroup.id, member.userId, {
               role: member.role === 'owner' ? 'member' : member.role,
@@ -236,10 +233,97 @@ export default function FamilyScreen() {
             });
             await refreshDetail();
           })}
+          onUpdateSharing={(preferences) => void runAction(async () => {
+            await updateMyGroupSharing(selectedGroup.id, preferences);
+            await loadGroups(selectedGroup.id);
+            await refreshDetail();
+          })}
+          onToggleGoal={(goalId, shared) => void runAction(async () => {
+            await setGoalSharedWithGroup(selectedGroup.id, goalId, shared);
+            await refreshDetail();
+          })}
+          onLeaveOrDelete={() => {
+            const deleting = selectedGroup.role === 'owner';
+            Alert.alert(
+              deleting ? 'Eliminare il gruppo?' : 'Uscire dal gruppo?',
+              deleting
+                ? `“${selectedGroup.name}” e tutti i dati condivisi verranno eliminati definitivamente.`
+                : `Non vedrai più i dati condivisi di “${selectedGroup.name}”.`,
+              [
+                { text: 'Annulla', style: 'cancel' },
+                {
+                  text: deleting ? 'Elimina' : 'Esci',
+                  style: 'destructive',
+                  onPress: () => void runAction(async () => {
+                    if (deleting) await deleteFamilyGroup(selectedGroup.id);
+                    else await leaveFamilyGroup(selectedGroup.id);
+                    setDetail(null);
+                    setScope('personal');
+                    await setActiveFamilyGroupId(session?.user.id ?? '', null);
+                    await loadGroups();
+                  }),
+                },
+              ],
+            );
+          }}
         />
       ) : null}
 
+      {notice ? <Text style={[styles.notice, { color: colors.positive }]}>{notice}</Text> : null}
       {error ? <Text style={[styles.error, { color: colors.negative }]}>{error}</Text> : null}
+
+      <Popup visible={createModalOpen} title="Nuovo gruppo" onClose={() => setCreateModalOpen(false)}>
+        <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
+          Crea uno spazio per famiglia, coppia o coinquilini.
+        </Text>
+        <Field
+          label="Nome del gruppo"
+          placeholder="es. Casa Rossi"
+          value={newGroupName}
+          onChangeText={setNewGroupName}
+        />
+        <PrimaryButton disabled={!newGroupName.trim()} loading={saving} onPress={() => {
+          if (!session || !newGroupName.trim()) return;
+          void runAction(async () => {
+            const groupId = await createFamilyGroup(newGroupName);
+            setNewGroupName('');
+            setCreateModalOpen(false);
+            setDetail(null);
+            await loadGroups(groupId);
+            setScope('group');
+          });
+        }}>
+          Crea gruppo
+        </PrimaryButton>
+      </Popup>
+
+      <Popup visible={inviteModalOpen} title="Invita un membro" onClose={() => setInviteModalOpen(false)}>
+        <Field
+          label="Email"
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          placeholder="nome@esempio.it"
+          value={inviteEmail}
+          onChangeText={setInviteEmail}
+        />
+        <PermissionRow label="Movimenti" value={inviteAccess.transactionsAccess} editable onChange={(transactionsAccess) => setInviteAccess({ ...inviteAccess, transactionsAccess })} />
+        <PermissionRow label="Budget" value={inviteAccess.budgetsAccess} editable onChange={(budgetsAccess) => setInviteAccess({ ...inviteAccess, budgetsAccess })} />
+        <PermissionRow label="Obiettivi" value={inviteAccess.goalsAccess} editable onChange={(goalsAccess) => setInviteAccess({ ...inviteAccess, goalsAccess })} />
+        <PrimaryButton disabled={!inviteEmail.includes('@')} loading={saving} onPress={() => {
+          if (!session || !selectedGroup || !inviteEmail.trim()) return;
+          void runAction(async () => {
+            const recipient = inviteEmail.trim();
+            await createGroupInvite(selectedGroup.id, recipient, session.user.id, { role: 'member', ...inviteAccess });
+            setInviteEmail('');
+            setInviteModalOpen(false);
+            setNotice(`Invito creato per ${recipient}. Sarà visibile in Flownd quando accederà con questa email.`);
+            await refreshDetail();
+          });
+        }}>
+          Crea invito
+        </PrimaryButton>
+      </Popup>
     </Screen>
   );
 }
@@ -282,20 +366,16 @@ function ScopeButton({
 function PersonalView({
   groups,
   receivedInvites,
-  newGroupName,
-  setNewGroupName,
   saving,
+  onOpenCreate,
   onSelectGroup,
-  onCreateGroup,
   onAcceptInvite,
 }: {
   groups: FamilyGroup[];
   receivedInvites: GroupInvite[];
-  newGroupName: string;
-  setNewGroupName: (value: string) => void;
   saving: boolean;
+  onOpenCreate: () => void;
   onSelectGroup: (groupId: string) => void;
-  onCreateGroup: () => void;
   onAcceptInvite: (inviteId: string) => void;
 }) {
   const { colors } = useFlowndTheme();
@@ -345,22 +425,18 @@ function PersonalView({
         ) : null}
       </Section>
 
-      <Section title="NUOVO GRUPPO">
-        <Card>
-          <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
-            Crea uno spazio per famiglia, coppia o coinquilini. I permessi si impostano per ogni invito.
-          </Text>
-          <Field
-            label="Nome del gruppo"
-            placeholder="es. Casa Rossi"
-            value={newGroupName}
-            onChangeText={setNewGroupName}
-          />
-          <PrimaryButton disabled={!newGroupName.trim()} loading={saving} onPress={onCreateGroup}>
-            Crea gruppo
-          </PrimaryButton>
-        </Card>
-      </Section>
+      <Pressable
+        accessibilityLabel="Crea un nuovo gruppo"
+        accessibilityRole="button"
+        onPress={onOpenCreate}
+        style={({ pressed }) => [
+          styles.addAction,
+          { backgroundColor: colors.accentSoft },
+          pressed && styles.disabled,
+        ]}>
+        <Text style={[styles.addActionIcon, { color: colors.accent }]}>add</Text>
+        <Text style={[styles.addActionLabel, { color: colors.accent }]}>Nuovo gruppo</Text>
+      </Pressable>
     </>
   );
 }
@@ -368,34 +444,37 @@ function PersonalView({
 function GroupView({
   group,
   detail,
-  inviteEmail,
-  setInviteEmail,
-  inviteAccess,
-  setInviteAccess,
   saving,
-  onInvite,
+  currentUserId,
+  onOpenInvite,
   onUpdateMember,
+  onUpdateSharing,
+  onToggleGoal,
+  onLeaveOrDelete,
 }: {
   group: FamilyGroup;
   detail: FamilyGroupDetail | null;
-  inviteEmail: string;
-  setInviteEmail: (value: string) => void;
-  inviteAccess: InviteAccess;
-  setInviteAccess: (value: InviteAccess) => void;
   saving: boolean;
-  onInvite: () => void;
+  currentUserId: string;
+  onOpenInvite: () => void;
   onUpdateMember: (
     member: GroupMember,
     area: 'transactions' | 'budgets' | 'goals',
     access: SharingAccess,
   ) => void;
+  onUpdateSharing: (preferences: SharingPreferences) => void;
+  onToggleGoal: (goalId: string, shared: boolean) => void;
+  onLeaveOrDelete: () => void;
 }) {
   const { colors } = useFlowndTheme();
   if (!detail) return <ActivityIndicator color={colors.accent} style={styles.loader} />;
   const memberNames = new Map(detail.members.map((member) => [member.userId, member.displayName]));
+  const currentMember = detail.members.find((member) => member.userId === currentUserId);
 
   return (
     <>
+      <MemberAvatars members={detail.members} />
+
       <Text style={[styles.intro, { color: colors.textSecondary }]}>
         Vista condivisa di {group.name}. I dati personali non compaiono qui finché non vengono associati al gruppo.
       </Text>
@@ -405,6 +484,74 @@ function GroupView({
         <SummaryCard icon="pie_chart" label="Budget" value={String(detail.budgets.length)} />
         <SummaryCard icon="group" label="Membri" value={String(detail.members.length)} />
       </View>
+
+      {currentMember ? (
+        <Section title="COSA CONDIVIDI">
+          <Card>
+            <SharingRow
+              label="Budget mensile"
+              caption="Contribuisce al budget aggregato del gruppo"
+              value={currentMember.shareMonthlyBudget}
+              onChange={(shareMonthlyBudget) => onUpdateSharing({
+                shareMonthlyBudget,
+                shareNetWorth: currentMember.shareNetWorth,
+                shareTransactions: currentMember.shareTransactions,
+                shareTransactionCategories: currentMember.shareTransactionCategories,
+              })}
+            />
+            <SharingRow
+              label="Patrimonio totale"
+              caption="Condivide soltanto il totale aggregato"
+              value={currentMember.shareNetWorth}
+              onChange={(shareNetWorth) => onUpdateSharing({
+                shareMonthlyBudget: currentMember.shareMonthlyBudget,
+                shareNetWorth,
+                shareTransactions: currentMember.shareTransactions,
+                shareTransactionCategories: currentMember.shareTransactionCategories,
+              })}
+            />
+            <SharingRow
+              label="Transazioni"
+              caption="Include i movimenti nel riepilogo del gruppo"
+              value={currentMember.shareTransactions}
+              onChange={(shareTransactions) => onUpdateSharing({
+                shareMonthlyBudget: currentMember.shareMonthlyBudget,
+                shareNetWorth: currentMember.shareNetWorth,
+                shareTransactions,
+                shareTransactionCategories: shareTransactions && currentMember.shareTransactionCategories,
+              })}
+            />
+            <SharingRow
+              label="Categorizzazione"
+              caption="Mostra anche le categorie dei movimenti"
+              value={currentMember.shareTransactionCategories}
+              disabled={!currentMember.shareTransactions}
+              onChange={(shareTransactionCategories) => onUpdateSharing({
+                shareMonthlyBudget: currentMember.shareMonthlyBudget,
+                shareNetWorth: currentMember.shareNetWorth,
+                shareTransactions: currentMember.shareTransactions,
+                shareTransactionCategories,
+              })}
+            />
+          </Card>
+        </Section>
+      ) : null}
+
+      <Section title="I TUOI OBIETTIVI">
+        <Card>
+          {detail.shareableGoals.length ? detail.shareableGoals.map((goal) => (
+            <SharingRow
+              key={goal.id}
+              label={goal.name}
+              caption={`${formatAmount(goal.savedAmount, group.currency)} su ${formatAmount(goal.targetAmount, group.currency)}`}
+              value={goal.shared}
+              onChange={(shared) => onToggleGoal(goal.id, shared)}
+            />
+          )) : (
+            <Text style={[styles.empty, { color: colors.textSecondary }]}>Non hai obiettivi personali attivi.</Text>
+          )}
+        </Card>
+      </Section>
 
       <Section title="SALDI TRA MEMBRI">
         <Card>
@@ -497,38 +644,11 @@ function GroupView({
       </Section>
 
       {group.role === 'owner' ? (
-        <Section title="INVITA UN MEMBRO">
+        <Section title="INVITI">
           <Card>
-            <Field
-              label="Email"
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              placeholder="nome@esempio.it"
-              value={inviteEmail}
-              onChangeText={setInviteEmail}
-            />
-            <PermissionRow
-              label="Movimenti"
-              value={inviteAccess.transactionsAccess}
-              editable
-              onChange={(transactionsAccess) => setInviteAccess({ ...inviteAccess, transactionsAccess })}
-            />
-            <PermissionRow
-              label="Budget"
-              value={inviteAccess.budgetsAccess}
-              editable
-              onChange={(budgetsAccess) => setInviteAccess({ ...inviteAccess, budgetsAccess })}
-            />
-            <PermissionRow
-              label="Obiettivi"
-              value={inviteAccess.goalsAccess}
-              editable
-              onChange={(goalsAccess) => setInviteAccess({ ...inviteAccess, goalsAccess })}
-            />
-            <PrimaryButton disabled={!inviteEmail.includes('@')} loading={saving} onPress={onInvite}>
-              Crea invito
-            </PrimaryButton>
+            <SecondaryButton compact disabled={saving} onPress={onOpenInvite}>
+              Invita membro
+            </SecondaryButton>
             {detail.pendingInvites.map((invite) => (
               <Text key={invite.id} style={[styles.pending, { color: colors.textSecondary }]}>
                 In attesa: {invite.email}
@@ -537,7 +657,151 @@ function GroupView({
           </Card>
         </Section>
       ) : null}
+
+      <Pressable
+        accessibilityRole="button"
+        disabled={saving}
+        onPress={onLeaveOrDelete}
+        style={({ pressed }) => [
+          styles.destructiveAction,
+          { backgroundColor: colors.negativeSoft },
+          pressed && styles.disabled,
+        ]}>
+        <Text style={[styles.materialIcon, { color: colors.negative }]}>
+          {group.role === 'owner' ? 'delete' : 'logout'}
+        </Text>
+        <Text style={[styles.destructiveLabel, { color: colors.negative }]}>
+          {group.role === 'owner' ? 'Elimina gruppo' : 'Esci dal gruppo'}
+        </Text>
+      </Pressable>
     </>
+  );
+}
+
+function MemberAvatars({ members }: { members: GroupMember[] }) {
+  const { colors } = useFlowndTheme();
+  return (
+    <View style={styles.memberAvatars}>
+      {members.map((member) => (
+        <View key={member.userId} style={styles.memberAvatarItem}>
+          <MemberAvatar member={member} />
+          <Text
+            numberOfLines={1}
+            style={[styles.memberAvatarName, { color: colors.textSecondary }]}>
+            {member.displayName.split(/\s+/)[0]}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function MemberAvatar({ member }: { member: GroupMember }) {
+  const { colors } = useFlowndTheme();
+  const [imageFailed, setImageFailed] = useState(false);
+  const initials = member.displayName
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase() || 'F';
+  if (member.avatarUrl && !imageFailed) {
+    return (
+      <Image
+        accessibilityLabel={`Immagine profilo di ${member.displayName}`}
+        contentFit="cover"
+        onError={() => setImageFailed(true)}
+        source={{ uri: member.avatarUrl }}
+        style={styles.memberAvatar}
+        transition={120}
+      />
+    );
+  }
+  return (
+    <View style={[
+      styles.memberAvatar,
+      styles.memberAvatarFallback,
+      { backgroundColor: colors.accentSoft, borderColor: colors.accent },
+    ]}>
+      <Text style={[styles.memberAvatarInitials, { color: colors.accent }]}>{initials}</Text>
+    </View>
+  );
+}
+
+function SharingRow({
+  label,
+  caption,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  caption: string;
+  value: boolean;
+  disabled?: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  const { colors } = useFlowndTheme();
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value, disabled }}
+      disabled={disabled}
+      onPress={() => onChange(!value)}
+      style={[styles.sharingRow, disabled && styles.disabled]}>
+      <View style={styles.flex}>
+        <Text style={[styles.permissionLabel, { color: colors.text }]}>{label}</Text>
+        <Text style={[styles.sharingCaption, { color: colors.textSecondary }]}>{caption}</Text>
+      </View>
+      <View style={[
+        styles.switchTrack,
+        { backgroundColor: value ? colors.accent : colors.sunken },
+      ]}>
+        <View style={[
+          styles.switchThumb,
+          { backgroundColor: colors.surface, transform: [{ translateX: value ? 18 : 0 }] },
+        ]} />
+      </View>
+    </Pressable>
+  );
+}
+
+function Popup({
+  visible,
+  title,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const { colors } = useFlowndTheme();
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={onClose}
+      transparent
+      visible={visible}>
+      <View style={styles.modalRoot}>
+        <Pressable
+          accessibilityLabel="Chiudi popup"
+          onPress={onClose}
+          style={styles.modalBackdrop}
+        />
+        <Card style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{title}</Text>
+            <Pressable accessibilityLabel="Chiudi" onPress={onClose} hitSlop={8}>
+              <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>close</Text>
+            </Pressable>
+          </View>
+          {children}
+        </Card>
+      </View>
+    </Modal>
   );
 }
 
@@ -615,6 +879,9 @@ const styles = StyleSheet.create({
   sectionLabel: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 1.05, marginBottom: 8 },
   sectionContent: { gap: 8 },
   listCard: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 70 },
+  addAction: { minHeight: 52, borderRadius: 13, marginTop: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  addActionIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22 },
+  addActionLabel: { fontFamily: font.bodySemiBold, fontSize: 13 },
   groupIcon: { width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   itemTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   itemCaption: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 2 },
@@ -622,6 +889,12 @@ const styles = StyleSheet.create({
   chevron: { fontFamily: font.body, fontSize: 24 },
   empty: { fontFamily: font.body, fontSize: 12, lineHeight: 18 },
   summaryGrid: { flexDirection: 'row', gap: 8, marginTop: 18 },
+  memberAvatars: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 16 },
+  memberAvatarItem: { width: 56, alignItems: 'center' },
+  memberAvatar: { width: 48, height: 48, borderRadius: 24 },
+  memberAvatarFallback: { borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  memberAvatarInitials: { fontFamily: font.displayBold, fontSize: 15 },
+  memberAvatarName: { fontFamily: font.bodyMedium, fontSize: 9, marginTop: 4, maxWidth: 56 },
   summaryCard: { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 13 },
   summaryValue: { fontFamily: font.dataMedium, fontSize: 19, marginTop: 3 },
   summaryLabel: { fontFamily: font.bodyMedium, fontSize: 9, marginTop: 1 },
@@ -634,10 +907,22 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', borderRadius: 6 },
   memberCard: { paddingVertical: 14 },
   permissionRow: { minHeight: 39, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  sharingRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  sharingCaption: { fontFamily: font.body, fontSize: 10, lineHeight: 14, marginTop: 2 },
+  switchTrack: { width: 42, height: 24, borderRadius: 12, padding: 3 },
+  switchThumb: { width: 18, height: 18, borderRadius: 9 },
   permissionLabel: { fontFamily: font.bodyMedium, fontSize: 12 },
   accessChip: { minWidth: 76, minHeight: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9 },
   accessText: { fontFamily: font.bodySemiBold, fontSize: 10 },
   pending: { fontFamily: font.body, fontSize: 10, marginTop: 8 },
+  destructiveAction: { minHeight: 52, borderRadius: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 28 },
+  destructiveLabel: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  modalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: 20 },
+  modalBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(3, 14, 11, 0.55)' },
+  modalCard: { maxWidth: 520, width: '100%', alignSelf: 'center', padding: 20 },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  modalTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
+  notice: { fontFamily: font.body, fontSize: 12, lineHeight: 18, marginTop: 18 },
   error: { fontFamily: font.body, fontSize: 12, lineHeight: 18, marginTop: 18 },
   disabled: { opacity: 0.45 },
 });
