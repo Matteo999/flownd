@@ -1,9 +1,10 @@
 import PagerView, {
   type PagerViewRef,
 } from '@expo/ui/community/pager-view';
+import { Image } from 'expo-image';
 import { router, type Href, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState, useTransition } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   Card,
@@ -38,6 +39,7 @@ import {
   fetchFamilyDashboardSummary,
   fetchFamilyGroups,
   getActiveFamilyGroupId,
+  setActiveFamilyGroupId,
 } from '@/lib/family';
 import { useApp } from '@/providers/app-provider';
 
@@ -73,8 +75,9 @@ export default function DashboardScreen() {
   } = useApp();
   const overviewPager = useRef<PagerViewRef>(null);
   const [overviewPage, setOverviewPage] = useState(0);
-  const [familySummary, setFamilySummary] =
-    useState<FamilyDashboardSummary | null>(null);
+  const [familySummaries, setFamilySummaries] =
+    useState<FamilyDashboardSummary[]>([]);
+  const [familyGroupIndex, setFamilyGroupIndex] = useState(0);
   const [selectedPeriod, setSelectedPeriod] =
     useState<DashboardPeriod>('month');
   const [chartPeriod, setChartPeriod] = useState<DashboardPeriod>('month');
@@ -93,15 +96,20 @@ export default function DashboardScreen() {
           getActiveFamilyGroupId(userId),
         ])
           .then(async ([groups, storedGroupId]) => {
-            const group = groups.find((item) => item.id === storedGroupId) ?? groups[0];
-            return group ? fetchFamilyDashboardSummary(group.id) : null;
+            const summaries = await Promise.all(
+              groups.map((group) => fetchFamilyDashboardSummary(group.id)),
+            );
+            const storedIndex = groups.findIndex((item) => item.id === storedGroupId);
+            return { summaries, selectedIndex: storedIndex >= 0 ? storedIndex : 0 };
           })
-          .then((summary) => {
-            if (active) setFamilySummary(summary);
+          .then(({ summaries, selectedIndex }) => {
+            if (!active) return;
+            setFamilySummaries(summaries);
+            setFamilyGroupIndex(selectedIndex);
           })
           .catch((familyError) => {
             if (__DEV__) console.error('Flownd family dashboard load failed', familyError);
-            if (active) setFamilySummary(null);
+            if (active) setFamilySummaries([]);
           });
       }, 0);
       return () => {
@@ -359,21 +367,23 @@ export default function DashboardScreen() {
           </View>
 
           <View key="family" style={styles.overviewPage}>
-            <Pressable
-              accessibilityLabel="Apri il riepilogo famiglia"
-              accessibilityRole="button"
-              onPress={() => router.push('/family' as Href)}
-              style={({ pressed }) => [
-                styles.budgetPageButton,
-                pressed && styles.iconPressed,
-              ]}>
-              <FamilyOverviewPage
+            <View style={styles.budgetPageButton}>
+              <FamilyOverviewSlider
                 amountsVisible={amountsVisible}
                 foreground={overviewForeground}
+                index={familyGroupIndex}
+                onIndexChange={(index) => {
+                  setFamilyGroupIndex(index);
+                  const groupId = familySummaries[index]?.groupId;
+                  if (session?.user.id && groupId) {
+                    void setActiveFamilyGroupId(session.user.id, groupId);
+                  }
+                }}
+                onOpen={() => router.push('/family' as Href)}
                 secondaryForeground={overviewSecondaryForeground}
-                summary={familySummary}
+                summaries={familySummaries}
               />
-            </Pressable>
+            </View>
           </View>
         </PagerView>
 
@@ -642,6 +652,160 @@ export default function DashboardScreen() {
   );
 }
 
+const FAMILY_SLIDE_HEIGHT = 132;
+
+function FamilyOverviewSlider({
+  summaries,
+  index,
+  onIndexChange,
+  onOpen,
+  amountsVisible,
+  foreground,
+  secondaryForeground,
+}: {
+  summaries: FamilyDashboardSummary[];
+  index: number;
+  onIndexChange: (index: number) => void;
+  onOpen: () => void;
+  amountsVisible: boolean;
+  foreground: string;
+  secondaryForeground: string;
+}) {
+  const [progress] = useState(() => new Animated.Value(0));
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [transition, setTransition] = useState<{
+    from: number;
+    to: number;
+    direction: 1 | -1;
+  } | null>(null);
+  const selectedIndex = summaries.length ? Math.min(index, summaries.length - 1) : 0;
+
+  function move(direction: 1 | -1) {
+    if (summaries.length < 2 || transition) return;
+    const to = (selectedIndex + direction + summaries.length) % summaries.length;
+    const nextTransition = { from: selectedIndex, to, direction };
+    progress.setValue(0);
+    setTransition(nextTransition);
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      onIndexChange(to);
+      setTransition(null);
+      progress.setValue(0);
+    });
+  }
+
+  if (!summaries.length) {
+    return (
+      <Pressable
+        accessibilityLabel="Apri Famiglia e condivisione"
+        accessibilityRole="button"
+        onPress={onOpen}
+        style={styles.familySlider}>
+        <FamilyOverviewPage
+          amountsVisible={amountsVisible}
+          foreground={foreground}
+          secondaryForeground={secondaryForeground}
+          summary={null}
+        />
+      </Pressable>
+    );
+  }
+
+  const currentSummary = summaries[transition?.from ?? selectedIndex] ?? null;
+  const incomingSummary = transition ? summaries[transition.to] : null;
+  const direction = transition?.direction ?? 1;
+  return (
+    <View
+      accessibilityActions={[
+        { name: 'activate', label: 'Apri il gruppo' },
+        ...(summaries.length > 1 ? [
+          { name: 'increment', label: 'Gruppo successivo' },
+          { name: 'decrement', label: 'Gruppo precedente' },
+        ] : []),
+      ]}
+      accessibilityLabel={`${currentSummary?.groupName ?? 'Famiglia'}, gruppo ${selectedIndex + 1} di ${summaries.length}`}
+      accessibilityRole="adjustable"
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'activate') onOpen();
+        else move(event.nativeEvent.actionName === 'decrement' ? -1 : 1);
+      }}
+      onTouchCancel={() => setTouchStart(null)}
+      onTouchEnd={(event) => {
+        if (!touchStart) return;
+        const deltaX = event.nativeEvent.pageX - touchStart.x;
+        const deltaY = event.nativeEvent.pageY - touchStart.y;
+        setTouchStart(null);
+        if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
+          onOpen();
+          return;
+        }
+        if (Math.abs(deltaY) <= Math.abs(deltaX) * 1.2) return;
+        if (deltaY < -28) move(1);
+        else if (deltaY > 28) move(-1);
+      }}
+      onTouchStart={(event) => setTouchStart({
+        x: event.nativeEvent.pageX,
+        y: event.nativeEvent.pageY,
+      })}
+      style={styles.familySlider}
+    >
+      <Animated.View
+        style={[
+          styles.familySlide,
+          transition && {
+            transform: [{
+              translateY: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, -direction * FAMILY_SLIDE_HEIGHT],
+              }),
+            }],
+          },
+        ]}>
+        <FamilyOverviewPage
+          amountsVisible={amountsVisible}
+          foreground={foreground}
+          secondaryForeground={secondaryForeground}
+          summary={currentSummary}
+        />
+      </Animated.View>
+      {incomingSummary ? (
+        <Animated.View
+          style={[
+            styles.familySlide,
+            styles.familyIncomingSlide,
+            {
+              transform: [{
+                translateY: progress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [direction * FAMILY_SLIDE_HEIGHT, 0],
+                }),
+              }],
+            },
+          ]}>
+          <FamilyOverviewPage
+            amountsVisible={amountsVisible}
+            foreground={foreground}
+            secondaryForeground={secondaryForeground}
+            summary={incomingSummary}
+          />
+        </Animated.View>
+      ) : null}
+      {summaries.length > 1 ? (
+        <View pointerEvents="none" style={styles.familyGroupPosition}>
+          <Text style={[styles.familyGroupPositionText, { color: secondaryForeground }]}>
+            {selectedIndex + 1}/{summaries.length} · scorri
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function FamilyOverviewPage({
   summary,
   amountsVisible,
@@ -669,78 +833,114 @@ function FamilyOverviewPage({
 
   const hasFamilyBudget = summary.budgetTotal > 0;
   const remaining = Math.max(0, summary.budgetTotal - summary.budgetSpent);
+  const hasSharedGoals = summary.goalTarget > 0;
+  const hasSharedTransactions = summary.transactionCount > 0;
+  const hasSharedNetWorth = summary.netWorthTotal !== 0;
+  const primaryValue = hasFamilyBudget
+    ? amountsVisible
+      ? formatFamilyCurrency(remaining, summary.currency)
+      : HIDDEN_AMOUNT
+    : hasSharedGoals
+      ? amountsVisible
+        ? formatFamilyCurrency(summary.goalSaved, summary.currency)
+        : HIDDEN_AMOUNT
+      : hasSharedTransactions
+        ? amountsVisible
+          ? formatFamilyCurrency(summary.budgetSpent, summary.currency)
+          : HIDDEN_AMOUNT
+        : hasSharedNetWorth
+          ? amountsVisible
+            ? formatFamilyCurrency(summary.netWorthTotal, summary.currency)
+            : HIDDEN_AMOUNT
+          : 'Inizia a condividere';
+  const impactLabel = hasFamilyBudget
+    ? 'BUDGET FAMILIARE'
+    : hasSharedGoals
+      ? 'OBIETTIVI CONDIVISI'
+      : hasSharedTransactions
+        ? 'SPESE CONDIVISE'
+        : hasSharedNetWorth
+          ? 'PATRIMONIO CONDIVISO'
+          : 'HUB FAMIGLIA';
+  const impactCaption = hasFamilyBudget
+    ? amountsVisible
+      ? `${formatFamilyCurrency(summary.budgetSpent, summary.currency)} spesi questo mese su ${formatFamilyCurrency(summary.budgetTotal, summary.currency)}`
+      : 'Budget e spese condivise sono nascosti'
+    : hasSharedGoals
+      ? amountsVisible
+        ? `Su ${formatFamilyCurrency(summary.goalTarget, summary.currency)} complessivi in ${summary.sharedGoalCount} obiettivi`
+        : 'Avanzamento degli obiettivi nascosto'
+      : hasSharedTransactions
+        ? `${summary.transactionCount} movimenti condivisi questo mese`
+        : hasSharedNetWorth
+          ? 'Totale aggregato scelto dai partecipanti'
+          : 'Scegliete budget, obiettivi o spese da condividere';
   return (
     <>
       <View style={styles.overviewLabelRow}>
-        <Text style={[styles.overviewLabel, { color: secondaryForeground, opacity: 0.82 }]}>
-          {hasFamilyBudget ? 'BUDGET FAMILIARE' : 'HUB FAMIGLIA'} · {summary.groupName.toLocaleUpperCase('it-IT')}
+        <Text numberOfLines={1} style={[styles.overviewLabel, styles.familyOverviewLabel, { color: secondaryForeground, opacity: 0.82 }]}>
+          {impactLabel} · {summary.groupName.toLocaleUpperCase('it-IT')}
         </Text>
-        <Text style={[styles.budgetSettingsIcon, { color: secondaryForeground, opacity: 0.82 }]}>group</Text>
+        <DashboardFamilyAvatars members={summary.members} foreground={foreground} />
       </View>
       <Text style={[styles.primaryAmount, { color: foreground }]}>
-        {hasFamilyBudget
-          ? amountsVisible
-            ? formatFamilyCurrency(remaining, summary.currency)
-            : HIDDEN_AMOUNT
-          : `${summary.memberCount} ${summary.memberCount === 1 ? 'membro' : 'membri'}`}
-        {hasFamilyBudget && amountsVisible ? (
-          <Text style={[styles.totalAmount, { color: secondaryForeground, opacity: 0.82 }]}> 
-            {' '}su {formatFamilyCurrency(summary.budgetTotal, summary.currency)}
-          </Text>
-        ) : null}
+        {primaryValue}
       </Text>
-      <View style={styles.budgetSummary}>
-        <FamilyMetric
-          icon="group"
-          label="Membri"
-          value={String(summary.memberCount)}
-          foreground={foreground}
-          secondaryForeground={secondaryForeground}
-        />
-        <FamilyMetric
-          icon="flag"
-          label="Obiettivi"
-          value={String(summary.sharedGoalCount)}
-          foreground={foreground}
-          secondaryForeground={secondaryForeground}
-        />
-        <FamilyMetric
-          icon={hasFamilyBudget ? 'receipt_long' : 'account_balance_wallet'}
-          label={hasFamilyBudget ? 'Speso' : 'Patrimonio'}
-          value={amountsVisible
-            ? formatFamilyCurrency(
-                hasFamilyBudget ? summary.budgetSpent : summary.netWorthTotal,
-                summary.currency,
-              )
-            : HIDDEN_AMOUNT}
-          foreground={foreground}
-          secondaryForeground={secondaryForeground}
-        />
-      </View>
+      <Text numberOfLines={2} style={[styles.familyImpactCaption, { color: secondaryForeground, opacity: 0.86 }]}>
+        {impactCaption}
+      </Text>
     </>
   );
 }
 
-function FamilyMetric({
-  icon,
-  label,
-  value,
+function DashboardFamilyAvatars({
+  members,
   foreground,
-  secondaryForeground,
 }: {
-  icon: string;
-  label: string;
-  value: string;
+  members: FamilyDashboardSummary['members'];
   foreground: string;
-  secondaryForeground: string;
 }) {
+  const visibleMembers = members.slice(0, 3);
+  const overflow = members.length - visibleMembers.length;
   return (
-    <View style={styles.budgetSummaryItem}>
-      <View style={styles.budgetSummaryNameRow}>
-        <Text style={[styles.budgetSummaryIcon, { color: secondaryForeground, opacity: 0.82 }]}>{icon}</Text>
-        <Text style={[styles.budgetSummaryName, { color: secondaryForeground, opacity: 0.82 }]}>{label}</Text>
-      </View>
-      <Text numberOfLines={1} style={[styles.budgetSummaryValue, { color: foreground }]}>{value}</Text>
+    <View style={styles.dashboardAvatars}>
+      {visibleMembers.map((member, index) => (
+        <DashboardFamilyAvatar key={member.userId} member={member} index={index} foreground={foreground} />
+      ))}
+      {overflow > 0 ? (
+        <View style={[styles.dashboardAvatar, styles.dashboardAvatarOverflow, { borderColor: foreground }]}>
+          <Text style={[styles.dashboardAvatarOverflowText, { color: foreground }]}>+{overflow}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function DashboardFamilyAvatar({
+  member,
+  index,
+  foreground,
+}: {
+  member: FamilyDashboardSummary['members'][number];
+  index: number;
+  foreground: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const initial = member.displayName.trim()[0]?.toUpperCase() || 'F';
+  if (member.avatarUrl && !failed) {
+    return (
+      <Image
+        accessibilityLabel={`Avatar di ${member.displayName}`}
+        contentFit="cover"
+        onError={() => setFailed(true)}
+        source={{ uri: member.avatarUrl }}
+        style={[styles.dashboardAvatar, index > 0 && styles.dashboardAvatarOverlap, { borderColor: foreground }]}
+      />
+    );
+  }
+  return (
+    <View style={[styles.dashboardAvatar, styles.dashboardAvatarFallback, index > 0 && styles.dashboardAvatarOverlap, { borderColor: foreground }]}>
+      <Text style={[styles.dashboardAvatarInitial, { color: foreground }]}>{initial}</Text>
     </View>
   );
 }
@@ -780,6 +980,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 1,
   },
+  familyOverviewLabel: { flex: 1, marginRight: 8 },
   budgetSettingsIcon: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 18,
@@ -798,6 +999,19 @@ const styles = StyleSheet.create({
   },
   totalAmount: { fontFamily: font.body, fontSize: 12 },
   familyEmptyTitle: { fontFamily: font.displayBold, fontSize: 25, lineHeight: 33, marginTop: 10 },
+  familyImpactCaption: { fontFamily: font.bodyMedium, fontSize: 11, lineHeight: 16, marginTop: 13 },
+  familySlider: { height: FAMILY_SLIDE_HEIGHT, overflow: 'hidden' },
+  familySlide: { height: FAMILY_SLIDE_HEIGHT },
+  familyIncomingSlide: { position: 'absolute', top: 0, right: 0, left: 0 },
+  familyGroupPosition: { position: 'absolute', right: 0, bottom: 0 },
+  familyGroupPositionText: { fontFamily: font.bodyMedium, fontSize: 9, opacity: 0.7 },
+  dashboardAvatars: { flexDirection: 'row', alignItems: 'center', paddingRight: 1 },
+  dashboardAvatar: { width: 27, height: 27, borderRadius: 14, borderWidth: 1.5 },
+  dashboardAvatarOverlap: { marginLeft: -7 },
+  dashboardAvatarFallback: { backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' },
+  dashboardAvatarInitial: { fontFamily: font.displayBold, fontSize: 10 },
+  dashboardAvatarOverflow: { marginLeft: -7, backgroundColor: 'rgba(0,0,0,0.12)', alignItems: 'center', justifyContent: 'center' },
+  dashboardAvatarOverflowText: { fontFamily: font.dataMedium, fontSize: 8 },
   overviewHint: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 18 },
   delta: { fontFamily: font.dataMedium, fontSize: 11, lineHeight: 16, marginTop: 18 },
   budgetSummary: { flexDirection: 'row', gap: 5, marginTop: 18 },

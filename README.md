@@ -95,3 +95,24 @@ con `AI_IMPORT_TIMEOUT_MS` tra 30 e 270 secondi. La funzione Vercel
 `api/transaction-tools.js` ha una durata massima di 300 secondi, lasciando tempo
 per registrare il risultato e generare la notifica anche dopo una risposta lenta
 del provider.
+
+## Email degli inviti famiglia
+
+L'invito viene sempre salvato su Supabase e compare nell'app quando il destinatario
+accede con la stessa email. L'invio del messaggio usa Resend tramite l'azione
+`group-invite` dell'endpoint esistente `/api/transaction-tools`: non aggiunge una
+Serverless Function e mantiene il progetto entro il limite di 12 funzioni Vercel.
+
+Per abilitare le email:
+
+1. verifica il dominio mittente nel pannello Resend;
+2. aggiungi su Vercel `RESEND_API_KEY` e
+   `GROUP_INVITE_FROM_EMAIL=Flownd <inviti@flownd.it>`;
+3. imposta facoltativamente `FLOWND_GROUP_INVITE_URL=flownd://family`;
+4. esegui un nuovo deployment.
+
+Non serve configurare l'SMTP di Supabase Auth: questo è un invito a un gruppo
+Flownd, valido anche per utenti già registrati, non un invito alla creazione di un
+account Supabase. Sul backend restano necessari `SUPABASE_URL`,
+`SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` per autorizzare il mittente e
+leggere l'invito.

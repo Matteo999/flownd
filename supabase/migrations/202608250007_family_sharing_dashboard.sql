@@ -54,8 +54,10 @@ $$;
 revoke all on function public.is_goal_shared_with_user(uuid, uuid) from public, anon;
 grant execute on function public.is_goal_shared_with_user(uuid, uuid) to authenticated;
 
+drop policy if exists "goal_group_shares_members_read" on public.goal_group_shares;
 create policy "goal_group_shares_members_read" on public.goal_group_shares
   for select using (public.is_group_member(group_id));
+drop policy if exists "goal_group_shares_owner_insert" on public.goal_group_shares;
 create policy "goal_group_shares_owner_insert" on public.goal_group_shares
   for insert with check (
     shared_by = auth.uid()
@@ -65,11 +67,14 @@ create policy "goal_group_shares_owner_insert" on public.goal_group_shares
       where goal.id = goal_id
         and goal.user_id = auth.uid()
         and goal.group_id is null
+        and goal.status <> 'free_savings'
     )
   );
+drop policy if exists "goal_group_shares_owner_delete" on public.goal_group_shares;
 create policy "goal_group_shares_owner_delete" on public.goal_group_shares
   for delete using (shared_by = auth.uid());
 
+drop policy if exists "goals_explicit_group_share_read" on public.goals;
 create policy "goals_explicit_group_share_read" on public.goals
   for select using (
     group_id is null and public.is_goal_shared_with_user(id)
@@ -95,8 +100,7 @@ begin
     share_monthly_budget = coalesce(p_share_monthly_budget, false),
     share_net_worth = coalesce(p_share_net_worth, false),
     share_transactions = coalesce(p_share_transactions, false),
-    share_transaction_categories = coalesce(p_share_transactions, false)
-      and coalesce(p_share_transaction_categories, false),
+    share_transaction_categories = coalesce(p_share_transactions, false),
     avatar_url = coalesce(
       auth.jwt() -> 'user_metadata' ->> 'avatar_url',
       auth.jwt() -> 'user_metadata' ->> 'picture',
@@ -111,6 +115,29 @@ begin
   if not found then raise exception 'group membership not found'; end if;
 end;
 $$;
+
+create or replace function public.protect_member_sharing_preferences()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.user_id <> auth.uid() and (
+    old.share_monthly_budget is distinct from new.share_monthly_budget
+    or old.share_net_worth is distinct from new.share_net_worth
+    or old.share_transactions is distinct from new.share_transactions
+    or old.share_transaction_categories is distinct from new.share_transaction_categories
+  ) then
+    raise exception 'sharing preferences belong to the member';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists group_members_protect_sharing on public.group_members;
+create trigger group_members_protect_sharing
+  before update on public.group_members
+  for each row execute function public.protect_member_sharing_preferences();
 
 create or replace function public.set_goal_group_sharing(
   p_group_id uuid,
@@ -129,7 +156,10 @@ begin
   end if;
   if not exists (
     select 1 from public.goals
-    where id = p_goal_id and user_id = auth.uid() and group_id is null
+    where id = p_goal_id
+      and user_id = auth.uid()
+      and group_id is null
+      and status <> 'free_savings'
   ) then
     raise exception 'personal goal not found';
   end if;
@@ -198,6 +228,7 @@ declare
   goal_target numeric := 0;
   transaction_count integer := 0;
   category_count integer := 0;
+  member_avatars jsonb := '[]'::jsonb;
 begin
   if auth.uid() is null or not public.is_group_member(p_group_id) then
     raise exception 'group membership required';
@@ -207,6 +238,18 @@ begin
 
   select count(*) into member_count
   from public.group_members where group_id = p_group_id;
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'userId', member.user_id,
+        'displayName', member.display_name,
+        'avatarUrl', member.avatar_url
+      ) order by member.joined_at
+    ),
+    '[]'::jsonb
+  ) into member_avatars
+  from public.group_members member
+  where member.group_id = p_group_id;
 
   select coalesce(sum(monthly_limit), 0) into budget_total
   from public.group_budgets where group_id = p_group_id;
@@ -222,10 +265,7 @@ begin
   select
     coalesce(sum(transaction.amount), 0),
     count(transaction.id),
-    count(distinct case
-      when member.share_transaction_categories then transaction.category
-      else null
-    end)
+    count(distinct transaction.category)
   into budget_spent, transaction_count, category_count
   from public.group_members member
   join public.transactions transaction on transaction.user_id = member.user_id
@@ -257,12 +297,16 @@ begin
   with visible_goals as (
     select goal.id, goal.saved_amount, goal.target_amount
     from public.goals goal
-    where goal.group_id = p_group_id and goal.active
+    where goal.group_id = p_group_id
+      and goal.active
+      and goal.status <> 'free_savings'
     union
     select goal.id, goal.saved_amount, goal.target_amount
     from public.goal_group_shares goal_share
     join public.goals goal on goal.id = goal_share.goal_id
-    where goal_share.group_id = p_group_id and goal.active
+    where goal_share.group_id = p_group_id
+      and goal.active
+      and goal.status <> 'free_savings'
   )
   select count(*), coalesce(sum(saved_amount), 0), coalesce(sum(target_amount), 0)
   into goal_count, goal_saved, goal_target
@@ -273,6 +317,7 @@ begin
     'groupName', selected_group.name,
     'currency', selected_group.currency,
     'memberCount', member_count,
+    'members', member_avatars,
     'budgetTotal', budget_total,
     'budgetSpent', budget_spent,
     'netWorthTotal', net_worth_total,
@@ -283,6 +328,43 @@ begin
     'categoryCount', category_count
   );
 end;
+$$;
+
+create or replace function public.shared_group_transactions(p_group_id uuid)
+returns table (
+  id uuid,
+  member_id uuid,
+  description text,
+  amount numeric,
+  category text,
+  occurred_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+set row_security = off
+as $$
+  select
+    transaction.id,
+    transaction.user_id as member_id,
+    transaction.description,
+    transaction.amount,
+    transaction.category,
+    transaction.occurred_at
+  from public.group_members viewer
+  join public.group_members member on member.group_id = viewer.group_id
+  join public.transactions transaction on transaction.user_id = member.user_id
+  where viewer.group_id = p_group_id
+    and viewer.user_id = auth.uid()
+    and (
+      viewer.role = 'owner'
+      or viewer.transactions_access in ('view', 'edit')
+    )
+    and member.share_transactions
+    and coalesce(transaction.excluded_from_totals, false) = false
+  order by transaction.occurred_at desc
+  limit 20;
 $$;
 
 create or replace function public.add_group_owner()
@@ -368,6 +450,7 @@ revoke all on function public.set_goal_group_sharing(uuid, uuid, boolean)
 revoke all on function public.leave_family_group(uuid) from public, anon;
 revoke all on function public.delete_family_group(uuid) from public, anon;
 revoke all on function public.family_dashboard_summary(uuid) from public, anon;
+revoke all on function public.shared_group_transactions(uuid) from public, anon;
 
 grant execute on function public.update_my_group_sharing(uuid, boolean, boolean, boolean, boolean)
   to authenticated;
@@ -376,5 +459,6 @@ grant execute on function public.set_goal_group_sharing(uuid, uuid, boolean)
 grant execute on function public.leave_family_group(uuid) to authenticated;
 grant execute on function public.delete_family_group(uuid) to authenticated;
 grant execute on function public.family_dashboard_summary(uuid) to authenticated;
+grant execute on function public.shared_group_transactions(uuid) to authenticated;
 
 notify pgrst, 'reload schema';

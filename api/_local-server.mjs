@@ -2,7 +2,6 @@ import http from 'node:http'
 
 import coachHandler from './coach.js'
 import transactionToolsHandler from './transaction-tools.js'
-import groupInvitesHandler from './group-invites.js'
 import ebAuthHandler from './eb/auth.js'
 import ebAutoSyncHandler from './eb/auto-sync.js'
 import ebBanksHandler from './eb/banks.js'
@@ -14,7 +13,6 @@ const port = Number(process.env.API_PORT || 3000)
 const handlers = new Map([
   ['/api/coach', coachHandler],
   ['/api/transaction-tools', transactionToolsHandler],
-  ['/api/group-invites', groupInvitesHandler],
   ['/api/eb/auth', ebAuthHandler],
   ['/api/eb/auto-sync', ebAutoSyncHandler],
   ['/api/eb/banks', ebBanksHandler],
