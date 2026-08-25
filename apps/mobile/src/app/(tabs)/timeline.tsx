@@ -74,7 +74,9 @@ const transactionTimeFormatter = new Intl.DateTimeFormat('it-IT', {
 function transactionTimeLabel(transaction: ExpenseDraft, occurredAt: Date) {
   const knownTime = transaction.occurredTime?.match(/^([01]\d|2[0-3]):([0-5]\d)/);
   if (knownTime) return `${knownTime[1]}:${knownTime[2]}`;
-  if (transaction.source === 'open_banking') return null;
+  if (['open_banking', 'file_import', 'ai_scan'].includes(transaction.source ?? '')) {
+    return null;
+  }
   return transactionTimeFormatter.format(occurredAt);
 }
 

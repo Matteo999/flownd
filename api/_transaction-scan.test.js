@@ -25,6 +25,10 @@ test('invia a Gemini 3.7 il MIME enum richiesto per la scansione JSON', async ()
       request.generationConfig.responseFormat.text.schema.required,
       ['transactions'],
     )
+    assert.ok(
+      request.generationConfig.responseFormat.text.schema.properties.transactions
+        .items.required.includes('occurredTime'),
+    )
     assert.equal(request.generationConfig.thinkingConfig.thinkingLevel, 'LOW')
   } finally {
     globalThis.fetch = previousFetch

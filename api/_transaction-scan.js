@@ -8,7 +8,7 @@ const CATEGORIES = [
   'Assicurazioni', 'Investimenti', 'Regali', 'Stipendio', 'Rimborsi', 'Giroconto', 'Altro',
 ]
 
-const instructions = `Analizza una foto di scontrino o uno screenshot bancario in qualsiasi lingua. Estrai solo transazioni chiaramente visibili. Per ogni transazione separa semanticamente merchantName, counterpartyName, memo e bankReference, usando null quando il dato non è esplicito. description è una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo; rawDescription conserva il testo originale rilevante. Mantieni i nomi propri nella lingua originale e non inventare dati. Usa Giroconto solo quando il testo indica esplicitamente un trasferimento fra conti dello stesso titolare, mai per un normale bonifico a terzi. confidence è tra 0 e 1; amount è positivo; kind è expense o income; occurredAt è ISO 8601; category deve essere una delle categorie consentite. Se la data non è visibile usa null e se non ci sono transazioni restituisci un array vuoto.`
+const instructions = `Analizza una foto di scontrino o uno screenshot bancario in qualsiasi lingua. Estrai solo transazioni chiaramente visibili. Per ogni transazione separa semanticamente merchantName, counterpartyName, memo e bankReference, usando null quando il dato non è esplicito. description è una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo; rawDescription conserva il testo originale rilevante. Mantieni i nomi propri nella lingua originale e non inventare dati. Usa Giroconto solo quando il testo indica esplicitamente un trasferimento fra conti dello stesso titolare, mai per un normale bonifico a terzi. confidence è tra 0 e 1; amount è positivo; kind è expense o income; occurredAt contiene la data ISO 8601. Se è visibile un orario esplicito, occurredTime deve contenerlo come HH:mm; altrimenti deve essere null e non devi inventare un orario predefinito. category deve essere una delle categorie consentite. Se la data non è visibile usa null e se non ci sono transazioni restituisci un array vuoto.`
 
 const scanSchema = {
   type: 'object',
@@ -28,9 +28,10 @@ const scanSchema = {
           amount: { type: 'number' },
           kind: { type: 'string', enum: ['expense', 'income'] },
           occurredAt: { type: ['string', 'null'] },
+          occurredTime: { type: ['string', 'null'] },
           category: { type: 'string', enum: CATEGORIES },
         },
-        required: ['rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'category'],
+        required: ['rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'occurredTime', 'category'],
         additionalProperties: false,
       },
     },
@@ -45,6 +46,19 @@ function cleanText(value, limit = 500) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, limit)
+}
+
+function explicitTime(value) {
+  const match = String(value ?? '').match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/)
+  return match ? `${String(Number(match[1])).padStart(2, '0')}:${match[2]}:00` : null
+}
+
+function calendarDateAtNoon(value) {
+  const isoDay = String(value ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoDay) return `${isoDay[1]}-${isoDay[2]}-${isoDay[3]}T12:00:00.000Z`
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return `${parsed.toISOString().slice(0, 10)}T12:00:00.000Z`
 }
 
 function parseModelJson(text) {
@@ -67,8 +81,10 @@ function safeTransactions(value) {
   const items = Array.isArray(value?.transactions) ? value.transactions : []
   return items.flatMap((item) => {
     const amount = Number(item?.amount)
-    const occurredAt = item?.occurredAt ? new Date(item.occurredAt) : new Date()
-    if (!item?.description || !Number.isFinite(amount) || amount <= 0 || Number.isNaN(occurredAt.getTime())) return []
+    const occurredAt = item?.occurredAt
+      ? calendarDateAtNoon(item.occurredAt)
+      : calendarDateAtNoon(new Date())
+    if (!item?.description || !Number.isFinite(amount) || amount <= 0 || !occurredAt) return []
     const merchantName = cleanText(item.merchantName, 180) || null
     const counterpartyName = cleanText(item.counterpartyName, 180) || null
     const memo = cleanText(item.memo, 500) || null
@@ -82,7 +98,12 @@ function safeTransactions(value) {
       importConfidence: Math.max(0, Math.min(1, Number(item.confidence) || 0)),
       amount,
       kind: item.kind === 'income' ? 'income' : 'expense',
-      occurredAt: occurredAt.toISOString(),
+      occurredAt,
+      occurredTime: explicitTime(item.occurredTime) || explicitTime(item.rawDescription),
+      occurredTimeSource:
+        explicitTime(item.occurredTime) || explicitTime(item.rawDescription)
+          ? 'narrative'
+          : null,
       category: CATEGORIES.includes(item.category) ? item.category : 'Altro',
     }]
   }).slice(0, 100)

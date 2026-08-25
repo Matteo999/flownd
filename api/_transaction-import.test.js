@@ -9,6 +9,7 @@ import {
   extractFileWithAI,
   fileChunks,
   isTransientAiError,
+  normalizedImportedTime,
   parseModelJson,
   pdfCandidates,
   processImportJob,
@@ -83,6 +84,8 @@ test('mantiene ore e minuti presenti nella colonna data', () => {
     ['05/03/2026 07:38', 'Biglietto treno', '-2,95'],
   ], 'xlsx')
   assert.equal(transaction.occurredAt, '2026-03-05T07:38:00.000Z')
+  assert.equal(transaction.occurredTime, '07:38:00')
+  assert.equal(transaction.occurredTimeSource, 'structured')
 })
 
 test('estrae una riga da PDF testuale senza usare IA', () => {
@@ -124,17 +127,39 @@ test('invia il PDF a Gemini come application/pdf in una sola richiesta', async (
   globalThis.fetch = async (_url, options) => {
     requests.push(JSON.parse(options.body))
     return new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ text: '{"transactions":[]}' }] } }],
+      candidates: [{ content: { parts: [{ text: JSON.stringify({
+        transactions: [{
+          sourceIndex: null,
+          rawDescription: 'Pagamento carta alle ore 07:38 presso OPENMOVE.COM',
+          description: 'OPENMOVE.COM',
+          merchantName: 'OPENMOVE.COM',
+          counterpartyName: null,
+          memo: null,
+          bankReference: null,
+          confidence: 0.98,
+          amount: 2.95,
+          kind: 'expense',
+          occurredAt: '2026-03-05',
+          occurredTime: '07:38',
+          category: 'Trasporti',
+        }],
+      }) }] } }],
     }))
   }
 
   try {
     const transactions = await extractFileWithAI(Buffer.from('%PDF-1.7\nexample'), 'pdf')
-    assert.deepEqual(transactions, [])
+    assert.equal(transactions[0].occurredAt, '2026-03-05T12:00:00.000Z')
+    assert.equal(transactions[0].occurredTime, '07:38:00')
+    assert.equal(transactions[0].occurredTimeSource, 'narrative')
     assert.equal(requests.length, 1)
     const inlineData = requests[0].contents[0].parts.find((part) => part.inlineData)?.inlineData
     assert.equal(inlineData?.mimeType, 'application/pdf')
     assert.equal(inlineData?.data, Buffer.from('%PDF-1.7\nexample').toString('base64'))
+    assert.ok(
+      requests[0].generationConfig.responseFormat.text.schema.properties.transactions
+        .items.required.includes('occurredTime'),
+    )
   } finally {
     globalThis.fetch = previousFetch
     if (previousProvider == null) delete process.env.AI_PROVIDER
@@ -277,6 +302,17 @@ test('riconosce gli errori temporanei senza avviare retry automatici', () => {
   assert.equal(isTransientAiError(Object.assign(new Error('unavailable'), { providerStatus: 503 })), true)
 })
 
+test('recupera l’orario dalla causale di un job PDF già completato', () => {
+  const transaction = normalizedImportedTime({
+    occurredAt: '2026-03-05T00:00:00.000Z',
+    occurredTime: null,
+    rawDescription: 'Operazione carta alle ore 07:38 presso OPENMOVE.COM',
+  })
+  assert.equal(transaction.occurredAt, '2026-03-05T12:00:00.000Z')
+  assert.equal(transaction.occurredTime, '07:38:00')
+  assert.equal(transaction.occurredTimeSource, 'narrative')
+})
+
 test('conserva l’orario esplicito per distinguere movimenti uguali nello stesso giorno', () => {
   const base = {
     description: 'Operazione carta',
@@ -296,7 +332,9 @@ test('conserva l’orario esplicito per distinguere movimenti uguali nello stess
       confidence: 0.98,
     }],
   }, [base])
-  assert.equal(transaction.occurredAt, '2026-03-05T07:38:00.000Z')
+  assert.equal(transaction.occurredAt, '2026-03-05T12:00:00.000Z')
+  assert.equal(transaction.occurredTime, '07:38:00')
+  assert.equal(transaction.occurredTimeSource, 'narrative')
 })
 
 test('completa un job persistente e crea la notifica che apre la revisione', async () => {

@@ -129,8 +129,8 @@ export default function ProfileScreen() {
         <ProfileRow
           icon="group"
           label="Gruppi e condivisione"
-          caption="Gestisci obiettivi condivisi e partecipanti"
-          onPress={() => router.push('/goal-settings' as Href)}
+          caption="Famiglia, permessi, split e budget condivisi"
+          onPress={() => router.push('/family' as Href)}
         />
         <ProfileRow
           icon={amountsVisible ? 'visibility' : 'visibility_off'}

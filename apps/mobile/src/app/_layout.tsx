@@ -89,6 +89,7 @@ function RootNavigation() {
           <Stack.Screen name="goal-settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="goal-detail" />
           <Stack.Screen name="financing" />
+          <Stack.Screen name="family" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="notifications" />
           <Stack.Screen name="budget" />
