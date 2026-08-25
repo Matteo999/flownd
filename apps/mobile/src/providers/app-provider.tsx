@@ -202,6 +202,8 @@ type TransactionHistoryRow = {
   amount: number | string;
   category: string;
   occurred_at: string;
+  occurred_time: string | null;
+  occurred_time_source: string | null;
   source: string;
   kind: string | null;
   financial_account_id: string | null;
@@ -224,7 +226,7 @@ async function fetchTransactionHistory(userId: string) {
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from('transactions')
-      .select('id,description,amount,category,occurred_at,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type,raw_description,merchant_name,counterparty_name,import_memo,import_reference,import_confidence')
+      .select('id,description,amount,category,occurred_at,occurred_time,occurred_time_source,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type,raw_description,merchant_name,counterparty_name,import_memo,import_reference,import_confidence')
       .eq('user_id', userId)
       .order('occurred_at', { ascending: false })
       .range(from, from + pageSize - 1);
@@ -365,6 +367,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       amount: Number(item.amount),
       category: item.category,
       occurredAt: item.occurred_at,
+      occurredTime: item.occurred_time,
+      occurredTimeSource: item.occurred_time_source as ExpenseDraft['occurredTimeSource'],
       source: item.source,
       kind: (item.kind ?? 'expense') as ExpenseDraft['kind'],
       financialAccountId: item.financial_account_id,

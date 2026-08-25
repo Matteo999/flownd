@@ -71,6 +71,13 @@ const transactionTimeFormatter = new Intl.DateTimeFormat('it-IT', {
   minute: '2-digit',
 });
 
+function transactionTimeLabel(transaction: ExpenseDraft, occurredAt: Date) {
+  const knownTime = transaction.occurredTime?.match(/^([01]\d|2[0-3]):([0-5]\d)/);
+  if (knownTime) return `${knownTime[1]}:${knownTime[2]}`;
+  if (transaction.source === 'open_banking') return null;
+  return transactionTimeFormatter.format(occurredAt);
+}
+
 type TimelineSection = TimelineGroup & { data: ExpenseDraft[] };
 
 function dashboardPeriod(value: string | undefined): DashboardPeriod | null {
@@ -1167,6 +1174,7 @@ const TransactionRow = memo(function TransactionRow({
   const occurredAt = transaction.occurredAt
     ? new Date(transaction.occurredAt)
     : new Date();
+  const timeLabel = transactionTimeLabel(transaction, occurredAt);
   return (
     <Pressable
       accessibilityRole="button"
@@ -1237,9 +1245,11 @@ const TransactionRow = memo(function TransactionRow({
             <Text style={[styles.category, { color: colors.textSecondary }]}>
               {transaction.internalTransfer ? 'Trasferimento interno' : transaction.category}
             </Text>
-            <Text style={[styles.transactionDate, { color: colors.textSecondary }]}> 
-              {transactionTimeFormatter.format(occurredAt)}
-            </Text>
+            {timeLabel ? (
+              <Text style={[styles.transactionDate, { color: colors.textSecondary }]}>
+                {timeLabel}
+              </Text>
+            ) : null}
           </View>
         </View>
         <Text

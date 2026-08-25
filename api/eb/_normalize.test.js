@@ -85,6 +85,8 @@ test('estrae la controparte da una causale carta senza salvarla integralmente', 
   )
   assert.equal(transaction.description, 'CASSA RURALE ALTOGARD')
   assert.equal(transaction.rawDescription.startsWith('Prelievo carta del'), true)
+  assert.equal(transaction.occurredTime, '10:01:00')
+  assert.equal(transaction.occurredTimeSource, 'narrative')
   assert.equal(transaction.category, 'ATM (prelievo contante)')
 })
 
@@ -106,7 +108,25 @@ test('estrae l’ordinante da una narrativa stipendio senza esporre i riferiment
   assert.equal(transaction.counterpartyName, "UNIVERSITA' DEGLI STUDI DI TRENTO")
   assert.equal(transaction.merchantName, null)
   assert.equal(transaction.category, 'Stipendio')
+  assert.equal(transaction.occurredTime, null)
   assert.match(transaction.rawDescription, /PAGAMENTO STIPENDI/)
+})
+
+test('usa transaction_date per il giorno operativo e non la data valuta', () => {
+  const transaction = normalizeBankTransaction(
+    {
+      transaction_amount: { amount: '12', currency: 'EUR' },
+      credit_debit_indicator: 'DBIT',
+      status: 'BOOK',
+      transaction_date: '2026-08-19',
+      value_date: '2026-08-28',
+      booking_date: '2026-08-21',
+      remittance_information: ['Pagamento carta alle ore 15:38 presso NEGOZIO'],
+    },
+    'conto',
+  )
+  assert.equal(transaction.occurredOn, '2026-08-19')
+  assert.equal(transaction.occurredTime, '15:38:00')
 })
 
 test('usa un fingerprint idempotente nei payload CRBZ senza identificativi', async () => {

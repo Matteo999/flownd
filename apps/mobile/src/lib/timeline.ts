@@ -20,7 +20,10 @@ function transactionDate(transaction: ExpenseDraft) {
   const date = transaction.occurredAt
     ? new Date(transaction.occurredAt)
     : new Date();
-  return Number.isNaN(date.getTime()) ? new Date() : date;
+  if (Number.isNaN(date.getTime())) return new Date();
+  const time = transaction.occurredTime?.match(/^([01]\d|2[0-3]):([0-5]\d)/);
+  if (time) date.setHours(Number(time[1]), Number(time[2]), 0, 0);
+  return date;
 }
 
 function startOfDay(date: Date) {

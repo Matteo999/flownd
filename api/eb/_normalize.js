@@ -32,6 +32,26 @@ function remittanceLines(transaction) {
   return clean(value) ? [clean(value)] : []
 }
 
+function timeParts(value) {
+  const match = clean(value).match(/(?:T|\s)([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?/)
+  return match ? `${match[1]}:${match[2]}:${match[3] || '00'}` : null
+}
+
+function narrativeTime(value) {
+  const text = clean(value)
+  if (!text) return null
+  const patterns = [
+    /\b(?:alle\s+ore|ore)\s+([01]?\d|2[0-3])[:.]([0-5]\d)\b/i,
+    /\b(?:at|a\s+las)\s+([01]?\d|2[0-3])[:.]([0-5]\d)\b/i,
+    /(?:^|\s)(?:à|um)\s+([01]?\d|2[0-3])[:.]([0-5]\d)(?:\s+uhr)?\b/i,
+  ]
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (match) return `${match[1].padStart(2, '0')}:${match[2]}:00`
+  }
+  return null
+}
+
 function indicator(transaction) {
   const value = clean(transaction.credit_debit_indicator).toUpperCase()
   return value.includes('CRDT') || value.includes('CREDIT') ? 'credit' : 'debit'
@@ -200,10 +220,25 @@ export function normalizeBankTransaction(transaction, accountIdentity) {
   const bookingDate = transaction.booking_date || null
   const valueDate = transaction.value_date || null
   const transactionDate = transaction.transaction_date || null
-  // Nei payload italiani ING e CR la value_date è la data più vicina
-  // all’operazione reale; booking_date rimane disponibile separatamente.
-  const occurredOn = valueDate || transactionDate || bookingDate
+  // transaction_date è il giorno dell'operazione; value_date è la data valuta
+  // e booking_date il giorno di contabilizzazione. Tutti e tre sono date, non
+  // timestamp, nello schema unificato Enable Banking.
+  const occurredOn = transactionDate || valueDate || bookingDate
   const described = describe(transaction)
+  const structuredTime = [
+    transaction.transaction_date_time,
+    transaction.booking_date_time,
+    transaction.value_date_time,
+    transaction.bookingDateTime,
+    transaction.tradeDate,
+  ].map(timeParts).find(Boolean) || null
+  const extractedNarrativeTime = narrativeTime(described.remittance)
+  const occurredTime = structuredTime || extractedNarrativeTime
+  const occurredTimeSource = structuredTime
+    ? 'structured'
+    : extractedNarrativeTime
+      ? 'narrative'
+      : null
   const bankCode = clean(transaction.bank_transaction_code?.code) || null
   const bankSubCode = clean(transaction.bank_transaction_code?.sub_code) || null
   const entryReference = clean(transaction.entry_reference) || null
@@ -214,12 +249,15 @@ export function normalizeBankTransaction(transaction, accountIdentity) {
   const refundHint = /storno|rimborso|refund/i.test(
     `${described.description} ${described.remittance}`,
   )
+  // Mantiene la data usata finora nel fingerprint per non duplicare import già
+  // sincronizzati quando cambia soltanto la scelta della data da mostrare.
+  const identityDate = valueDate || transactionDate || bookingDate
   const identityParts = [
     accountIdentity,
     direction,
     amount.toFixed(2),
     currency,
-    occurredOn,
+    identityDate,
     normalized(described.remittance || described.description),
   ]
   const contentFingerprint = sha256(identityParts.join('|'))
@@ -242,6 +280,8 @@ export function normalizeBankTransaction(transaction, accountIdentity) {
     valueDate,
     transactionDate,
     occurredOn,
+    occurredTime,
+    occurredTimeSource,
     description: described.description,
     counterparty: described.counterparty,
     rawDescription: described.remittance || described.description,
