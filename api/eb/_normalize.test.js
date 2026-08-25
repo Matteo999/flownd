@@ -88,6 +88,27 @@ test('estrae la controparte da una causale carta senza salvarla integralmente', 
   assert.equal(transaction.category, 'ATM (prelievo contante)')
 })
 
+test('estrae l’ordinante da una narrativa stipendio senza esporre i riferimenti bancari', () => {
+  const transaction = normalizeBankTransaction(
+    {
+      entry_reference: '9316',
+      transaction_amount: { amount: '2336.08', currency: 'EUR' },
+      credit_debit_indicator: 'CRDT',
+      status: 'BOOK',
+      value_date: '2026-08-25',
+      remittance_information: [
+        "Bonifico N. 262360100043452 BIC Ordinante BPMOIT22XXX Codifica Ordinante IT16C05387 Anagrafica Ordinante UNIVERSITA' DEGLI STUDI DI TRENTO Note: PAGAMENTO STIPENDI DEL 08/2026",
+      ],
+    },
+    'conto',
+  )
+  assert.equal(transaction.description, "UNIVERSITA' DEGLI STUDI DI TRENTO")
+  assert.equal(transaction.counterpartyName, "UNIVERSITA' DEGLI STUDI DI TRENTO")
+  assert.equal(transaction.merchantName, null)
+  assert.equal(transaction.category, 'Stipendio')
+  assert.match(transaction.rawDescription, /PAGAMENTO STIPENDI/)
+})
+
 test('usa un fingerprint idempotente nei payload CRBZ senza identificativi', async () => {
   const fixture = JSON.parse(
     await readFile(new URL('./raw_payload/26.08.07 - Raw Payload CRBZ.json', import.meta.url)),
