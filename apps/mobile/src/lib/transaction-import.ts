@@ -9,6 +9,9 @@ export type ImportedTransaction = Pick<
   | 'amount'
   | 'kind'
   | 'occurredAt'
+  | 'occurredTime'
+  | 'occurredTimeSource'
+  | 'source'
   | 'rawDescription'
   | 'merchantName'
   | 'counterpartyName'
@@ -145,7 +148,15 @@ function normalizedIdentity(value: string | null | undefined) {
 }
 
 function transactionBase(transaction: ImportedTransaction | ExpenseDraft) {
-  const minute = (transaction.occurredAt ?? '').slice(0, 16);
+  const day = (transaction.occurredAt ?? '').slice(0, 10);
+  const knownTime = transaction.occurredTime?.match(/^([01]\d|2[0-3]):([0-5]\d)/);
+  const usesSeparateTime = 'occurredTime' in transaction
+    || ['open_banking', 'file_import', 'ai_scan'].includes(transaction.source ?? '');
+  const minute = knownTime
+    ? `${day}T${knownTime[1]}:${knownTime[2]}`
+    : usesSeparateTime
+      ? `${day}T--:--`
+      : (transaction.occurredAt ?? '').slice(0, 16);
   const amount = Math.round(Number(transaction.amount) * 100);
   return `${minute}:${transaction.kind ?? 'expense'}:${amount}`;
 }

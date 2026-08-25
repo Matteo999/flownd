@@ -306,6 +306,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         .from('goals')
         .select('id,name,target_amount,saved_amount,deadline_label,monthly_contribution,allocation_percentage,priority,status')
         .eq('user_id', userId)
+        .is('group_id', null)
         .eq('active', true)
         .order('priority')
         .order('created_at'),
@@ -313,6 +314,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         .from('goals')
         .select('id,name,target_amount,saved_amount,deadline_label,monthly_contribution,allocation_percentage,priority,status')
         .eq('user_id', userId)
+        .is('group_id', null)
         .eq('active', false)
         .eq('status', 'completed')
         .is('deleted_at', null)
@@ -341,6 +343,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         .from('goal_contributions')
         .select('goal_id,amount,occurred_at')
         .eq('user_id', userId)
+        .is('group_id', null)
         .gte('occurred_at', contributionHistoryStart.toISOString())
         .order('occurred_at', { ascending: false }),
     ]);
@@ -843,6 +846,8 @@ export function AppProvider({ children }: PropsWithChildren) {
         internal_transfer: incomeTreatment?.incomeType === 'internal_transfer',
         excluded_from_totals: incomeTreatment?.incomeType === 'internal_transfer',
         occurred_at: occurredAt,
+        occurred_time: transaction.occurredTime ?? null,
+        occurred_time_source: transaction.occurredTimeSource ?? null,
         financial_account_id: null,
         ...(source !== 'manual'
           ? {
@@ -865,7 +870,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const insertTransaction = () => supabase
       .from('transactions')
       .insert(insertPayload)
-      .select('id,description,amount,category,source,kind,occurred_at,internal_transfer,excluded_from_totals')
+      .select('id,description,amount,category,source,kind,occurred_at,occurred_time,occurred_time_source,internal_transfer,excluded_from_totals')
       .single();
     const insertResult = await insertTransaction();
     const { data, error: insertError } = insertResult;
@@ -884,6 +889,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       amount: Number(data.amount),
       category: data.category,
       occurredAt: data.occurred_at,
+      occurredTime: data.occurred_time,
+      occurredTimeSource: data.occurred_time_source as ExpenseDraft['occurredTimeSource'],
       source: data.source,
       kind: data.kind,
       internalTransfer: Boolean(data.internal_transfer),
@@ -1636,6 +1643,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       .from('goals')
       .update(payload)
       .eq('user_id', session.user.id)
+      .is('group_id', null)
       .eq('active', true)
       .eq('id', goalId);
     const { error: updateError } = await query;
@@ -1777,6 +1785,7 @@ export function AppProvider({ children }: PropsWithChildren) {
           .from('goals')
           .update({ priority: goal.priority })
           .eq('user_id', session.user.id)
+          .is('group_id', null)
           .eq('id', goal.id),
       ),
     );
@@ -1796,6 +1805,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       .from('goals')
       .select('id,name,target_amount,saved_amount,deadline_label,monthly_contribution,allocation_percentage,priority,status')
       .eq('user_id', userId)
+      .is('group_id', null)
       .eq('active', true)
       .order('priority')
       .order('created_at');
@@ -1857,6 +1867,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       .from('goals')
       .update({ active: false, status: 'completed', completed_at: new Date().toISOString() })
       .eq('user_id', session.user.id)
+      .is('group_id', null)
       .eq('id', goalId);
     if (updateError) {
       setError('Non siamo riusciti a completare l’obiettivo.');
@@ -1886,6 +1897,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       .from('goals')
       .update({ status: 'free_savings', deadline_label: null })
       .eq('user_id', session.user.id)
+      .is('group_id', null)
       .eq('id', goalId);
     if (updateError) {
       setError('Non siamo riusciti a convertire l’obiettivo.');

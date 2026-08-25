@@ -17,7 +17,7 @@ const CATEGORIES = [
   'Assicurazioni', 'Investimenti', 'Regali', 'Stipendio', 'Rimborsi', 'Giroconto', 'Altro',
 ]
 
-const aiInstructions = `Sei il motore multilingue di importazione bancaria di Flownd. Ricevi una porzione di CSV, XLSX o PDF bancario, potenzialmente con colonne e formati non standard e in qualsiasi lingua. Estrai ogni movimento reale senza inventare dati. Escludi saldi, totali e intestazioni. Se è presente sourceIndex, riportalo invariato. Seleziona semanticamente merchantName, counterpartyName, memo e bankReference; usa null quando il dato non è esplicito. description deve essere una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo, senza formule tecniche della banca, date, orari, numeri carta, importi o IBAN. Mantieni i nomi propri nella lingua originale. rawDescription deve contenere il testo originale rilevante solo quando sourceIndex non è disponibile. Usa Giroconto solo quando il testo indica esplicitamente un trasferimento fra conti dello stesso titolare, mai per un normale bonifico a terzi. confidence è un numero tra 0 e 1. amount deve essere positivo, kind deve essere expense o income, occurredAt deve essere ISO 8601 e category deve appartenere alle categorie consentite.`
+const aiInstructions = `Sei il motore multilingue di importazione bancaria di Flownd. Ricevi una porzione di CSV, XLSX o PDF bancario, potenzialmente con colonne e formati non standard e in qualsiasi lingua. Estrai ogni movimento reale senza inventare dati. Escludi saldi, totali e intestazioni. Se è presente sourceIndex, riportalo invariato. Seleziona semanticamente merchantName, counterpartyName, memo e bankReference; usa null quando il dato non è esplicito. description deve essere una breve etichetta leggibile derivata in ordine da merchantName, counterpartyName o memo, senza formule tecniche della banca, date, orari, numeri carta, importi o IBAN. Mantieni i nomi propri nella lingua originale. rawDescription deve contenere il testo originale rilevante solo quando sourceIndex non è disponibile. Usa Giroconto solo quando il testo indica esplicitamente un trasferimento fra conti dello stesso titolare, mai per un normale bonifico a terzi. confidence è un numero tra 0 e 1. amount deve essere positivo, kind deve essere expense o income. occurredAt deve contenere la data della transazione in ISO 8601. Se nel documento o nella causale è presente un orario esplicito, riportalo separatamente come occurredTime nel formato HH:mm; altrimenti occurredTime deve essere null. Non inventare mai 00:00, 01:00 o un altro orario predefinito. category deve appartenere alle categorie consentite.`
 
 const enrichmentInstructions = `Sei il livello semantico multilingue di Flownd. Ricevi movimenti già validati per data, importo e tipo, quindi non devi rigenerare questi dati. Per ogni sourceIndex restituisci esattamente una decisione. Usa include=false per saldi iniziali/finali, disponibilità, totali, intestazioni o righe che non sono movimenti reali; include=true per le transazioni. description deve essere una sola etichetta breve, idealmente il nome dell'esercente o della controparte, mai l'intera causale bancaria e mai più di 60 caratteri. Rimuovi formule tecniche, tipo di operazione, date, orari, numeri carta, importi, valuta, IBAN e riferimenti. Mantieni i nomi propri nella lingua originale e non inventare dati. Indica con identityType se l'etichetta rappresenta merchant, counterparty, memo oppure unknown. Usa Giroconto solo quando la causale indica esplicitamente un trasferimento fra conti dello stesso titolare, mai per un normale bonifico a terzi. Se nella causale è esplicitamente presente un orario, restituiscilo come occurredTime nel formato HH:mm; altrimenti usa null. Esempi: "Operazione Mastercard ... presso OPENMOVE.COM" diventa "OPENMOVE.COM"; "Prelievo carta ... presso CASSA RURALE ALTOGARD" diventa "CASSA RURALE ALTOGARD"; "Card purchase ... at STARBUCKS" diventa "STARBUCKS". category deve appartenere alle categorie consentite e confidence deve essere tra 0 e 1.`
 
@@ -65,9 +65,10 @@ const transactionExtractionSchema = {
           amount: { type: 'number' },
           kind: { type: 'string', enum: ['expense', 'income'] },
           occurredAt: { type: 'string' },
+          occurredTime: { type: ['string', 'null'] },
           category: { type: 'string', enum: CATEGORIES },
         },
-        required: ['sourceIndex', 'rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'category'],
+        required: ['sourceIndex', 'rawDescription', 'description', 'merchantName', 'counterpartyName', 'memo', 'bankReference', 'confidence', 'amount', 'kind', 'occurredAt', 'occurredTime', 'category'],
         additionalProperties: false,
       },
     },
@@ -142,6 +143,38 @@ function cleanImportedText(value, limit = 500) {
     .slice(0, limit)
 }
 
+function explicitTime(value) {
+  const match = String(value ?? '').match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/)
+  return match ? `${String(Number(match[1])).padStart(2, '0')}:${match[2]}:00` : null
+}
+
+function calendarDateAtNoon(value) {
+  const raw = String(value ?? '')
+  const isoDay = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoDay) return `${isoDay[1]}-${isoDay[2]}-${isoDay[3]}T12:00:00.000Z`
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return [
+    parsed.getUTCFullYear(),
+    String(parsed.getUTCMonth() + 1).padStart(2, '0'),
+    String(parsed.getUTCDate()).padStart(2, '0'),
+  ].join('-') + 'T12:00:00.000Z'
+}
+
+export function normalizedImportedTime(transaction) {
+  const occurredAt = calendarDateAtNoon(transaction?.occurredAt)
+  const occurredTime = explicitTime(transaction?.occurredTime)
+    || explicitTime(transaction?.rawDescription)
+  return {
+    ...transaction,
+    ...(occurredAt ? { occurredAt } : {}),
+    occurredTime,
+    occurredTimeSource: occurredTime
+      ? transaction?.occurredTimeSource || 'narrative'
+      : null,
+  }
+}
+
 function semanticLabel(value, rawDescription) {
   const description = cleanImportedText(value, 180)
   const raw = cleanImportedText(rawDescription, 1000)
@@ -159,7 +192,13 @@ function semanticLabel(value, rawDescription) {
   return description
 }
 
-function candidate(description, signedAmount, occurredAt) {
+function candidate(
+  description,
+  signedAmount,
+  occurredAt,
+  occurredTime = null,
+  occurredTimeSource = null,
+) {
   const cleanDescription = cleanImportedText(description, 180)
   const amount = Number(signedAmount)
   if (!cleanDescription || !occurredAt || !Number.isFinite(amount) || amount === 0) return null
@@ -174,7 +213,27 @@ function candidate(description, signedAmount, occurredAt) {
     amount: Math.abs(amount),
     kind: amount < 0 ? 'expense' : 'income',
     occurredAt,
+    occurredTime,
+    occurredTimeSource,
   }
+}
+
+function structuredTime(value) {
+  if (typeof value === 'string') return explicitTime(value)
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const hour = value.getUTCHours()
+    const minute = value.getUTCMinutes()
+    return hour || minute
+      ? `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`
+      : null
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const minutes = Math.round((value - Math.floor(value)) * 24 * 60) % (24 * 60)
+    return minutes
+      ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00`
+      : null
+  }
+  return null
 }
 
 function delimitedRows(text) {
@@ -234,6 +293,7 @@ export function rowsCandidates(rows, extension) {
 
   return rows.slice(headerRowIndex + 1).map((row) => {
     const occurredAt = isoDate(row[dateIndex])
+    const occurredTime = structuredTime(row[dateIndex])
     let amount = amountIndex >= 0 ? parseAmount(row[amountIndex]) : null
     if (amount == null && debitIndex >= 0) {
       const debit = parseAmount(row[debitIndex])
@@ -247,7 +307,13 @@ export function rowsCandidates(rows, extension) {
       .map((index) => String(row[index] ?? '').trim())
       .filter(Boolean)
       .sort((first, second) => second.length - first.length)[0]
-    return candidate(description, amount, occurredAt)
+    return candidate(
+      description,
+      amount,
+      occurredAt,
+      occurredTime,
+      occurredTime ? 'structured' : null,
+    )
   }).filter(Boolean)
 }
 
@@ -322,8 +388,8 @@ function aiTransactions(value, chunk) {
   const items = Array.isArray(value?.transactions) ? value.transactions : []
   return items.flatMap((item) => {
     const rawAmount = Number(item?.amount)
-    const date = new Date(item?.occurredAt)
-    if (!item?.description || !Number.isFinite(rawAmount) || rawAmount === 0 || Number.isNaN(date.getTime())) return []
+    const occurredAt = calendarDateAtNoon(item?.occurredAt)
+    if (!item?.description || !Number.isFinite(rawAmount) || rawAmount === 0 || !occurredAt) return []
     const sourceRow = Number.isInteger(item?.sourceIndex)
       ? chunk?.sourceRows?.find((row) => row.sourceIndex === item.sourceIndex)
       : null
@@ -333,6 +399,7 @@ function aiTransactions(value, chunk) {
     const rawDescription = sourceRow?.rawDescription
       || cleanImportedText(item.rawDescription, 1000)
       || cleanImportedText(item.description, 1000)
+    const occurredTime = explicitTime(item.occurredTime) || explicitTime(rawDescription)
     const description = semanticLabel(
       merchantName || counterpartyName || item.description || memo,
       rawDescription,
@@ -348,7 +415,9 @@ function aiTransactions(value, chunk) {
       importConfidence: Math.max(0, Math.min(1, Number(item.confidence) || 0)),
       amount: Math.abs(rawAmount),
       kind: item.kind === 'income' || rawAmount > 0 && item.kind !== 'expense' ? 'income' : 'expense',
-      occurredAt: date.toISOString(),
+      occurredAt,
+      occurredTime,
+      occurredTimeSource: occurredTime ? 'narrative' : null,
       category: CATEGORIES.includes(item.category) ? item.category : 'Altro',
     }]
   })
@@ -382,14 +451,18 @@ export function enrichedTransactions(value, candidates) {
       && ['merchant', 'counterparty', 'memo'].includes(row.identityType)
       ? row.identityType
       : 'unknown'
-    const time = String(row.occurredTime || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/)
-    const occurredAt = new Date(candidate.occurredAt)
-    if (time && !Number.isNaN(occurredAt.getTime())) {
-      occurredAt.setUTCHours(Number(time[1]), Number(time[2]), 0, 0)
-    }
+    const occurredTime = explicitTime(candidate.occurredTime)
+      || explicitTime(row.occurredTime)
+      || explicitTime(candidate.rawDescription)
+    const occurredAt = calendarDateAtNoon(candidate.occurredAt)
+    if (!occurredAt) return []
     return [{
       ...candidate,
-      occurredAt: occurredAt.toISOString(),
+      occurredAt,
+      occurredTime,
+      occurredTimeSource: occurredTime
+        ? candidate.occurredTimeSource || 'narrative'
+        : null,
       description,
       merchantName: identityType === 'merchant' ? description : null,
       counterpartyName: identityType === 'counterparty' ? description : null,
@@ -416,6 +489,7 @@ function enrichmentPrompt(candidates) {
     rawDescription: candidate.rawDescription || candidate.description,
     kind: candidate.kind,
     occurredAt: candidate.occurredAt,
+    occurredTime: candidate.occurredTime ?? null,
   })))
 }
 
@@ -777,7 +851,9 @@ export default async function handler(req, res) {
         id: data.id,
         status: data.status,
         fileName: data.file_name,
-        transactions: data.status === 'completed' ? data.result?.transactions || [] : [],
+        transactions: data.status === 'completed'
+          ? (data.result?.transactions || []).map(normalizedImportedTime)
+          : [],
       })
     }
     const name = String(req.body?.name || '')
