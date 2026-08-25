@@ -478,6 +478,11 @@ async function openAIExtract(chunk, signal) {
       instructions: aiInstructions,
       input: [{ role: 'user', content: [
         { type: 'input_text', text: chunk.text },
+        ...(chunk.files || []).map((file) => ({
+          type: 'input_file',
+          filename: file.filename,
+          file_data: file.dataUrl,
+        })),
         ...(chunk.images || []).map((imageUrl) => ({ type: 'input_image', image_url: imageUrl, detail: 'high' })),
       ] }],
       max_output_tokens: 20000,
@@ -506,7 +511,7 @@ async function geminiExtract(chunk, signal) {
       systemInstruction: { parts: [{ text: aiInstructions }] },
       contents: [{ role: 'user', parts: [
         { text: chunk.text },
-        ...(chunk.images || []).map((dataUrl) => {
+        ...[...(chunk.files || []).map((file) => file.dataUrl), ...(chunk.images || [])].map((dataUrl) => {
           const [meta, data] = dataUrl.split(',', 2)
           return { inlineData: { mimeType: meta.match(/^data:([^;]+)/)?.[1] || 'image/png', data } }
         }),
@@ -559,29 +564,16 @@ export async function fileChunks(buffer, extension) {
     }
     return chunks
   }
-  const { PDFParse } = await import('pdf-parse')
-  const parser = new PDFParse({ data: buffer })
-  try {
-    const result = await parser.getText()
-    const text = result.text?.trim()
-    if (text && text.length >= 100) {
-      return Array.from({ length: Math.ceil(text.length / 14000) }, (_, index) => ({
-        text: `Formato PDF. Testo estratto, parte ${index + 1}:\n${text.slice(index * 14000, (index + 1) * 14000)}`,
-      }))
-    }
-    const screenshots = await parser.getScreenshot({ first: 6, desiredWidth: 1100, imageDataUrl: true, imageBuffer: false })
-    if (!screenshots.pages.length) throw new Error('PDF contains no analyzable text or pages')
-    const chunks = []
-    for (let index = 0; index < screenshots.pages.length; index += 2) {
-      chunks.push({
-        text: `Formato PDF scansionato. Analizza le pagine ${index + 1}-${Math.min(index + 2, screenshots.pages.length)}.`,
-        images: screenshots.pages.slice(index, index + 2).map((page) => page.dataUrl),
-      })
-    }
-    return chunks
-  } finally {
-    await parser.destroy()
+  if (extension === 'pdf') {
+    return [{
+      text: 'Formato PDF bancario. Analizza tutte le pagine del documento allegato ed estrai esclusivamente i movimenti reali.',
+      files: [{
+        filename: 'estratto-conto.pdf',
+        dataUrl: `data:application/pdf;base64,${buffer.toString('base64')}`,
+      }],
+    }]
   }
+  throw new Error('Unsupported file format')
 }
 
 export function isTransientAiError(error) {
@@ -633,6 +625,7 @@ export async function extractFileWithAI(buffer, extension) {
     ? localFallback
     : {
         text: fileParts.map((part) => part.text).join('\n\n'),
+        files: fileParts.flatMap((part) => part.files || []),
         images: fileParts.flatMap((part) => part.images || []),
         sourceRows: fileParts.flatMap((part) => part.sourceRows || []),
       }
