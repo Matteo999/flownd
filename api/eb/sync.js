@@ -575,6 +575,11 @@ export async function syncConnection({
       throw unavailable
     }
     const internalTransfers = await markInternalTransfers(service, userId)
+    const { error: savingsError } = await service.rpc(
+      'finalize_deferred_savings',
+      { p_user_id: userId },
+    )
+    if (savingsError) throw savingsError
     const syncedAt = new Date()
     const { error: connectionUpdateError } = await service
       .from('open_banking_connections')
