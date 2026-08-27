@@ -21,11 +21,15 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { BrandLogo } from '@/components/brand-logo';
 import {
+  darkColors,
   font,
   lightColors,
   radius,
@@ -55,6 +59,11 @@ export const palette = {
   blue: '#457FEF',
 };
 
+const lightScreenGradient = ['#DCE8FF', '#DDF6EF', '#FFFFFF'] as const;
+const darkScreenGradient = ['#172D48', '#123027', darkColors.background] as const;
+const lightCompactHeaderBackground = '#DFEBF7';
+const darkCompactHeaderBackground = '#162B38';
+
 export { font, useFlowndTheme };
 
 export function Screen({
@@ -73,7 +82,8 @@ export function Screen({
   floatingAction?: ReactNode;
   floatingActionPosition?: 'right' | 'center';
 }>) {
-  const { colors } = useFlowndTheme();
+  const { colors, isDark } = useFlowndTheme();
+  const insets = useSafeAreaInsets();
   const [scrollY] = useState(() => new Animated.Value(0));
   const [headerProgress] = useState(() => new Animated.Value(0));
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
@@ -118,6 +128,31 @@ export function Screen({
     <SafeAreaView
       edges={['top', 'left', 'right']}
       style={[styles.safe, { backgroundColor: colors.background }]}>
+      <LinearGradient
+        colors={
+          isDark
+            ? darkScreenGradient
+            : lightScreenGradient
+        }
+        end={{ x: 0.68, y: 1 }}
+        locations={isDark ? [0, 0.22, 0.72] : [0, 0.28, 0.82]}
+        pointerEvents="none"
+        start={{ x: 0.1, y: 0 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.compactHeaderBackdrop,
+          {
+            backgroundColor: isDark
+              ? darkCompactHeaderBackground
+              : lightCompactHeaderBackground,
+            height: insets.top,
+            opacity: headerProgress,
+          },
+        ]}
+      />
       <ScrollHeaderContext.Provider value={headerContext}>
         {scroll ? (
           <Animated.ScrollView
@@ -342,7 +377,7 @@ export function PageHeader({
   leading,
   action,
   collapseInPlace = false,
-  compactBorderless = false,
+  compactBorderless = true,
 }: {
   eyebrow?: string;
   title: string;
@@ -351,7 +386,7 @@ export function PageHeader({
   collapseInPlace?: boolean;
   compactBorderless?: boolean;
 }) {
-  const { colors } = useFlowndTheme();
+  const { colors, isDark } = useFlowndTheme();
   const scrollContext = useContext(ScrollHeaderContext);
   const originalOpacity = scrollContext
     ? scrollContext.headerProgress.interpolate({
@@ -406,7 +441,9 @@ export function PageHeader({
           style={[
             styles.compactHeader,
             {
-              backgroundColor: colors.background,
+              backgroundColor: isDark
+                ? darkCompactHeaderBackground
+                : lightCompactHeaderBackground,
               borderBottomColor: colors.border,
               borderBottomWidth: compactBorderless
                 ? 0
@@ -485,6 +522,13 @@ export const uiStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  compactHeaderBackdrop: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    left: 0,
+    zIndex: 10,
+  },
   scroll: { flexGrow: 1 },
   screenContent: { flex: 1, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 110 },
   floatingAction: {

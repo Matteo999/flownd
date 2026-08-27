@@ -180,7 +180,8 @@ export default function DashboardScreen() {
     (sum, transaction) => sum + transaction.amount,
     0,
   );
-  const monthlyRemaining = monthlyBudget - monthlySpent - savedThisCycle;
+  const monthlyBudgetUsed = monthlySpent + savedThisCycle;
+  const monthlyBudgetRemaining = Math.max(0, monthlyBudget - monthlyBudgetUsed);
   const spentByGroup = monthlyTransactions.reduce(
     (summary, transaction) => {
       const group = categoryToBudgetGroup(transaction.category);
@@ -222,11 +223,7 @@ export default function DashboardScreen() {
     transactions,
     financialAccounts.map((account) => account.lastSyncedAt),
   );
-  const chartCategoryCount = new Set(
-    chartTransactions.map(
-      (transaction) => transaction.category.trim() || 'Altro',
-    ),
-  ).size;
+  const hasChartTransactions = chartTransactions.length > 0;
 
   return (
     <Screen
@@ -313,58 +310,48 @@ export default function DashboardScreen() {
                   tune
                 </Text>
               </View>
-              <Text
-                accessibilityLabel={
-                  amountsVisible
-                    ? `${formatEuro(monthlyRemaining)} su ${formatEuro(monthlyBudget)}`
-                    : 'Importi nascosti'
-                }
-                style={[styles.primaryAmount, { color: overviewForeground }]}>
-                {amountsVisible ? (
-                  <>
-                    {formatEuro(monthlyRemaining)}
-                    <Text
-                      style={[
-                        styles.totalAmount,
-                        { color: overviewSecondaryForeground, opacity: 0.82 },
-                      ]}>
-                      {' '} su {formatEuro(monthlyBudget)}
-                    </Text>
-                  </>
-                ) : (
-                  HIDDEN_AMOUNT
-                )}
-              </Text>
-              <View style={styles.budgetSummary}>
-                {budgetRows.map((budget) => (
-                  <View key={budget.id} style={styles.budgetSummaryItem}>
-                    <View style={styles.budgetSummaryNameRow}>
-                      <Text
-                        accessibilityElementsHidden
-                        style={[
-                          styles.budgetSummaryIcon,
-                          { color: overviewSecondaryForeground, opacity: 0.82 },
-                        ]}>
-                        {budget.icon}
-                      </Text>
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          styles.budgetSummaryName,
-                          { color: overviewSecondaryForeground, opacity: 0.82 },
-                        ]}>
-                        {budget.name}
-                      </Text>
-                    </View>
-                    <Text
-                      style={[styles.budgetSummaryValue, { color: overviewForeground }]}>
-                      {sensitiveEuro(
-                        Math.max(0, budget.amount - budget.spent),
-                        amountsVisible,
-                      )}
-                    </Text>
-                  </View>
-                ))}
+              <View style={styles.budgetOverviewContent}>
+                <View style={styles.budgetOverviewCopy}>
+                  <Text
+                    accessibilityLabel={
+                      amountsVisible
+                        ? `${formatEuro(monthlyBudgetRemaining)} disponibili su ${formatEuro(monthlyBudget)}`
+                        : 'Importi nascosti'
+                    }
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.72}
+                    numberOfLines={1}
+                    style={[styles.budgetAmount, { color: overviewForeground }]}>
+                    {amountsVisible ? (
+                      <>
+                        {formatEuro(monthlyBudgetRemaining)}
+                        <Text
+                          style={[
+                            styles.budgetAmountTotal,
+                            { color: overviewSecondaryForeground, opacity: 0.82 },
+                          ]}>
+                          {' / '}{formatEuro(monthlyBudget)}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        {HIDDEN_AMOUNT}
+                        <Text
+                          style={[
+                            styles.budgetAmountTotal,
+                            { color: overviewSecondaryForeground, opacity: 0.82 },
+                          ]}>
+                          {' / '}{HIDDEN_AMOUNT}
+                        </Text>
+                      </>
+                    )}
+                  </Text>
+                </View>
+                <BudgetRadialChart
+                  amountsVisible={amountsVisible}
+                  spent={monthlyBudgetUsed}
+                  total={monthlyBudget}
+                />
               </View>
             </Pressable>
           </View>
@@ -455,6 +442,95 @@ export default function DashboardScreen() {
         </Card>
       ) : null}
 
+      <Card style={styles.budgetCategoriesCard}>
+        <View style={styles.budgetCategoriesHeader}>
+          <View style={styles.flex}>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>
+              Budget per categoria
+            </Text>
+            <Text style={[styles.budgetCategoriesCycle, { color: colors.textSecondary }]}>
+              {formatFinancialCycle(financialCycle)}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel="Modifica il budget per categoria"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => router.push('/budget' as Href)}
+            style={({ pressed }) => [
+              styles.budgetEditButton,
+              { backgroundColor: colors.accentSoft },
+              pressed && styles.iconPressed,
+            ]}>
+            <Text style={[styles.budgetEditIcon, { color: colors.accent }]}>
+              tune
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.budgetCategoryList}>
+          {budgetRows.map((budget) => {
+            const visual = budget.id === 'wants'
+              ? { color: colors.warning, soft: colors.warningSoft }
+              : budget.id === 'savings'
+                ? { color: colors.positive, soft: colors.positiveSoft }
+                : { color: colors.accent, soft: colors.accentSoft };
+            const progressColor = budget.progress > 1
+              ? colors.negative
+              : visual.color;
+            return (
+              <View
+                key={budget.id}
+                accessible
+                accessibilityLabel={
+                  amountsVisible
+                    ? `${budget.name}: ${formatEuro(budget.spent)} su ${formatEuro(budget.amount)}, ${Math.round(budget.progress * 100)} per cento`
+                    : `${budget.name}: importi nascosti`
+                }
+                style={styles.budgetCategoryRow}>
+                <View style={styles.budgetCategoryTop}>
+                  <View
+                    style={[
+                      styles.budgetCategoryIconBox,
+                      { backgroundColor: visual.soft },
+                    ]}>
+                    <Text style={[styles.budgetCategoryIcon, { color: visual.color }]}>
+                      {budget.icon}
+                    </Text>
+                  </View>
+                  <View style={styles.budgetCategoryDetails}>
+                    <View style={styles.budgetCategoryNameRow}>
+                      <Text style={[styles.budgetCategoryName, { color: colors.text }]}>
+                        {budget.name}
+                      </Text>
+                      <Text style={[styles.budgetCategoryPercentage, { color: progressColor }]}>
+                        {amountsVisible ? `${Math.round(budget.progress * 100)}%` : '••%'}
+                      </Text>
+                    </View>
+                    <Text style={[styles.budgetCategoryAmount, { color: colors.textSecondary }]}>
+                      {amountsVisible
+                        ? `${formatEuro(budget.spent)} di ${formatEuro(budget.amount)}`
+                        : `${HIDDEN_AMOUNT} di ${HIDDEN_AMOUNT}`}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.budgetCategoryTrack, { backgroundColor: visual.soft }]}>
+                  <View
+                    style={[
+                      styles.budgetCategoryFill,
+                      {
+                        backgroundColor: progressColor,
+                        width: `${Math.min(100, Math.max(0, budget.progress * 100))}%`,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      </Card>
+
       <View style={styles.sectionHeader}>
         <Text style={[styles.sectionTitle, { color: colors.text }]}>
           Spese per categoria
@@ -491,7 +567,7 @@ export default function DashboardScreen() {
 
       <View accessibilityState={{ busy: periodPending }}>
         <Card style={styles.chartCard}>
-          {chartCategoryCount >= 2 ? (
+          {hasChartTransactions ? (
             <SpendingDonutChart
               amountsVisible={amountsVisible}
               totalLabel={
@@ -507,10 +583,10 @@ export default function DashboardScreen() {
                 donut_small
               </Text>
               <Text style={[styles.guidedTitle, { color: colors.text }]}>
-                La distribuzione si compone con le tue spese.
+                Nessuna spesa nel periodo selezionato.
               </Text>
               <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
-                Servono movimenti in almeno due categorie per mostrare un confronto utile.
+                Appena registri un movimento, qui vedrai la sua categoria e il totale speso.
               </Text>
             </View>
           )}
@@ -654,6 +730,99 @@ export default function DashboardScreen() {
         </Card>
       ) : null}
     </Screen>
+  );
+}
+
+const BUDGET_RADIAL_SIZE = 144;
+const BUDGET_RADIAL_CENTER = BUDGET_RADIAL_SIZE / 2;
+const BUDGET_RADIAL_RADIUS = 58;
+const BUDGET_RADIAL_STROKE = 14;
+const BUDGET_RADIAL_CIRCUMFERENCE = 2 * Math.PI * BUDGET_RADIAL_RADIUS;
+const BUDGET_RADIAL_ARC_SHARE = 0.5;
+
+function mixHexColors(from: string, to: string, amount: number) {
+  const mix = Math.min(1, Math.max(0, amount));
+  const fromChannels = [1, 3, 5].map((index) =>
+    Number.parseInt(from.slice(index, index + 2), 16),
+  );
+  const toChannels = [1, 3, 5].map((index) =>
+    Number.parseInt(to.slice(index, index + 2), 16),
+  );
+  const channels = fromChannels.map((channel, index) =>
+    Math.round(channel + (toChannels[index] - channel) * mix),
+  );
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function budgetGradientColors(spentProgress: number) {
+  const progress = Math.min(1, Math.max(0, spentProgress));
+  const milestones = progress <= 0.5
+    ? {
+        amount: progress / 0.5,
+        from: ['#62D7AA', '#279873'],
+        to: ['#FFD166', '#D99A24'],
+      }
+    : {
+        amount: (progress - 0.5) / 0.5,
+        from: ['#FFD166', '#D99A24'],
+        to: ['#FF9D8B', '#D9553F'],
+      };
+  return {
+    start: mixHexColors(milestones.from[0], milestones.to[0], milestones.amount),
+    end: mixHexColors(milestones.from[1], milestones.to[1], milestones.amount),
+  };
+}
+
+function BudgetRadialChart({
+  spent,
+  total,
+  amountsVisible,
+}: {
+  spent: number;
+  total: number;
+  amountsVisible: boolean;
+}) {
+  const spentProgress = total > 0 ? spent / total : 0;
+  const remainingProgress = total > 0 ? 1 - spentProgress : 0;
+  const visibleProgress = Math.min(1, Math.max(0, remainingProgress));
+  const arcLength = BUDGET_RADIAL_CIRCUMFERENCE * BUDGET_RADIAL_ARC_SHARE;
+  const remainingLength = arcLength * visibleProgress;
+  const gradientColors = budgetGradientColors(spentProgress);
+  const radialSvg = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${BUDGET_RADIAL_SIZE}" height="${BUDGET_RADIAL_SIZE}" viewBox="0 0 ${BUDGET_RADIAL_SIZE} ${BUDGET_RADIAL_SIZE}">`,
+    `<defs><linearGradient id="budgetGradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="${gradientColors.start}"/><stop offset="100%" stop-color="${gradientColors.end}"/></linearGradient></defs>`,
+    `<circle cx="${BUDGET_RADIAL_CENTER}" cy="${BUDGET_RADIAL_CENTER}" r="${BUDGET_RADIAL_RADIUS}" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="${BUDGET_RADIAL_STROKE}" stroke-dasharray="${arcLength} ${BUDGET_RADIAL_CIRCUMFERENCE - arcLength}" stroke-linecap="round" transform="rotate(180 ${BUDGET_RADIAL_CENTER} ${BUDGET_RADIAL_CENTER})"/>`,
+    remainingLength > 0
+      ? `<circle cx="${BUDGET_RADIAL_CENTER}" cy="${BUDGET_RADIAL_CENTER}" r="${BUDGET_RADIAL_RADIUS}" fill="none" stroke="url(#budgetGradient)" stroke-width="${BUDGET_RADIAL_STROKE}" stroke-dasharray="${remainingLength} ${BUDGET_RADIAL_CIRCUMFERENCE - remainingLength}" stroke-linecap="round" transform="rotate(180 ${BUDGET_RADIAL_CENTER} ${BUDGET_RADIAL_CENTER})"/>`
+      : '',
+    '</svg>',
+  ].join('');
+  const radialUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(radialSvg)}`;
+  const percentage = Math.round(visibleProgress * 100);
+
+  return (
+    <View
+      accessible
+      accessibilityLabel={
+        amountsVisible
+          ? `${percentage} per cento del budget ancora disponibile`
+          : 'Avanzamento del budget nascosto'
+      }
+      accessibilityRole="image"
+      style={styles.budgetRadial}>
+      <Image
+        cachePolicy="none"
+        contentFit="contain"
+        pointerEvents="none"
+        source={{ uri: radialUri }}
+        style={styles.budgetRadialImage}
+      />
+      <View pointerEvents="none" style={styles.budgetRadialLabel}>
+        <Text style={styles.budgetRadialPercentage}>
+          {amountsVisible ? `${percentage}%` : '••%'}
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -969,6 +1138,53 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   budgetPageButton: { flex: 1, minHeight: 132 },
+  budgetOverviewContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  budgetOverviewCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 2,
+    justifyContent: 'center',
+  },
+  budgetAmount: {
+    fontFamily: font.displayBold,
+    fontSize: 29,
+    lineHeight: 38,
+  },
+  budgetAmountTotal: {
+    fontFamily: font.bodyMedium,
+    fontSize: 12,
+  },
+  budgetRadial: {
+    width: BUDGET_RADIAL_SIZE,
+    height: 84,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  budgetRadialImage: {
+    position: 'absolute',
+    top: 0,
+    width: BUDGET_RADIAL_SIZE,
+    height: BUDGET_RADIAL_SIZE,
+  },
+  budgetRadialLabel: {
+    position: 'absolute',
+    top: 37,
+    right: 0,
+    left: 0,
+    alignItems: 'center',
+  },
+  budgetRadialPercentage: {
+    color: '#FFFFFF',
+    fontFamily: font.dataMedium,
+    fontSize: 18,
+    lineHeight: 23,
+  },
   overviewLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1013,24 +1229,6 @@ const styles = StyleSheet.create({
   dashboardAvatarOverflowText: { fontFamily: font.dataMedium, fontSize: 8 },
   overviewHint: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 18 },
   delta: { fontFamily: font.dataMedium, fontSize: 11, lineHeight: 16, marginTop: 18 },
-  budgetSummary: { flexDirection: 'row', gap: 5, marginTop: 18 },
-  budgetSummaryItem: { flex: 1 },
-  budgetSummaryNameRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  budgetSummaryIcon: {
-    fontFamily: 'MaterialSymbols_400Regular',
-    fontSize: 12,
-    lineHeight: 14,
-  },
-  budgetSummaryName: {
-    flexShrink: 1,
-    fontFamily: font.bodyMedium,
-    fontSize: 9,
-  },
-  budgetSummaryValue: {
-    fontFamily: font.dataMedium,
-    fontSize: 10,
-    marginTop: 3,
-  },
   pageDots: {
     minHeight: 22,
     flexDirection: 'row',
@@ -1101,6 +1299,57 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 5,
   },
+  budgetCategoriesCard: { marginBottom: 18 },
+  budgetCategoriesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  budgetCategoriesCycle: {
+    fontFamily: font.body,
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  budgetEditButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  budgetEditIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 19,
+    lineHeight: 22,
+  },
+  budgetCategoryList: { gap: 17, marginTop: 18 },
+  budgetCategoryRow: { gap: 9 },
+  budgetCategoryTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  budgetCategoryIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  budgetCategoryIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 18,
+    lineHeight: 21,
+  },
+  budgetCategoryDetails: { flex: 1 },
+  budgetCategoryNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  budgetCategoryName: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  budgetCategoryPercentage: { fontFamily: font.dataMedium, fontSize: 12 },
+  budgetCategoryAmount: { fontFamily: font.data, fontSize: 10, marginTop: 2 },
+  budgetCategoryTrack: { height: 8, borderRadius: 8, overflow: 'hidden' },
+  budgetCategoryFill: { height: '100%', borderRadius: 8 },
   sectionHeader: { marginTop: 5, marginBottom: 10, gap: 9 },
   sectionTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
   periodControl: {
