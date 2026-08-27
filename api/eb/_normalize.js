@@ -64,7 +64,7 @@ function narrativeEntity(value) {
   // strutturati hanno sempre la precedenza quando il provider li valorizza.
   const patterns = [
     /\b(?:presso|at|chez|bei)\s+(.+?)(?=\s+(?:tessera|card|carte|karte|causale|reason|date|datum|via\b|[-–]\s*transa(?:zione|ction))|$)/i,
-    /\b(?:merchant|eserc(?:ente|izio)?\.?|beneficiario|beneficiary|payee|b[ée]n[ée]ficiaire|begünstigter)\s*[:\-]\s*(.+?)(?=\s+(?:causale|reason|date|datum|ref(?:erence)?\.?|id\.?|$))/i,
+    /\b(?:merchant|eserc(?:ente|izio)?\.?|comercio|establecimiento|estabelecimento|beneficiario|beneficiário|beneficiary|payee|b[ée]n[ée]ficiaire|begünstigter)\s*[:\-]\s*(.+?)(?=\s+(?:iban|causale|reason|date|datum|ref(?:erence)?\.?|id\.?|$))/i,
     /\bc\/o\s+(.+?)(?=\s+(?:tessera|card|causale|date)|$)/i,
     /\banagrafica\s+ordinante\s*[:\-]?\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i,
     /\bordinante\s*[:\-]\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i,
@@ -72,7 +72,10 @@ function narrativeEntity(value) {
   ]
   for (const pattern of patterns) {
     const match = text.match(pattern)
-    const entity = clean(match?.[1]).replace(/[.,;:\-–]+$/g, '').trim()
+    const entity = clean(match?.[1])
+      .replace(/\s+IBAN(?:\s+beneficiario)?\s+.*$/i, '')
+      .replace(/[.,;:\-–]+$/g, '')
+      .trim()
     if (!entity || entity.length > 100) continue
     const digits = (entity.match(/\d/g) || []).length
     if (digits / entity.length < 0.25) return entity
@@ -84,12 +87,40 @@ function narrativeBeneficiary(value) {
   const text = clean(value)
   if (!text) return null
   const match = text.match(
-    /\b(?:(?:a|in)\s+favore\s+di|in\s+favou?r\s+of|en\s+faveur\s+de|zugunsten(?:\s+von)?)\s+(.+?)(?=\s+(?:iban(?:\s+beneficiario)?|bic|note|causale|reason|motif|ref(?:erence)?\.?|id\.?|$))/i,
+    /\b(?:(?:a|in)\s+favore\s+di|a\s+favor\s+de|em\s+favor\s+de|in\s+favou?r\s+of|en\s+faveur\s+de|zugunsten(?:\s+von)?)\s+(.+?)(?=\s+(?:iban(?:\s+beneficiario)?|bic|note|causale|reason|motif|ref(?:erence)?\.?|id\.?|$))/i,
   )
   const beneficiary = clean(match?.[1]).replace(/[.,;:\-–]+$/g, '').trim()
   if (!beneficiary || beneficiary.length > 100) return null
   const digits = (beneficiary.match(/\d/g) || []).length
   return digits / beneficiary.length < 0.25 ? beneficiary : null
+}
+
+export function isTechnicalBankDescription(value) {
+  const text = normalized(value)
+  if (!text || text.length < 45) return false
+  const markers = [
+    /\b(?:carta|card|carte|karte)\b/,
+    /\b(?:importo|amount|betrag|montant|importe)\b/,
+    /\b(?:divisa|currency|valuta|devise|wahrung)\b/,
+    /\biban\b/,
+    /\b(?:operazione|operation|transaction|transazione)\b/,
+    /\b(?:alle ore|date|datum|fecha)\b/,
+  ]
+  return markers.filter((pattern) => pattern.test(text)).length >= 2
+}
+
+function genericBankDescription(remittance, bankDescription) {
+  const text = normalized(remittance)
+  if (/\b(?:preliev|cash withdrawal|retrait|abhebung)\b/.test(text)) {
+    return 'Prelievo ATM'
+  }
+  if (/\b(?:carta|card|carte|karte|mastercard|visa)\b/.test(text)) {
+    return 'Pagamento carta'
+  }
+  if (/\b(?:bonifico|bank transfer|virement|uberweisung)\b/.test(text)) {
+    return 'Bonifico'
+  }
+  return bankDescription || 'Movimento bancario'
 }
 
 function describe(transaction) {
@@ -118,9 +149,11 @@ function describe(transaction) {
     .filter((line) => {
       const compact = clean(line)
       const digits = (compact.match(/\d/g) || []).length
-      return compact.length >= 3 && digits / compact.length < 0.15
+      return compact.length >= 3
+        && digits / compact.length < 0.15
+        && !isTechnicalBankDescription(compact)
     })
-    .sort((first, second) => first.length - second.length)[0] || clean(lines[0])
+    .sort((first, second) => first.length - second.length)[0] || ''
   const ultimateParty = clean(
     direction === 'debit'
       ? transaction.ultimate_creditor?.name
@@ -135,7 +168,7 @@ function describe(transaction) {
     || ultimateParty
     || conciseRemittance
     || bankDescription
-    || 'Bank transaction'
+    || genericBankDescription(fullRemittance, bankDescription)
 
   return {
     description: description.slice(0, 180),

@@ -126,6 +126,7 @@ async function reconcileTransaction({
   let transactionId = await linkedTransaction(service, imported.id)
   if (transactionId) {
     const rawStoredDescription = normalized.rawDescription.slice(0, 180)
+    const damagedStoredDescription = normalized.rawDescription.slice(0, 100)
     if (normalized.description !== rawStoredDescription) {
       const { error: descriptionError } = await service
         .from('transactions')
@@ -135,7 +136,10 @@ async function reconcileTransaction({
         })
         .eq('id', transactionId)
         .eq('source', 'open_banking')
-        .eq('description', rawStoredDescription)
+        .in('description', [...new Set([
+          rawStoredDescription,
+          damagedStoredDescription,
+        ])])
       if (descriptionError) throw descriptionError
     }
     const linkedUpdate = {
