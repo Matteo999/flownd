@@ -60,12 +60,14 @@ export { font, useFlowndTheme };
 export function Screen({
   children,
   scroll = true,
+  scrollEnabled = true,
   scrollHeaderWithContent = false,
   style,
   floatingAction,
   floatingActionPosition = 'right',
 }: PropsWithChildren<{
   scroll?: boolean;
+  scrollEnabled?: boolean;
   scrollHeaderWithContent?: boolean;
   style?: StyleProp<ViewStyle>;
   floatingAction?: ReactNode;
@@ -122,6 +124,7 @@ export function Screen({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             onScroll={onScroll}
+            scrollEnabled={scrollEnabled}
             scrollEventThrottle={16}
             contentContainerStyle={styles.scroll}>
             {content}
