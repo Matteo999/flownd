@@ -112,6 +112,46 @@ test('estrae l’ordinante da una narrativa stipendio senza esporre i riferiment
   assert.match(transaction.rawDescription, /PAGAMENTO STIPENDI/)
 })
 
+test('estrae il beneficiario dai bonifici in uscita formulati come a favore di', () => {
+  const transaction = normalizeBankTransaction(
+    {
+      credit_debit_indicator: 'DBIT',
+      transaction_amount: { amount: '337.50', currency: 'EUR' },
+      transaction_date: '2026-08-26',
+      status: 'BOOK',
+      remittance_information: [
+        'Bonifico istantaneo da voi disposto N. 12345 A favore di Debora Setti IBAN beneficiario IT0000000000000000000000000 Note: Divano Conforama',
+      ],
+    },
+    'account',
+  )
+
+  assert.equal(transaction.description, 'Debora Setti')
+  assert.equal(transaction.counterpartyName, 'Debora Setti')
+  assert.equal(transaction.merchantName, null)
+  assert.equal(transaction.rawDescription.startsWith('Bonifico istantaneo'), true)
+})
+
+test('estrae il beneficiario dalla causale di un giroconto', () => {
+  const transaction = normalizeBankTransaction(
+    {
+      credit_debit_indicator: 'DBIT',
+      transaction_amount: { amount: '1625.96', currency: 'EUR' },
+      transaction_date: '2026-08-25',
+      status: 'BOOK',
+      remittance_information: [
+        'Giroconto da voi disposto N. 12345 A favore di Matteo La Mendola IBAN beneficiario IT0000000000000000000000000 Note: Giroconto agosto 26',
+      ],
+    },
+    'account',
+  )
+
+  assert.equal(transaction.description, 'Matteo La Mendola')
+  assert.equal(transaction.counterpartyName, 'Matteo La Mendola')
+  assert.equal(transaction.merchantName, null)
+  assert.equal(transaction.transferHint, true)
+})
+
 test('usa transaction_date per il giorno operativo e non la data valuta', () => {
   const transaction = normalizeBankTransaction(
     {
