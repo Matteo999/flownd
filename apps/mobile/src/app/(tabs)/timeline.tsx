@@ -534,11 +534,7 @@ export default function TimelineScreen() {
           </Pressable>
         )
       }>
-      <View
-        style={[
-          styles.timelineHeaderLayer,
-          { backgroundColor: colors.background },
-        ]}>
+      <View style={styles.timelineHeaderLayer}>
         <PageHeader
           collapseInPlace
           compactBorderless
