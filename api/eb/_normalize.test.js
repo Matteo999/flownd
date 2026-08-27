@@ -4,6 +4,7 @@ import test from 'node:test'
 
 import {
   chooseBalance,
+  isTechnicalBankDescription,
   normalizeAccount,
   normalizeBankTransaction,
   redactBankPayload,
@@ -90,6 +91,25 @@ test('estrae la controparte da una causale carta senza salvarla integralmente', 
   assert.equal(transaction.category, 'ATM (prelievo contante)')
 })
 
+test('non usa mai una causale tecnica completa quando manca la controparte', () => {
+  const rawDescription =
+    'Operazione Mastercard del 06/08/2026 alle ore 10:42 con Carta xxxxxxxxxxxx0593 Div=EUR Importo in divisa=12 / Importo in Euro=12'
+  const transaction = normalizeBankTransaction(
+    {
+      transaction_amount: { amount: '12', currency: 'EUR' },
+      credit_debit_indicator: 'DBIT',
+      status: 'BOOK',
+      transaction_date: '2026-08-06',
+      remittance_information: [rawDescription],
+    },
+    'conto',
+  )
+
+  assert.equal(isTechnicalBankDescription(rawDescription), true)
+  assert.equal(transaction.description, 'Pagamento carta')
+  assert.equal(transaction.description.includes('xxxxxxxxxxxx0593'), false)
+})
+
 test('estrae l’ordinante da una narrativa stipendio senza esporre i riferimenti bancari', () => {
   const transaction = normalizeBankTransaction(
     {
@@ -110,6 +130,25 @@ test('estrae l’ordinante da una narrativa stipendio senza esporre i riferiment
   assert.equal(transaction.category, 'Stipendio')
   assert.equal(transaction.occurredTime, null)
   assert.match(transaction.rawDescription, /PAGAMENTO STIPENDI/)
+})
+
+test('estrae l’anagrafica ordinante dai bonifici legacy', () => {
+  const transaction = normalizeBankTransaction(
+    {
+      transaction_amount: { amount: '102', currency: 'EUR' },
+      credit_debit_indicator: 'CRDT',
+      status: 'BOOK',
+      transaction_date: '2026-08-10',
+      remittance_information: [
+        'Bonifico N. 0830400034036054482080020800IT BIC Ordinante CCRTIT2T76A Codifica Ordinante IT31I0830420802000000064708 Anagrafica Ordinante SETTI DEBORA Note: Trasferimento',
+      ],
+    },
+    'conto',
+  )
+
+  assert.equal(transaction.description, 'SETTI DEBORA')
+  assert.equal(transaction.counterpartyName, 'SETTI DEBORA')
+  assert.equal(transaction.description.includes('IT31'), false)
 })
 
 test('estrae il beneficiario dai bonifici in uscita formulati come a favore di', () => {
