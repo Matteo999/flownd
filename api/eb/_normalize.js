@@ -80,6 +80,18 @@ function narrativeEntity(value) {
   return null
 }
 
+function narrativeBeneficiary(value) {
+  const text = clean(value)
+  if (!text) return null
+  const match = text.match(
+    /\b(?:(?:a|in)\s+favore\s+di|in\s+favou?r\s+of|en\s+faveur\s+de|zugunsten(?:\s+von)?)\s+(.+?)(?=\s+(?:iban(?:\s+beneficiario)?|bic|note|causale|reason|motif|ref(?:erence)?\.?|id\.?|$))/i,
+  )
+  const beneficiary = clean(match?.[1]).replace(/[.,;:\-–]+$/g, '').trim()
+  if (!beneficiary || beneficiary.length > 100) return null
+  const digits = (beneficiary.match(/\d/g) || []).length
+  return digits / beneficiary.length < 0.25 ? beneficiary : null
+}
+
 function describe(transaction) {
   const direction = indicator(transaction)
   const lines = remittanceLines(transaction)
@@ -94,9 +106,14 @@ function describe(transaction) {
       || transaction.merchant_name
       || transaction.card_acceptor?.name,
   )
+  const beneficiary = direction === 'debit'
+    ? narrativeBeneficiary(fullRemittance)
+    : null
   const narrativeParty = narrativeEntity(fullRemittance)
-  const merchant = structuredMerchant || (direction === 'debit' ? narrativeParty : '')
-  const narrativeCounterparty = direction === 'credit' ? narrativeParty : ''
+  const merchant = structuredMerchant
+    || (direction === 'debit' && !beneficiary ? narrativeParty : '')
+  const narrativeCounterparty = beneficiary
+    || (direction === 'credit' ? narrativeParty : '')
   const conciseRemittance = lines
     .filter((line) => {
       const compact = clean(line)
