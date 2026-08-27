@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Alert, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import {
   Card,
@@ -198,20 +199,28 @@ export default function FamilyScreen() {
     const mutationVersion = sharingMutationVersion.current + 1;
     sharingMutationVersion.current = mutationVersion;
     setSharingDraft(next);
+    setDetail((current) => current ? {
+      ...current,
+      members: current.members.map((member) => member.userId === session?.user.id
+        ? { ...member, ...next }
+        : member),
+    } : current);
     setError(null);
     const request = sharingSaveQueue.current
       .catch(() => undefined)
       .then(() => updateMyGroupSharing(selectedGroup.id, next));
     sharingSaveQueue.current = request;
     void request
-      .then(async () => {
-        if (sharingMutationVersion.current !== mutationVersion) return;
-        await Promise.all([loadGroups(selectedGroup.id), refreshDetail(selectedGroup)]);
-      })
       .catch((actionError) => {
         if (__DEV__) console.error('Flownd sharing preference update failed', actionError);
         if (sharingMutationVersion.current === mutationVersion) {
           setSharingDraft(previous);
+          setDetail((current) => current ? {
+            ...current,
+            members: current.members.map((member) => member.userId === session?.user.id
+              ? { ...member, ...previous }
+              : member),
+          } : current);
           setError('Non riesco a salvare la preferenza di condivisione. Riprova.');
         }
       });
@@ -243,7 +252,10 @@ export default function FamilyScreen() {
             accessibilityLabel="Impostazioni gruppo"
             accessibilityRole="button"
             hitSlop={8}
-            onPress={() => setSettingsModalOpen(true)}
+            onPress={() => {
+              setInviteModalOpen(false);
+              setSettingsModalOpen(true);
+            }}
             style={styles.backButton}>
             <Text style={[styles.materialIcon, { color: colors.text }]}>settings</Text>
           </Pressable>
@@ -305,50 +317,55 @@ export default function FamilyScreen() {
         </PrimaryButton>
       </Popup>
 
-      <Popup visible={inviteModalOpen} title="Invita un membro" onClose={() => setInviteModalOpen(false)}>
-        <Field
-          label="Email"
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          placeholder="nome@esempio.it"
-          value={inviteEmail}
-          onChangeText={setInviteEmail}
-        />
-        <PermissionRow label="Movimenti" value={inviteAccess.transactionsAccess} editable onChange={(transactionsAccess) => setInviteAccess({ ...inviteAccess, transactionsAccess })} />
-        <PermissionRow label="Budget" value={inviteAccess.budgetsAccess} editable onChange={(budgetsAccess) => setInviteAccess({ ...inviteAccess, budgetsAccess })} />
-        <PermissionRow label="Obiettivi" value={inviteAccess.goalsAccess} editable onChange={(goalsAccess) => setInviteAccess({ ...inviteAccess, goalsAccess })} />
-        <PrimaryButton disabled={!inviteEmail.includes('@')} loading={saving} onPress={() => {
-          if (!session || !selectedGroup || !inviteEmail.trim()) return;
-          void runAction(async () => {
-            const recipient = inviteEmail.trim();
-            const delivery = await createGroupInvite(
-              selectedGroup.id,
-              recipient,
-              session.user.id,
-              { role: 'member', ...inviteAccess },
-              session.access_token,
-            );
-            setInviteEmail('');
-            setInviteModalOpen(false);
-            setNotice(delivery.emailSent
-              ? `Invito inviato a ${recipient}.`
-              : `Invito creato per ${recipient}. È già visibile in-app; configura il provider email per inviarlo anche via mail.`);
-            await refreshDetail();
-          });
-        }}>
-          Crea invito
-        </PrimaryButton>
-      </Popup>
-
       <Popup
+        sheet
         visible={settingsModalOpen}
-        title="Impostazioni gruppo"
-        onClose={() => setSettingsModalOpen(false)}>
-        <ScrollView showsVerticalScrollIndicator={false} style={styles.settingsScroll}>
+        title={inviteModalOpen ? 'Invita un membro' : 'Impostazioni gruppo'}
+        onClose={() => {
+          setInviteModalOpen(false);
+          setSettingsModalOpen(false);
+        }}>
+        {inviteModalOpen ? (
+          <View style={styles.invitePanel}>
+            <Field
+              label="Email"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              placeholder="nome@esempio.it"
+              value={inviteEmail}
+              onChangeText={setInviteEmail}
+            />
+            <PermissionRow label="Movimenti" value={inviteAccess.transactionsAccess} editable onChange={(transactionsAccess) => setInviteAccess({ ...inviteAccess, transactionsAccess })} />
+            <PermissionRow label="Budget" value={inviteAccess.budgetsAccess} editable onChange={(budgetsAccess) => setInviteAccess({ ...inviteAccess, budgetsAccess })} />
+            <PermissionRow label="Obiettivi" value={inviteAccess.goalsAccess} editable onChange={(goalsAccess) => setInviteAccess({ ...inviteAccess, goalsAccess })} />
+            <PrimaryButton disabled={!inviteEmail.includes('@')} loading={saving} onPress={() => {
+              if (!session || !selectedGroup || !inviteEmail.trim()) return;
+              void runAction(async () => {
+                const recipient = inviteEmail.trim();
+                const delivery = await createGroupInvite(
+                  selectedGroup.id,
+                  recipient,
+                  session.user.id,
+                  { role: 'member', ...inviteAccess },
+                  session.access_token,
+                );
+                setInviteEmail('');
+                setInviteModalOpen(false);
+                setSettingsModalOpen(false);
+                setNotice(delivery.emailSent
+                  ? `Invito inviato a ${recipient}.`
+                  : `Invito creato per ${recipient}, ma la consegna email non è riuscita.`);
+                await refreshDetail();
+              });
+            }}>
+              Invia invito
+            </PrimaryButton>
+          </View>
+        ) : (
+          <ScrollView showsVerticalScrollIndicator={false} style={styles.settingsScroll}>
           {selectedGroup?.role === 'owner' ? (
             <SecondaryButton compact onPress={() => {
-              setSettingsModalOpen(false);
               setInviteModalOpen(true);
             }}>
               Invita un membro
@@ -463,7 +480,8 @@ export default function FamilyScreen() {
               </Text>
             </Pressable>
           ) : null}
-        </ScrollView>
+          </ScrollView>
+        )}
       </Popup>
     </Screen>
   );
@@ -788,34 +806,97 @@ function Popup({
   title,
   onClose,
   children,
+  sheet = false,
 }: {
   visible: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  sheet?: boolean;
 }) {
   const { colors } = useFlowndTheme();
+  const [translateY] = useState(() => new Animated.Value(680));
+
+  function openSheet() {
+    if (!sheet) return;
+    translateY.setValue(680);
+    Animated.spring(translateY, {
+      toValue: 0,
+      damping: 22,
+      stiffness: 230,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start();
+  }
+
+  function dismiss() {
+    if (!sheet) {
+      onClose();
+      return;
+    }
+    Animated.timing(translateY, {
+      toValue: 680,
+      duration: 220,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) onClose();
+    });
+  }
+
+  const dismissGesture = Gesture.Pan()
+    .activeOffsetY([-8, 8])
+    .failOffsetX([-24, 24])
+    .runOnJS(true)
+    .onUpdate((event) => {
+      translateY.setValue(Math.max(0, event.translationY));
+    })
+    .onEnd((event) => {
+      if (event.translationY > 90 || event.velocityY > 650) dismiss();
+      else Animated.spring(translateY, {
+        toValue: 0,
+        damping: 20,
+        stiffness: 240,
+        useNativeDriver: true,
+      }).start();
+    });
+
+  const card = (
+    <Card style={[styles.modalCard, sheet && styles.modalSheetCard]}>
+      {sheet ? (
+        <GestureDetector gesture={dismissGesture}>
+          <View accessibilityLabel="Trascina verso il basso per chiudere" style={styles.sheetHandleArea}>
+            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+          </View>
+        </GestureDetector>
+      ) : null}
+      <View style={styles.modalHeader}>
+        <Text style={[styles.modalTitle, { color: colors.text }]}>{title}</Text>
+        <Pressable accessibilityLabel="Chiudi" onPress={dismiss} hitSlop={8}>
+          <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>close</Text>
+        </Pressable>
+      </View>
+      {children}
+    </Card>
+  );
   return (
     <Modal
-      animationType="slide"
-      onRequestClose={onClose}
+      animationType={sheet ? 'none' : 'slide'}
+      onRequestClose={dismiss}
+      onShow={openSheet}
       transparent
       visible={visible}>
-      <View style={styles.modalRoot}>
+      <View style={[styles.modalRoot, sheet && styles.modalSheetRoot]}>
         <Pressable
           accessibilityLabel="Chiudi popup"
-          onPress={onClose}
+          onPress={dismiss}
           style={styles.modalBackdrop}
         />
-        <Card style={styles.modalCard}>
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{title}</Text>
-            <Pressable accessibilityLabel="Chiudi" onPress={onClose} hitSlop={8}>
-              <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>close</Text>
-            </Pressable>
-          </View>
-          {children}
-        </Card>
+        {sheet ? (
+          <Animated.View style={[styles.modalSheetContainer, { transform: [{ translateY }] }]}>
+            {card}
+          </Animated.View>
+        ) : card}
       </View>
     </Modal>
   );
@@ -927,11 +1008,17 @@ const styles = StyleSheet.create({
   destructiveAction: { minHeight: 52, borderRadius: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 28 },
   destructiveLabel: { fontFamily: font.bodySemiBold, fontSize: 13 },
   modalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: 20 },
+  modalSheetRoot: { justifyContent: 'flex-end', paddingHorizontal: 0 },
   modalBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(3, 14, 11, 0.55)' },
   modalCard: { maxWidth: 520, width: '100%', alignSelf: 'center', padding: 20 },
+  modalSheetContainer: { maxWidth: 520, width: '100%', alignSelf: 'center' },
+  modalSheetCard: { maxWidth: undefined, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingTop: 4 },
+  sheetHandleArea: { height: 30, alignItems: 'center', justifyContent: 'center', marginHorizontal: -20 },
+  sheetHandle: { width: 42, height: 5, borderRadius: 3 },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   modalTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
   settingsScroll: { maxHeight: 620 },
+  invitePanel: { paddingTop: 4 },
   settingsBlock: { marginTop: 22 },
   permissionMember: { marginTop: 12, paddingTop: 10 },
   notice: { fontFamily: font.body, fontSize: 12, lineHeight: 18, marginTop: 18 },

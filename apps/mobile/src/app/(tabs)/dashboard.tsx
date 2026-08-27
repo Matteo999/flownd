@@ -5,6 +5,7 @@ import { Image } from 'expo-image';
 import { router, type Href, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState, useTransition } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import {
   Card,
@@ -78,6 +79,7 @@ export default function DashboardScreen() {
   const [familySummaries, setFamilySummaries] =
     useState<FamilyDashboardSummary[]>([]);
   const [familyGroupIndex, setFamilyGroupIndex] = useState(0);
+  const [dashboardScrollEnabled, setDashboardScrollEnabled] = useState(true);
   const [selectedPeriod, setSelectedPeriod] =
     useState<DashboardPeriod>('month');
   const [chartPeriod, setChartPeriod] = useState<DashboardPeriod>('month');
@@ -228,6 +230,7 @@ export default function DashboardScreen() {
 
   return (
     <Screen
+      scrollEnabled={dashboardScrollEnabled}
       floatingAction={
         <Pressable
           accessibilityRole="button"
@@ -380,6 +383,8 @@ export default function DashboardScreen() {
                   }
                 }}
                 onOpen={() => router.push('/family' as Href)}
+                onSwipeEnd={() => setDashboardScrollEnabled(true)}
+                onSwipeStart={() => setDashboardScrollEnabled(false)}
                 secondaryForeground={overviewSecondaryForeground}
                 summaries={familySummaries}
               />
@@ -659,6 +664,8 @@ function FamilyOverviewSlider({
   index,
   onIndexChange,
   onOpen,
+  onSwipeEnd,
+  onSwipeStart,
   amountsVisible,
   foreground,
   secondaryForeground,
@@ -667,12 +674,13 @@ function FamilyOverviewSlider({
   index: number;
   onIndexChange: (index: number) => void;
   onOpen: () => void;
+  onSwipeEnd: () => void;
+  onSwipeStart: () => void;
   amountsVisible: boolean;
   foreground: string;
   secondaryForeground: string;
 }) {
   const [progress] = useState(() => new Animated.Value(0));
-  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [transition, setTransition] = useState<{
     from: number;
     to: number;
@@ -699,6 +707,18 @@ function FamilyOverviewSlider({
     });
   }
 
+  const verticalSwipe = Gesture.Pan()
+    .enabled(summaries.length > 1)
+    .activeOffsetY([-9, 9])
+    .failOffsetX([-18, 18])
+    .runOnJS(true)
+    .onBegin(onSwipeStart)
+    .onEnd((event) => {
+      if (event.translationY < -28 || event.velocityY < -450) move(1);
+      else if (event.translationY > 28 || event.velocityY > 450) move(-1);
+    })
+    .onFinalize(onSwipeEnd);
+
   if (!summaries.length) {
     return (
       <Pressable
@@ -720,40 +740,18 @@ function FamilyOverviewSlider({
   const incomingSummary = transition ? summaries[transition.to] : null;
   const direction = transition?.direction ?? 1;
   return (
-    <View
-      accessibilityActions={[
-        { name: 'activate', label: 'Apri il gruppo' },
-        ...(summaries.length > 1 ? [
+    <GestureDetector gesture={verticalSwipe}>
+      <Pressable
+        accessibilityActions={[
           { name: 'increment', label: 'Gruppo successivo' },
           { name: 'decrement', label: 'Gruppo precedente' },
-        ] : []),
-      ]}
-      accessibilityLabel={`${currentSummary?.groupName ?? 'Famiglia'}, gruppo ${selectedIndex + 1} di ${summaries.length}`}
-      accessibilityRole="adjustable"
-      onAccessibilityAction={(event) => {
-        if (event.nativeEvent.actionName === 'activate') onOpen();
-        else move(event.nativeEvent.actionName === 'decrement' ? -1 : 1);
-      }}
-      onTouchCancel={() => setTouchStart(null)}
-      onTouchEnd={(event) => {
-        if (!touchStart) return;
-        const deltaX = event.nativeEvent.pageX - touchStart.x;
-        const deltaY = event.nativeEvent.pageY - touchStart.y;
-        setTouchStart(null);
-        if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
-          onOpen();
-          return;
-        }
-        if (Math.abs(deltaY) <= Math.abs(deltaX) * 1.2) return;
-        if (deltaY < -28) move(1);
-        else if (deltaY > 28) move(-1);
-      }}
-      onTouchStart={(event) => setTouchStart({
-        x: event.nativeEvent.pageX,
-        y: event.nativeEvent.pageY,
-      })}
-      style={styles.familySlider}
-    >
+        ]}
+        accessibilityHint="Scorri verticalmente per cambiare gruppo"
+        accessibilityLabel={`${currentSummary?.groupName ?? 'Famiglia'}, gruppo ${selectedIndex + 1} di ${summaries.length}`}
+        accessibilityRole="adjustable"
+        onAccessibilityAction={(event) => move(event.nativeEvent.actionName === 'decrement' ? -1 : 1)}
+        onPress={onOpen}
+        style={styles.familySlider}>
       <Animated.View
         style={[
           styles.familySlide,
@@ -802,7 +800,8 @@ function FamilyOverviewSlider({
           </Text>
         </View>
       ) : null}
-    </View>
+      </Pressable>
+    </GestureDetector>
   );
 }
 
