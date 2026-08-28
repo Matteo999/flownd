@@ -20,19 +20,20 @@ const CHART_STROKE = 22;
 const SELECTED_CHART_STROKE = 38;
 const CIRCUMFERENCE = 2 * Math.PI * CHART_RADIUS;
 const categoryColors = [
-  '#256B7E',
-  '#45A98D',
-  '#E0A63D',
-  '#6D75C9',
-  '#D06A61',
-  '#8A6E55',
-  '#2F83C5',
-  '#76A84B',
-  '#C27BAD',
-  '#B8763E',
-  '#547A66',
-  '#8A65B5',
+  '#18A8D8',
+  '#7C5CFC',
+  '#FF6685',
+  '#FFB020',
+  '#20C58A',
+  '#E85AAD',
+  '#3D8BFF',
+  '#A66CFF',
+  '#FF7A45',
+  '#35C8D0',
+  '#84C83F',
+  '#F45B9B',
 ];
+const OTHER_CATEGORY_COLOR = '#9AA3A0';
 
 function percentageLabel(amount: number, total: number) {
   const percentage = total > 0 ? (amount / total) * 100 : 0;
@@ -79,10 +80,10 @@ export function SpendingDonutChart({
     ...topCategories,
     ...(otherAmount > 0 ? [{ category: 'Altro', amount: otherAmount }] : []),
   ];
-  // Keep the combined whitespace around 2% of the ring. A fixed gap per slice
-  // can otherwise erase small categories as their number grows.
+  // Rounded caps extend beyond the measured arc. Reserve enough room for them
+  // while preserving very small categories as visible dots.
   const gapLength =
-    grouped.length > 1 ? (CIRCUMFERENCE * 0.02) / grouped.length : 0;
+    grouped.length > 1 ? CHART_STROKE + 3 : 0;
   const segments = grouped.map((item, index) => {
     const share = total > 0 ? item.amount / total : 0;
     const previousAmount = grouped
@@ -92,11 +93,16 @@ export function SpendingDonutChart({
     const arcLength = share * CIRCUMFERENCE;
     return {
       ...item,
-      color: categoryColors[index % categoryColors.length],
+      color:
+        item.category.toLocaleLowerCase('it-IT') === 'altro'
+          ? OTHER_CATEGORY_COLOR
+          : categoryColors[index % categoryColors.length],
       startShare,
       endShare: startShare + share,
-      // Never spend more than 20% of a small slice on its gap.
-      segmentLength: arcLength - Math.min(gapLength, arcLength * 0.2),
+      segmentLength: Math.max(
+        0.1,
+        arcLength - Math.min(gapLength, arcLength * 0.75),
+      ),
       offset: startShare * CIRCUMFERENCE,
     };
   });
@@ -114,7 +120,7 @@ export function SpendingDonutChart({
     `<circle cx="${CHART_CENTER}" cy="${CHART_CENTER}" r="${CHART_RADIUS}" fill="none" stroke="${colors.sunken}" stroke-width="${CHART_STROKE}"/>`,
     ...orderedSegments.map(
       (item) =>
-        `<circle cx="${CHART_CENTER}" cy="${CHART_CENTER}" r="${CHART_RADIUS}" fill="none" stroke="${item.color}" stroke-width="${item.category === selectedCategory ? SELECTED_CHART_STROKE : CHART_STROKE}" stroke-dasharray="${item.segmentLength} ${CIRCUMFERENCE - item.segmentLength}" stroke-dashoffset="${-item.offset}" stroke-linecap="butt" transform="rotate(-90 ${CHART_CENTER} ${CHART_CENTER})"/>`,
+        `<circle cx="${CHART_CENTER}" cy="${CHART_CENTER}" r="${CHART_RADIUS}" fill="none" stroke="${item.color}" stroke-width="${item.category === selectedCategory ? SELECTED_CHART_STROKE : CHART_STROKE}" stroke-dasharray="${item.segmentLength} ${CIRCUMFERENCE - item.segmentLength}" stroke-dashoffset="${-item.offset}" stroke-linecap="round" transform="rotate(-90 ${CHART_CENTER} ${CHART_CENTER})"/>`,
     ),
     '</svg>',
   ].join('');

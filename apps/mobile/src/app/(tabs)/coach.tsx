@@ -45,7 +45,7 @@ const starters = [
 ];
 
 export default function CoachScreen() {
-  const { colors } = useFlowndTheme();
+  const { colors, isDark } = useFlowndTheme();
   const {
     session,
     saving,
@@ -246,6 +246,7 @@ export default function CoachScreen() {
               ]}>
           <TextInput
             accessibilityLabel="Scrivi al Coach"
+            keyboardAppearance={isDark ? 'dark' : 'light'}
             value={input}
             onChangeText={setInput}
             placeholder="Chiedi o registra qualcosa…"
@@ -487,13 +488,14 @@ function CompactField({
   label,
   ...props
 }: ComponentProps<typeof TextInput> & { label: string }) {
-  const { colors } = useFlowndTheme();
+  const { colors, isDark } = useFlowndTheme();
   return (
     <View style={styles.compactFieldWrap}>
       <Text style={[styles.compactLabel, { color: colors.textSecondary }]}>
         {label}
       </Text>
       <TextInput
+        keyboardAppearance={isDark ? 'dark' : 'light'}
         placeholderTextColor={colors.textSecondary}
         selectionColor={colors.accent}
         style={[

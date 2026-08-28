@@ -465,10 +465,10 @@ export default function DashboardScreen() {
         <View style={styles.budgetCategoryList}>
           {budgetRows.map((budget) => {
             const visual = budget.id === 'wants'
-              ? { color: colors.warning, soft: colors.warningSoft }
+              ? { color: '#FF7A45', soft: isDark ? '#40251D' : '#FFF0EA' }
               : budget.id === 'savings'
-                ? { color: colors.positive, soft: colors.positiveSoft }
-                : { color: colors.accent, soft: colors.accentSoft };
+                ? { color: '#20C58A', soft: isDark ? '#153B30' : '#E8FBF4' }
+                : { color: '#7C5CFC', soft: isDark ? '#2D2647' : '#F0ECFF' };
             const progressColor = budget.progress > 1
               ? colors.negative
               : visual.color;
@@ -734,37 +734,10 @@ const BUDGET_RADIAL_STROKE = 14;
 const BUDGET_RADIAL_CIRCUMFERENCE = 2 * Math.PI * BUDGET_RADIAL_RADIUS;
 const BUDGET_RADIAL_ARC_SHARE = 0.5;
 
-function mixHexColors(from: string, to: string, amount: number) {
-  const mix = Math.min(1, Math.max(0, amount));
-  const fromChannels = [1, 3, 5].map((index) =>
-    Number.parseInt(from.slice(index, index + 2), 16),
-  );
-  const toChannels = [1, 3, 5].map((index) =>
-    Number.parseInt(to.slice(index, index + 2), 16),
-  );
-  const channels = fromChannels.map((channel, index) =>
-    Math.round(channel + (toChannels[index] - channel) * mix),
-  );
-  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
-}
-
-function budgetGradientColors(spentProgress: number) {
-  const progress = Math.min(1, Math.max(0, spentProgress));
-  const milestones = progress <= 0.5
-    ? {
-        amount: progress / 0.5,
-        from: ['#62D7AA', '#279873'],
-        to: ['#FFD166', '#D99A24'],
-      }
-    : {
-        amount: (progress - 0.5) / 0.5,
-        from: ['#FFD166', '#D99A24'],
-        to: ['#FF9D8B', '#D9553F'],
-      };
-  return {
-    start: mixHexColors(milestones.from[0], milestones.to[0], milestones.amount),
-    end: mixHexColors(milestones.from[1], milestones.to[1], milestones.amount),
-  };
+function budgetArcColor(spentProgress: number) {
+  if (spentProgress > 0.8) return '#FF6685';
+  if (spentProgress > 0.5) return '#FFB020';
+  return '#20C58A';
 }
 
 function BudgetRadialChart({
@@ -781,13 +754,12 @@ function BudgetRadialChart({
   const visibleProgress = Math.min(1, Math.max(0, remainingProgress));
   const arcLength = BUDGET_RADIAL_CIRCUMFERENCE * BUDGET_RADIAL_ARC_SHARE;
   const remainingLength = arcLength * visibleProgress;
-  const gradientColors = budgetGradientColors(spentProgress);
+  const arcColor = budgetArcColor(spentProgress);
   const radialSvg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${BUDGET_RADIAL_SIZE}" height="${BUDGET_RADIAL_SIZE}" viewBox="0 0 ${BUDGET_RADIAL_SIZE} ${BUDGET_RADIAL_SIZE}">`,
-    `<defs><linearGradient id="budgetGradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="${gradientColors.start}"/><stop offset="100%" stop-color="${gradientColors.end}"/></linearGradient></defs>`,
     `<circle cx="${BUDGET_RADIAL_CENTER}" cy="${BUDGET_RADIAL_CENTER}" r="${BUDGET_RADIAL_RADIUS}" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="${BUDGET_RADIAL_STROKE}" stroke-dasharray="${arcLength} ${BUDGET_RADIAL_CIRCUMFERENCE - arcLength}" stroke-linecap="round" transform="rotate(180 ${BUDGET_RADIAL_CENTER} ${BUDGET_RADIAL_CENTER})"/>`,
     remainingLength > 0
-      ? `<circle cx="${BUDGET_RADIAL_CENTER}" cy="${BUDGET_RADIAL_CENTER}" r="${BUDGET_RADIAL_RADIUS}" fill="none" stroke="url(#budgetGradient)" stroke-width="${BUDGET_RADIAL_STROKE}" stroke-dasharray="${remainingLength} ${BUDGET_RADIAL_CIRCUMFERENCE - remainingLength}" stroke-linecap="round" transform="rotate(180 ${BUDGET_RADIAL_CENTER} ${BUDGET_RADIAL_CENTER})"/>`
+      ? `<circle cx="${BUDGET_RADIAL_CENTER}" cy="${BUDGET_RADIAL_CENTER}" r="${BUDGET_RADIAL_RADIUS}" fill="none" stroke="${arcColor}" stroke-width="${BUDGET_RADIAL_STROKE}" stroke-dasharray="${remainingLength} ${BUDGET_RADIAL_CIRCUMFERENCE - remainingLength}" stroke-linecap="round" transform="rotate(180 ${BUDGET_RADIAL_CENTER} ${BUDGET_RADIAL_CENTER})"/>`
       : '',
     '</svg>',
   ].join('');

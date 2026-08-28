@@ -2,13 +2,10 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
+import { Manrope_400Regular } from '@expo-google-fonts/manrope/400Regular';
+import { Manrope_500Medium } from '@expo-google-fonts/manrope/500Medium';
 import { Manrope_600SemiBold } from '@expo-google-fonts/manrope/600SemiBold';
 import { Manrope_700Bold } from '@expo-google-fonts/manrope/700Bold';
-import { IBMPlexSans_400Regular } from '@expo-google-fonts/ibm-plex-sans/400Regular';
-import { IBMPlexSans_500Medium } from '@expo-google-fonts/ibm-plex-sans/500Medium';
-import { IBMPlexSans_600SemiBold } from '@expo-google-fonts/ibm-plex-sans/600SemiBold';
-import { IBMPlexMono_400Regular } from '@expo-google-fonts/ibm-plex-mono/400Regular';
-import { IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono/500Medium';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols/400Regular';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
@@ -24,13 +21,10 @@ SplashScreen.setOptions({ duration: 450, fade: true });
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
+    Manrope_400Regular,
+    Manrope_500Medium,
     Manrope_600SemiBold,
     Manrope_700Bold,
-    IBMPlexSans_400Regular,
-    IBMPlexSans_500Medium,
-    IBMPlexSans_600SemiBold,
-    IBMPlexMono_400Regular,
-    IBMPlexMono_500Medium,
     MaterialSymbols_400Regular,
   });
 
@@ -72,7 +66,14 @@ function RootNavigation() {
           <Stack.Screen name="login" />
           <Stack.Screen name="register" />
           <Stack.Screen name="auth/callback" />
-          <Stack.Screen name="add-transaction" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen
+            name="add-transaction"
+            options={{
+              presentation: 'transparentModal',
+              animation: 'none',
+              contentStyle: { backgroundColor: 'transparent' },
+            }}
+          />
           <Stack.Screen name="transaction-import" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="timeline-filters" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="add-manual-account" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />

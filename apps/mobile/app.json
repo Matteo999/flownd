@@ -4,24 +4,24 @@
     "slug": "flownd",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "../../assets/F_donut.png",
     "scheme": "flownd",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/images/icon.png",
+      "icon": "../../assets/F_donut.png",
       "bundleIdentifier": "com.mlmdev.flownd"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
-        "foregroundImage": "./assets/images/android-icon-flownd.png",
-        "monochromeImage": "./assets/images/android-icon-flownd.png"
+        "foregroundImage": "../../assets/F_donut.png",
+        "monochromeImage": "../../assets/F_donut.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "../../assets/F_donut.png"
     },
     "plugins": [
       "expo-router",
