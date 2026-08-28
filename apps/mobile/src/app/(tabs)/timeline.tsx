@@ -12,7 +12,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -27,6 +26,7 @@ import {
   initialWindowMetrics,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import {
   Card,
@@ -1806,16 +1806,20 @@ function EditTransactionModal({
     ]).start();
   }, [backdropOpacity, sheetTranslateY]);
 
-  const [sheetPanResponder] = useState(() =>
-    PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_, gesture) =>
-        gesture.dy > 8 &&
-        Math.abs(gesture.dy) > Math.abs(gesture.dx),
-      onPanResponderMove: (_, gesture) => {
-        sheetTranslateY.setValue(Math.max(0, gesture.dy));
-      },
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > 110 || gesture.vy > 1.05) {
+  const sheetPanGesture = useMemo(
+    () => Gesture.Pan()
+      .activeOffsetY(8)
+      .failOffsetX([-24, 24])
+      .shouldCancelWhenOutside(false)
+      .runOnJS(true)
+      .onBegin(() => {
+        sheetTranslateY.stopAnimation();
+      })
+      .onUpdate((event) => {
+        sheetTranslateY.setValue(Math.max(0, event.translationY));
+      })
+      .onEnd((event) => {
+        if (event.translationY > 110 || event.velocityY > 1050) {
           closeSheet();
           return;
         }
@@ -1825,14 +1829,15 @@ function EditTransactionModal({
           stiffness: 260,
           useNativeDriver: true,
         }).start();
-      },
-      onPanResponderTerminate: () => {
+      })
+      .onFinalize((_event, succeeded) => {
+        if (succeeded) return;
         Animated.spring(sheetTranslateY, {
           toValue: 0,
           useNativeDriver: true,
         }).start();
-      },
-    }),
+      }),
+    [closeSheet, sheetTranslateY],
   );
 
   return (
@@ -1852,20 +1857,20 @@ function EditTransactionModal({
             style={StyleSheet.absoluteFill}
           />
         </Animated.View>
-        <Animated.View
-          style={[
-            styles.editSheet,
-            {
-              backgroundColor: colors.background,
-              borderColor: colors.border,
-              transform: [{ translateY: sheetTranslateY }],
-            },
-          ]}>
-          <View {...sheetPanResponder.panHandlers}>
+        <GestureDetector gesture={sheetPanGesture}>
+          <Animated.View
+            style={[
+              styles.editSheet,
+              {
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                transform: [{ translateY: sheetTranslateY }],
+              },
+            ]}>
+          <View>
             <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
             <View style={styles.sheetHeader}>
               <View>
-                <Text style={[styles.sheetEyebrow, { color: colors.accent }]}>TRANSAZIONE</Text>
                 <Text style={[styles.sheetTitle, { color: colors.text }]}>Modifica movimento</Text>
               </View>
               <Pressable
@@ -1881,7 +1886,7 @@ function EditTransactionModal({
               </Pressable>
             </View>
           </View>
-          <View {...sheetPanResponder.panHandlers} style={styles.sheetContent}>
+          <View style={styles.sheetContent}>
             <View style={[styles.kindControl, { backgroundColor: colors.sunken }]}> 
               {([
                 { id: 'expense', label: 'Uscita' },
@@ -1956,7 +1961,7 @@ function EditTransactionModal({
             {kind === 'income' ? (
               <Text style={[styles.incomeHint, { color: colors.textSecondary }]}>
                 Tredicesima, rimborsi e giroconti non aumentano il budget
-                mensile. Riclassifica qui le entrate bancarie errate.
+                mensile.
               </Text>
             ) : null}
             {error ? <Text style={[styles.sheetError, { color: colors.negative }]}>{error}</Text> : null}
@@ -2058,7 +2063,8 @@ function EditTransactionModal({
               </View>
             </View>
           ) : null}
-        </Animated.View>
+          </Animated.View>
+        </GestureDetector>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -2661,6 +2667,7 @@ const styles = StyleSheet.create({
     fontFamily: font.body,
     fontSize: 10,
     lineHeight: 15,
+    marginTop: 10,
   },
   deleteButton: {
     minHeight: 44,

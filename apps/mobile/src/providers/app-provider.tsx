@@ -169,8 +169,8 @@ type AppContextValue = {
     amount: number,
     goalId?: string | null,
   ) => Promise<boolean>;
+  deleteGoalContribution: (contributionId: string) => Promise<boolean>;
   completeGoal: (goalId: string) => Promise<boolean>;
-  continueGoalAsSavings: (goalId: string) => Promise<boolean>;
   createLoan: (loan: LoanDraft) => Promise<boolean>;
   dismissGoalNotice: (noticeId: string) => Promise<void>;
   updateBudgetAmount: (id: string, amount: number) => Promise<boolean>;
@@ -449,7 +449,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       Number(goalSettingsResult.data.budget_cycle_start_day) || 1,
     );
     setBudgetRolloverMode(
-      (goalSettingsResult.data.budget_rollover_mode ?? 'savings') as BudgetRolloverMode,
+      goalSettingsResult.data.budget_rollover_mode === 'carry'
+        ? 'carry'
+        : 'savings',
     );
     setLoans(
       (loansResult.data ?? []).map((loan) => ({
@@ -1154,6 +1156,9 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     setBudgetCycleStartDay(safeStartDay);
     setBudgetRolloverMode(rolloverMode);
+    if (rolloverMode === 'savings') {
+      await hydrateUserData(session.user.id);
+    }
     return true;
   }
 
@@ -1682,11 +1687,14 @@ export function AppProvider({ children }: PropsWithChildren) {
       setError('La sessione è scaduta. Accedi di nuovo.');
       return false;
     }
-    if (
-      !goals.some((goal) => goal.id === goalId) &&
-      !completedGoals.some((goal) => goal.id === goalId)
-    ) {
+    const selectedGoal = goals.find((goal) => goal.id === goalId) ??
+      completedGoals.find((goal) => goal.id === goalId);
+    if (!selectedGoal) {
       setError('Non riusciamo a identificare l’obiettivo da eliminare.');
+      return false;
+    }
+    if (selectedGoal.status === 'free_savings') {
+      setError('Il Risparmio libero è una riserva permanente e non può essere eliminato.');
       return false;
     }
     setSaving(true);
@@ -1860,6 +1868,29 @@ export function AppProvider({ children }: PropsWithChildren) {
     return true;
   }
 
+  async function deleteGoalContribution(contributionId: string) {
+    if (!session) return false;
+    setSaving(true);
+    setError(null);
+    const { data, error: deleteError } = await supabase.rpc(
+      'delete_manual_goal_contribution',
+      { p_contribution_id: contributionId },
+    );
+    const deleted = Boolean(
+      (data as { deleted?: boolean } | null)?.deleted,
+    );
+    const refreshed = deleteError || !deleted
+      ? false
+      : await hydrateUserData(session.user.id).then(() => true);
+    setSaving(false);
+    if (deleteError || !deleted || !refreshed) {
+      if (__DEV__) console.error('Flownd goal contribution delete failed', deleteError);
+      setError('Non siamo riusciti a eliminare il versamento.');
+      return false;
+    }
+    return true;
+  }
+
   async function completeGoal(goalId: string) {
     if (!session) return false;
     const completedGoal = goals.find((goal) => goal.id === goalId);
@@ -1888,28 +1919,6 @@ export function AppProvider({ children }: PropsWithChildren) {
           ? (remaining[0] ?? initialDraft.goal)
           : current.goal,
     }));
-    return true;
-  }
-
-  async function continueGoalAsSavings(goalId: string) {
-    if (!session) return false;
-    const { error: updateError } = await supabase
-      .from('goals')
-      .update({ status: 'free_savings', deadline_label: null })
-      .eq('user_id', session.user.id)
-      .is('group_id', null)
-      .eq('id', goalId);
-    if (updateError) {
-      setError('Non siamo riusciti a convertire l’obiettivo.');
-      return false;
-    }
-    setGoals((current) =>
-      current.map((goal) =>
-        goal.id === goalId
-          ? { ...goal, status: 'free_savings', deadline: '' }
-          : goal,
-      ),
-    );
     return true;
   }
 
@@ -2041,8 +2050,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     setGoalAllocationMode,
     moveGoal,
     addGoalContribution,
+    deleteGoalContribution,
     completeGoal,
-    continueGoalAsSavings,
     createLoan,
     dismissGoalNotice,
     updateBudgetAmount,

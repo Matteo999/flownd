@@ -3,9 +3,9 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
-    "@expo-google-fonts/baloo-2": "^0.4.2",
     "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
     "@expo-google-fonts/ibm-plex-sans": "^0.4.1",
+    "@expo-google-fonts/manrope": "^0.4.2",
     "@expo-google-fonts/material-symbols": "^0.4.41",
     "@expo/ui": "~57.0.7",
     "@flownd/api-client": "*",

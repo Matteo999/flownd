@@ -5,8 +5,16 @@ import {
   useLocalSearchParams,
 } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as Haptics from 'expo-haptics';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
 import {
   Card,
@@ -18,6 +26,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
+import { financialCycleForDate } from '@/lib/financial-cycle';
 import { formatDateItalian, formatEuro } from '@/lib/onboarding';
 import { supabase } from '@/lib/supabase';
 import { useApp } from '@/providers/app-provider';
@@ -29,6 +38,15 @@ type Contribution = {
   createdAt: string;
 };
 
+const SWIPE_ACTION_WIDTH = 86;
+const SWIPE_DELETE_THRESHOLD = 168;
+const SWIPE_DISMISS_DISTANCE = 520;
+const SWIPE_SPRING = { damping: 22, stiffness: 240, mass: 0.82 };
+
+function deleteThresholdHaptic() {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+}
+
 export default function GoalDetailScreen() {
   const { colors, isDark } = useFlowndTheme();
   const { goalId } = useLocalSearchParams<{ goalId?: string }>();
@@ -37,7 +55,9 @@ export default function GoalDetailScreen() {
     goals,
     amountsVisible,
     completeGoal,
-    continueGoalAsSavings,
+    deleteGoalContribution,
+    budgetCycleStartDay,
+    transactions,
   } = useApp();
   const goal = goals.find((item) => item.id === goalId);
   const [contributions, setContributions] = useState<Contribution[]>([]);
@@ -91,15 +111,31 @@ export default function GoalDetailScreen() {
   const progress = goal.targetAmount
     ? Math.min(goal.savedAmount / goal.targetAmount, 1)
     : 0;
+  const currentCycle = financialCycleForDate(
+    new Date(),
+    budgetCycleStartDay,
+    transactions,
+  );
+
+  async function deleteContribution(contributionId: string) {
+    const deleted = await deleteGoalContribution(contributionId);
+    if (deleted) {
+      setContributions((current) =>
+        current.filter((contribution) => contribution.id !== contributionId),
+      );
+    }
+  }
 
   return (
     <Screen>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <DetailHeader
         title={goal.name}
-        onEdit={() =>
-          router.push(`/add-goal?goalId=${encodeURIComponent(goal.id)}` as Href)
-        }
+        onEdit={goal.status === 'free_savings'
+          ? undefined
+          : () => router.push(
+              `/add-goal?goalId=${encodeURIComponent(goal.id)}` as Href,
+            )}
       />
 
       <Card style={styles.hero}>
@@ -129,7 +165,8 @@ export default function GoalDetailScreen() {
           </>
         ) : (
           <Text style={[styles.freeSavingsCopy, { color: colors.textSecondary }]}>
-            Qui confluisce la parte della quota Risparmio non assegnata ad altri obiettivi.
+            Riserva permanente: raccoglie gli avanzi trasferiti a risparmio e la
+            parte non assegnata agli obiettivi. Non può essere eliminata.
           </Text>
         )}
       </Card>
@@ -152,7 +189,8 @@ export default function GoalDetailScreen() {
         <Card style={[styles.reached, { backgroundColor: colors.accentSoft }]}> 
           <Text style={[styles.reachedTitle, { color: colors.text }]}>Obiettivo raggiunto</Text>
           <Text style={[styles.reachedCopy, { color: colors.textSecondary }]}> 
-            Puoi completarlo oppure continuare a usarlo come risparmio libero.
+            Puoi completarlo; i nuovi accantonamenti passeranno agli obiettivi
+            successivi o al Risparmio libero.
           </Text>
           <View style={styles.reachedActions}>
             <SecondaryButton
@@ -161,11 +199,6 @@ export default function GoalDetailScreen() {
                 if (await completeGoal(goal.id)) router.back();
               }}>
               Segna completato
-            </SecondaryButton>
-            <SecondaryButton
-              compact
-              onPress={() => void continueGoalAsSavings(goal.id)}>
-              Continua a risparmiare
             </SecondaryButton>
           </View>
         </Card>
@@ -187,27 +220,22 @@ export default function GoalDetailScreen() {
         </Card>
       ) : contributions.length ? (
         <View style={styles.historyList}>
-          {contributions.map((contribution) => (
-            <Card key={contribution.id} style={styles.historyRow}>
-              <View
-                style={[styles.historyIcon, { backgroundColor: colors.positiveSoft }]}> 
-                <Text style={[styles.materialIcon, { color: colors.positive }]}>south_west</Text>
-              </View>
-              <View style={styles.flex}>
-                <Text style={[styles.historySource, { color: colors.text }]}> 
-                  {contribution.source === 'open_banking'
-                    ? 'Accantonamento automatico'
-                    : 'Versamento manuale'}
-                </Text>
-                <Text style={[styles.historyDate, { color: colors.textSecondary }]}> 
-                  {formatContributionDate(contribution.createdAt)}
-                </Text>
-              </View>
-              <Text style={[styles.historyAmount, { color: colors.positive }]}> 
-                +{amountsVisible ? formatEuro(contribution.amount) : HIDDEN_AMOUNT}
-              </Text>
-            </Card>
-          ))}
+          {contributions.map((contribution) => {
+            const occurredAt = new Date(contribution.createdAt);
+            const deletable = contribution.source === 'manual' &&
+              !Number.isNaN(occurredAt.getTime()) &&
+              occurredAt >= currentCycle.start &&
+              occurredAt < currentCycle.end;
+            return (
+              <ContributionRow
+                key={contribution.id}
+                contribution={contribution}
+                amountsVisible={amountsVisible}
+                deletable={deletable}
+                onDelete={() => void deleteContribution(contribution.id)}
+              />
+            );
+          })}
         </View>
       ) : (
         <Card>
@@ -217,6 +245,122 @@ export default function GoalDetailScreen() {
         </Card>
       )}
     </Screen>
+  );
+}
+
+function ContributionRow({
+  contribution,
+  amountsVisible,
+  deletable,
+  onDelete,
+}: {
+  contribution: Contribution;
+  amountsVisible: boolean;
+  deletable: boolean;
+  onDelete: () => void;
+}) {
+  const { colors } = useFlowndTheme();
+  const translateX = useSharedValue(0);
+  const gestureStart = useSharedValue(0);
+  const deleteArmed = useSharedValue(false);
+  const rowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+  const actionStyle = useAnimatedStyle(() => ({
+    width: Math.max(SWIPE_ACTION_WIDTH, -translateX.value),
+  }));
+  const panGesture = Gesture.Pan()
+    .enabled(deletable)
+    .activeOffsetX([-9, 9])
+    .failOffsetY([-12, 12])
+    .onStart(() => {
+      gestureStart.value = translateX.value;
+    })
+    .onUpdate((event) => {
+      translateX.value = Math.min(0, gestureStart.value + event.translationX);
+      const crossed = -translateX.value >= SWIPE_DELETE_THRESHOLD;
+      if (crossed && !deleteArmed.value) {
+        deleteArmed.value = true;
+        runOnJS(deleteThresholdHaptic)();
+      } else if (!crossed && deleteArmed.value) {
+        deleteArmed.value = false;
+      }
+    })
+    .onEnd(() => {
+      if (deleteArmed.value) {
+        translateX.value = withSpring(
+          -SWIPE_DISMISS_DISTANCE,
+          SWIPE_SPRING,
+          (finished) => {
+            if (finished) runOnJS(onDelete)();
+          },
+        );
+        return;
+      }
+      translateX.value = withSpring(
+        translateX.value <= -SWIPE_ACTION_WIDTH / 2
+          ? -SWIPE_ACTION_WIDTH
+          : 0,
+        SWIPE_SPRING,
+      );
+    })
+    .onFinalize(() => {
+      deleteArmed.value = false;
+    });
+
+  const deleteFromButton = useCallback(() => {
+    translateX.value = withSpring(
+      -SWIPE_DISMISS_DISTANCE,
+      SWIPE_SPRING,
+      (finished) => {
+        if (finished) runOnJS(onDelete)();
+      },
+    );
+  }, [onDelete, translateX]);
+
+  const content = (
+    <Card style={styles.historyRow}>
+      <View style={[styles.historyIcon, { backgroundColor: colors.positiveSoft }]}> 
+        <Text style={[styles.materialIcon, { color: colors.positive }]}>south_west</Text>
+      </View>
+      <View style={styles.flex}>
+        <Text style={[styles.historySource, { color: colors.text }]}> 
+          {contribution.source === 'open_banking'
+            ? 'Accantonamento automatico'
+            : 'Versamento manuale'}
+        </Text>
+        <Text style={[styles.historyDate, { color: colors.textSecondary }]}> 
+          {formatContributionDate(contribution.createdAt)}
+        </Text>
+      </View>
+      <Text style={[styles.historyAmount, { color: colors.positive }]}> 
+        +{amountsVisible ? formatEuro(contribution.amount) : HIDDEN_AMOUNT}
+      </Text>
+    </Card>
+  );
+
+  if (!deletable) return content;
+  return (
+    <View style={styles.swipeRow}>
+      <View
+        pointerEvents="none"
+        style={[styles.swipeDeleteBackground, { backgroundColor: colors.negative }]}
+      />
+      <Animated.View
+        style={[styles.swipeDelete, { backgroundColor: colors.negative }, actionStyle]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Elimina versamento"
+          onPress={deleteFromButton}
+          style={styles.swipeDeletePressable}>
+          <Text style={[styles.materialIcon, { color: '#FFFFFF' }]}>delete</Text>
+          <Text style={styles.swipeDeleteText}>Elimina</Text>
+        </Pressable>
+      </Animated.View>
+      <GestureDetector gesture={panGesture}>
+        <Animated.View style={rowStyle}>{content}</Animated.View>
+      </GestureDetector>
+    </View>
   );
 }
 
@@ -324,6 +468,26 @@ const styles = StyleSheet.create({
   historySource: { fontFamily: font.bodyMedium, fontSize: 12 },
   historyDate: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
   historyAmount: { fontFamily: font.dataMedium, fontSize: 12 },
+  swipeRow: { position: 'relative', overflow: 'hidden', borderRadius: 12 },
+  swipeDeleteBackground: { ...StyleSheet.absoluteFillObject },
+  swipeDelete: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
+  swipeDeletePressable: {
+    flex: 1,
+    minWidth: SWIPE_ACTION_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  swipeDeleteText: {
+    color: '#FFFFFF',
+    fontFamily: font.bodySemiBold,
+    fontSize: 10,
+  },
   loader: { marginVertical: 22 },
   emptyTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   emptyCopy: { fontFamily: font.body, fontSize: 11, lineHeight: 17, marginTop: 3 },

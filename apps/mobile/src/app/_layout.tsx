@@ -2,8 +2,8 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
-import { Baloo2_600SemiBold } from '@expo-google-fonts/baloo-2/600SemiBold';
-import { Baloo2_700Bold } from '@expo-google-fonts/baloo-2/700Bold';
+import { Manrope_600SemiBold } from '@expo-google-fonts/manrope/600SemiBold';
+import { Manrope_700Bold } from '@expo-google-fonts/manrope/700Bold';
 import { IBMPlexSans_400Regular } from '@expo-google-fonts/ibm-plex-sans/400Regular';
 import { IBMPlexSans_500Medium } from '@expo-google-fonts/ibm-plex-sans/500Medium';
 import { IBMPlexSans_600SemiBold } from '@expo-google-fonts/ibm-plex-sans/600SemiBold';
@@ -24,8 +24,8 @@ SplashScreen.setOptions({ duration: 450, fade: true });
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
-    Baloo2_600SemiBold,
-    Baloo2_700Bold,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
     IBMPlexSans_400Regular,
     IBMPlexSans_500Medium,
     IBMPlexSans_600SemiBold,

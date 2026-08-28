@@ -32,15 +32,11 @@ export default function GoalsScreen() {
     transactions,
   } = useApp();
   const [completedOpen, setCompletedOpen] = useState(false);
-  const orderedGoals = [...goals].sort(
-    (first, second) =>
-      Number(first.status === 'free_savings') -
-        Number(second.status === 'free_savings') ||
-      first.priority - second.priority,
-  );
-  const targetGoalCount = goals.filter(
-    (goal) => goal.status !== 'free_savings',
-  ).length;
+  const freeSavings = goals.find((goal) => goal.status === 'free_savings');
+  const orderedGoals = goals
+    .filter((goal) => goal.status !== 'free_savings')
+    .sort((first, second) => first.priority - second.priority);
+  const targetGoalCount = orderedGoals.length;
   const monthlyLoanTotal = loans.reduce(
     (sum, loan) => sum + loan.monthlyPayment,
     0,
@@ -110,6 +106,24 @@ export default function GoalsScreen() {
           />
         }
       />
+
+      {freeSavings ? (
+        <View style={styles.freeSavingsSection}>
+          <View>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Riserva</Text>
+            <Text style={[styles.sectionCaption, { color: colors.textSecondary }]}>
+              Riserva permanente e non eliminabile
+            </Text>
+          </View>
+          <GoalCard
+            goal={freeSavings}
+            amountsVisible={amountsVisible}
+            onPress={() => router.push(
+              `/goal-detail?goalId=${encodeURIComponent(freeSavings.id)}` as Href,
+            )}
+          />
+        </View>
+      ) : null}
 
       <View style={styles.listHeader}>
         <View>
@@ -351,6 +365,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
+  freeSavingsSection: { gap: 10, marginBottom: 26 },
   sectionTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
   sectionCaption: { fontFamily: font.body, fontSize: 11, marginTop: -1 },
   addButton: {

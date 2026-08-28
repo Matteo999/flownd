@@ -117,7 +117,7 @@ export default function AddGoalScreen() {
           }}>
           {existingGoal ? 'Salva modifiche' : 'Crea obiettivo'}
         </PrimaryButton>
-        {existingGoal ? (
+        {existingGoal && !isFreeSavings ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Elimina ${existingGoal.name}`}
