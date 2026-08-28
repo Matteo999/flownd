@@ -1,6 +1,6 @@
 import type { ExpenseDraft } from '@/lib/onboarding';
 
-export type BudgetRolloverMode = 'savings' | 'carry' | 'reset';
+export type BudgetRolloverMode = 'savings' | 'carry';
 
 export type FinancialCycle = {
   start: Date;

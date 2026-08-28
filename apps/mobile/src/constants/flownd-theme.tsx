@@ -51,8 +51,8 @@ export type FlowndColors = typeof lightColors;
 export const brandGradient = ['#457FEF', '#45D5B6'] as const;
 
 export const font = {
-  displaySemiBold: 'Baloo2_600SemiBold',
-  displayBold: 'Baloo2_700Bold',
+  displaySemiBold: 'Manrope_600SemiBold',
+  displayBold: 'Manrope_700Bold',
   body: 'IBMPlexSans_400Regular',
   bodyMedium: 'IBMPlexSans_500Medium',
   bodySemiBold: 'IBMPlexSans_600SemiBold',

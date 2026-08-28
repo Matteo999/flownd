@@ -25,17 +25,12 @@ const rolloverOptions: {
   {
     id: 'savings',
     title: 'Sposta nei Risparmi',
-    description: 'L’avanzo del ciclo precedente aumenta solo la quota Risparmi.',
+    description: 'L’intero avanzo viene aggiunto al contatore permanente Risparmio libero.',
   },
   {
     id: 'carry',
     title: 'Riporta al ciclo successivo',
     description: 'L’avanzo viene ridistribuito tra tutte le quote.',
-  },
-  {
-    id: 'reset',
-    title: 'Non riportare',
-    description: 'Il nuovo budget considera soltanto le nuove entrate.',
   },
 ];
 

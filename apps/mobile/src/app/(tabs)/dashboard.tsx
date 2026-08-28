@@ -147,10 +147,16 @@ export default function DashboardScreen() {
     (transaction) => transaction.kind !== 'income',
   );
   const previousIncome = previousCycleTransactions
-    .filter((transaction) => transaction.kind === 'income')
+    .filter(
+      (transaction) =>
+        transaction.kind === 'income' && !transaction.excludedFromBudget,
+    )
     .reduce((sum, transaction) => sum + transaction.amount, 0);
   const previousSpent = previousCycleTransactions
-    .filter((transaction) => transaction.kind !== 'income')
+    .filter(
+      (transaction) =>
+        transaction.kind !== 'income' && !transaction.excludedFromBudget,
+    )
     .reduce((sum, transaction) => sum + transaction.amount, 0);
   const savedThisCycle = goalContributions
     .filter((contribution) => {
@@ -164,10 +170,9 @@ export default function DashboardScreen() {
       return createdAt >= previousCycle.start && createdAt < previousCycle.end;
     })
     .reduce((sum, contribution) => sum + contribution.amount, 0);
-  const rolloverAmount =
-    budgetRolloverMode === 'reset'
-      ? 0
-      : Math.max(0, previousIncome - previousSpent - savedPreviousCycle);
+  const rolloverAmount = budgetRolloverMode === 'carry'
+    ? Math.max(0, previousIncome - previousSpent - savedPreviousCycle)
+    : 0;
   const monthlyBudget = budgetMonthlyIncome + rolloverAmount;
   const chartPeriodTransactions = chartPeriod === 'month'
     ? transactionsForFinancialCycle(transactions, financialCycle)
@@ -196,9 +201,7 @@ export default function DashboardScreen() {
       budgetMonthlyIncome * allocationShare +
       (budgetRolloverMode === 'carry'
         ? rolloverAmount * allocationShare
-        : budgetRolloverMode === 'savings' && budget.id === 'savings'
-          ? rolloverAmount
-          : 0);
+        : 0);
     return {
       ...budget,
       amount: effectiveAmount,
