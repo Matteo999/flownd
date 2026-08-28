@@ -80,7 +80,7 @@ export function Screen({
   scrollHeaderWithContent?: boolean;
   style?: StyleProp<ViewStyle>;
   floatingAction?: ReactNode;
-  floatingActionPosition?: 'right' | 'center';
+  floatingActionPosition?: 'right' | 'center' | 'free';
 }>) {
   const { colors, isDark } = useFlowndTheme();
   const insets = useSafeAreaInsets();
@@ -174,6 +174,7 @@ export function Screen({
           style={[
             styles.floatingAction,
             floatingActionPosition === 'center' && styles.floatingActionCenter,
+            floatingActionPosition === 'free' && styles.floatingActionFree,
           ]}>
           {floatingAction}
         </View>
@@ -537,6 +538,12 @@ const styles = StyleSheet.create({
     bottom: 112,
   },
   floatingActionCenter: { left: 20, alignItems: 'center' },
+  floatingActionFree: {
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
   loadingMark: { marginBottom: 6 },
   loadingText: { fontFamily: font.bodyMedium, fontSize: 14 },

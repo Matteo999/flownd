@@ -1,5 +1,5 @@
--- Espone la stessa memorizzazione già disponibile nella categorizzazione
--- multipla anche alla modifica di un singolo movimento.
+-- La prima versione usava description_key sia come nome della colonna sia come
+-- variabile PL/pgSQL, rendendo ambiguo l'ON CONFLICT a runtime.
 create or replace function public.remember_transaction_category(
   p_transaction_id uuid,
   p_category text
@@ -16,16 +16,16 @@ declare
   normalized_description_key text;
 begin
   select
-    description,
-    coalesce(kind, 'expense'),
-    financial_account_id
+    transaction.description,
+    coalesce(transaction.kind, 'expense'),
+    transaction.financial_account_id
   into
     selected_description,
     selected_kind,
     selected_financial_account_id
-  from public.transactions
-  where id = p_transaction_id
-    and user_id = auth.uid();
+  from public.transactions as transaction
+  where transaction.id = p_transaction_id
+    and transaction.user_id = auth.uid();
 
   if not found then
     raise exception 'Transaction not found';
@@ -34,7 +34,8 @@ begin
     raise exception 'Only expense categories can be remembered';
   end if;
 
-  normalized_description_key := public.normalize_transaction_description(selected_description);
+  normalized_description_key :=
+    public.normalize_transaction_description(selected_description);
   if normalized_description_key = '' or trim(coalesce(p_category, '')) = '' then
     raise exception 'Description and category are required';
   end if;

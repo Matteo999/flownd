@@ -17,6 +17,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { AppHeaderActions } from '@/components/app-header-actions';
+import { DraggableTransactionFab } from '@/components/draggable-transaction-fab';
 import { SpendingDonutChart } from '@/components/spending-donut-chart';
 import {
   HIDDEN_AMOUNT,
@@ -231,18 +232,11 @@ export default function DashboardScreen() {
   return (
     <Screen
       scrollEnabled={dashboardScrollEnabled}
+      floatingActionPosition="free"
       floatingAction={
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Aggiungi una transazione"
+        <DraggableTransactionFab
           onPress={() => router.push('/add-transaction' as Href)}
-          style={({ pressed }) => [
-            styles.fab,
-            { backgroundColor: colors.accent },
-            pressed && styles.fabPressed,
-          ]}>
-          <Text style={styles.fabIcon}>add</Text>
-        </Pressable>
+        />
       }>
       <PageHeader
         title="Dashboard"
@@ -450,9 +444,6 @@ export default function DashboardScreen() {
           <View style={styles.flex}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>
               Budget per categoria
-            </Text>
-            <Text style={[styles.budgetCategoriesCycle, { color: colors.textSecondary }]}>
-              {formatFinancialCycle(financialCycle)}
             </Text>
           </View>
           <Pressable
