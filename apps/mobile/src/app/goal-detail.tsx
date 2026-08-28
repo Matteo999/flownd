@@ -277,6 +277,7 @@ function ContributionRow({
       gestureStart.value = translateX.value;
     })
     .onUpdate((event) => {
+      // eslint-disable-next-line react-hooks/immutability
       translateX.value = Math.min(0, gestureStart.value + event.translationX);
       const crossed = -translateX.value >= SWIPE_DELETE_THRESHOLD;
       if (crossed && !deleteArmed.value) {
@@ -288,6 +289,7 @@ function ContributionRow({
     })
     .onEnd(() => {
       if (deleteArmed.value) {
+        // eslint-disable-next-line react-hooks/immutability
         translateX.value = withSpring(
           -SWIPE_DISMISS_DISTANCE,
           SWIPE_SPRING,
@@ -309,6 +311,7 @@ function ContributionRow({
     });
 
   const deleteFromButton = useCallback(() => {
+    // eslint-disable-next-line react-hooks/immutability
     translateX.value = withSpring(
       -SWIPE_DISMISS_DISTANCE,
       SWIPE_SPRING,
@@ -320,20 +323,20 @@ function ContributionRow({
 
   const content = (
     <Card style={styles.historyRow}>
-      <View style={[styles.historyIcon, { backgroundColor: colors.positiveSoft }]}> 
+      <View style={[styles.historyIcon, { backgroundColor: colors.positiveSoft }]}>
         <Text style={[styles.materialIcon, { color: colors.positive }]}>south_west</Text>
       </View>
       <View style={styles.flex}>
-        <Text style={[styles.historySource, { color: colors.text }]}> 
+        <Text style={[styles.historySource, { color: colors.text }]}>
           {contribution.source === 'open_banking'
             ? 'Accantonamento automatico'
             : 'Versamento manuale'}
         </Text>
-        <Text style={[styles.historyDate, { color: colors.textSecondary }]}> 
+        <Text style={[styles.historyDate, { color: colors.textSecondary }]}>
           {formatContributionDate(contribution.createdAt)}
         </Text>
       </View>
-      <Text style={[styles.historyAmount, { color: colors.positive }]}> 
+      <Text style={[styles.historyAmount, { color: colors.positive }]}>
         +{amountsVisible ? formatEuro(contribution.amount) : HIDDEN_AMOUNT}
       </Text>
     </Card>
@@ -469,7 +472,13 @@ const styles = StyleSheet.create({
   historyDate: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
   historyAmount: { fontFamily: font.dataMedium, fontSize: 12 },
   swipeRow: { position: 'relative', overflow: 'hidden', borderRadius: 12 },
-  swipeDeleteBackground: { ...StyleSheet.absoluteFillObject },
+  swipeDeleteBackground: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
   swipeDelete: {
     position: 'absolute',
     top: 0,

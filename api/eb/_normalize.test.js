@@ -191,21 +191,70 @@ test('estrae il beneficiario dalla causale di un giroconto', () => {
   assert.equal(transaction.transferHint, true)
 })
 
-test('usa transaction_date per il giorno operativo e non la data valuta', () => {
+test('usa value_date come giorno effettivo per un movimento contabilizzato', () => {
   const transaction = normalizeBankTransaction(
     {
       transaction_amount: { amount: '12', currency: 'EUR' },
       credit_debit_indicator: 'DBIT',
       status: 'BOOK',
-      transaction_date: '2026-08-19',
-      value_date: '2026-08-28',
-      booking_date: '2026-08-21',
+      transaction_date: '2026-08-28',
+      value_date: '2026-08-26',
+      booking_date: '2026-08-28',
       remittance_information: ['Pagamento carta alle ore 15:38 presso NEGOZIO'],
     },
     'conto',
   )
-  assert.equal(transaction.occurredOn, '2026-08-19')
+  assert.equal(transaction.occurredOn, '2026-08-26')
   assert.equal(transaction.occurredTime, '15:38:00')
+})
+
+test('non anticipa un pending alla value_date futura stimata', () => {
+  const transaction = normalizeBankTransaction(
+    {
+      transaction_amount: { amount: '12', currency: 'EUR' },
+      credit_debit_indicator: 'DBIT',
+      status: 'PDNG',
+      transaction_date: '2026-08-27',
+      value_date: '2026-09-05',
+      remittance_information: ['Pagamento in sospeso'],
+    },
+    'conto',
+  )
+  assert.equal(transaction.occurredOn, '2026-08-27')
+})
+
+test('non confonde la parola presso con il distributore Esso', () => {
+  const base = {
+    transaction_amount: { amount: '28.98', currency: 'EUR' },
+    credit_debit_indicator: 'DBIT',
+    status: 'BOOK',
+    value_date: '2026-08-26',
+  }
+  const amazon = normalizeBankTransaction(
+    {
+      ...base,
+      remittance_information: ['Pagamento carta presso Amazon.it*UI03Y2MM5'],
+    },
+    'conto',
+  )
+  const game7 = normalizeBankTransaction(
+    {
+      ...base,
+      remittance_information: ['Pagamento carta presso GAME 7 - Transazione C-less'],
+    },
+    'conto',
+  )
+  const esso = normalizeBankTransaction(
+    {
+      ...base,
+      remittance_information: ['Pagamento carta presso ESSO'],
+    },
+    'conto',
+  )
+
+  assert.equal(amazon.category, 'Shopping')
+  assert.equal(game7.category, 'Shopping')
+  assert.equal(esso.category, 'Trasporti e Auto')
 })
 
 test('usa un fingerprint idempotente nei payload CRBZ senza identificativi', async () => {

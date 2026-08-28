@@ -939,6 +939,7 @@ export default function TimelineScreen() {
           transaction={editingTransaction}
           saving={saving}
           error={error}
+          allowRemember={planTier !== 'free'}
           onClose={() => {
             clearError();
             setEditingTransaction(null);
@@ -1734,6 +1735,7 @@ function EditTransactionModal({
   transaction,
   saving,
   error,
+  allowRemember,
   onClose,
   onSave,
   onDelete,
@@ -1741,6 +1743,7 @@ function EditTransactionModal({
   transaction: ExpenseDraft;
   saving: boolean;
   error: string | null;
+  allowRemember: boolean;
   onClose: () => void;
   onSave: (transactionId: string, changes: TransactionUpdate) => Promise<void>;
   onDelete?: (transactionId: string) => void;
@@ -1770,6 +1773,7 @@ function EditTransactionModal({
         : 'Altro',
   );
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [rememberSimilar, setRememberSimilar] = useState(false);
   const categoryOptions = categoriesForTransactionKind(kind);
   const numericAmount = Number(amount.replace(',', '.')) || 0;
   const [sheetTranslateY] = useState(() => new Animated.Value(480));
@@ -1900,6 +1904,7 @@ function EditTransactionModal({
                     accessibilityState={{ selected }}
                     onPress={() => {
                       setKind(option.id);
+                      if (option.id === 'income') setRememberSimilar(false);
                       setCategory(
                         option.id === 'income' ? 'Altra entrata' : 'Altro',
                       );
@@ -1964,6 +1969,37 @@ function EditTransactionModal({
                 mensile.
               </Text>
             ) : null}
+            {kind === 'expense' && allowRemember ? (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: rememberSimilar }}
+                onPress={() => setRememberSimilar((current) => !current)}
+                style={styles.rememberRule}>
+                <View
+                  style={[
+                    styles.rememberCheckbox,
+                    {
+                      backgroundColor: rememberSimilar
+                        ? colors.accent
+                        : colors.surface,
+                      borderColor: rememberSimilar ? colors.accent : colors.border,
+                    },
+                  ]}>
+                  {rememberSimilar ? (
+                    <Text style={[styles.selectionCheck, { color: colors.onAccent }]}>check</Text>
+                  ) : null}
+                </View>
+                <View style={styles.flex}>
+                  <Text style={[styles.rememberTitle, { color: colors.text }]}>
+                    Ricorda per il futuro
+                  </Text>
+                  <Text style={[styles.rememberCopy, { color: colors.textSecondary }]}>
+                    Applica questa categoria ai prossimi movimenti Open Banking
+                    con una descrizione simile.
+                  </Text>
+                </View>
+              </Pressable>
+            ) : null}
             {error ? <Text style={[styles.sheetError, { color: colors.negative }]}>{error}</Text> : null}
             {onDelete && transaction.id ? (
               <Pressable
@@ -1996,6 +2032,7 @@ function EditTransactionModal({
                   category,
                   kind,
                   occurredAt: occurredAt.toISOString(),
+                  rememberSimilar,
                 });
               }}>
               Salva modifiche
