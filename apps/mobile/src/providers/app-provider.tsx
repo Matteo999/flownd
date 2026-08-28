@@ -55,6 +55,7 @@ export type TransactionUpdate = {
   category: string;
   kind: 'expense' | 'income';
   occurredAt: string;
+  rememberSimilar?: boolean;
 };
 
 export type FinancialAccount = {
@@ -1220,13 +1221,34 @@ export function AppProvider({ children }: PropsWithChildren) {
           })
           .eq('id', transactionId)
           .eq('user_id', session.user.id);
-    setSaving(false);
-
     if (updateError) {
+      setSaving(false);
       if (__DEV__) console.error('Flownd transaction update failed', updateError);
       setError('Non siamo riusciti ad aggiornare la transazione.');
       return false;
     }
+
+    if (transaction.rememberSimilar && transaction.kind === 'expense') {
+      const { data: remembered, error: rememberError } = await supabase.rpc(
+        'remember_transaction_category',
+        {
+          p_transaction_id: transactionId,
+          p_category: nextCategory,
+        },
+      );
+      if (rememberError || remembered !== true) {
+        setSaving(false);
+        if (__DEV__) {
+          console.error('Flownd transaction category rule save failed', rememberError);
+        }
+        setError(
+          'Il movimento è stato salvato, ma non siamo riusciti a ricordare la categoria.',
+        );
+        return false;
+      }
+    }
+
+    setSaving(false);
 
     if (manualAccount) {
       await hydrateUserData(session.user.id);

@@ -202,13 +202,13 @@ function categoryFor({ description, remittance, direction, bankCode, bankSubCode
   if (/bar\b|ristor|mcdonald|burger king|sushi|pizzeria|caffe|caffè|deliveroo|glovo|just eat/.test(text)) return 'Bar e ristoranti'
   if (/farmac|medical|sanitar|dentist/.test(text)) return 'Cure sanitarie e Farmacia'
   if (/f24|impost|tass|multa|pagopa/.test(text)) return 'Tasse e Multe'
-  if (/benzina|carbur|distributore|\bq8\b|\beni\b|tamoil|esso|trasport|autostr|telepass|parchegg|taxi|trenitalia|italo|officina|gommista/.test(text)) return 'Trasporti e Auto'
+  if (/benzina|carbur|distributore|\bq8\b|\beni\b|tamoil|\besso\b|trasport|autostr|telepass|parchegg|taxi|trenitalia|italo|officina|gommista/.test(text)) return 'Trasporti e Auto'
   if (/netflix|spotify|disney|prime video|abbonament|subscription|iscrizione|donazione|patreon/.test(text)) return 'Sottoscrizioni e donazioni'
   if (/eurobrico|leroy merlin|ikea|brico|utenza|energia|elettric|gas\b|acqua\b|affitto|condominio/.test(text)) return 'Casa e utenze'
   if (/mediaworld|unieuro|euronics|apple store|elettronica|computer|smartphone/.test(text)) return 'Multimedia e Elettronica'
   if (/universit|scuola|formazione|udemy|coursera|libreria/.test(text)) return 'Educazione'
   if (/cinema|teatro|concerto|museo|palestra|ticketone|steam|playstation|xbox/.test(text)) return 'Tempo libero e intrattenimento'
-  if (/kiko|amazon|zara|zalando|h&m|abbigliamento|scarpe|shopping|negozio|decathlon/.test(text)) return 'Shopping'
+  if (/kiko|amazon|\bgame 7\b|zara|zalando|h&m|abbigliamento|scarpe|shopping|negozio|decathlon/.test(text)) return 'Shopping'
   if (/viaggio|hotel|albergo|booking|airbnb|aereo|ryanair|easyjet|aeroporto/.test(text)) return 'Viaggi e Vacanze'
   if (/commission|canone|fees?\b/.test(text)) return 'Assicurazioni e Finanza'
   return 'Altro'
@@ -270,10 +270,14 @@ export function normalizeBankTransaction(transaction, accountIdentity) {
   const bookingDate = transaction.booking_date || null
   const valueDate = transaction.value_date || null
   const transactionDate = transaction.transaction_date || null
-  // transaction_date è il giorno dell'operazione; value_date è la data valuta
-  // e booking_date il giorno di contabilizzazione. Tutti e tre sono date, non
-  // timestamp, nello schema unificato Enable Banking.
-  const occurredOn = transactionDate || valueDate || bookingDate
+  const normalizedStatus = status(transaction.status)
+  // Nei movimenti contabilizzati la data valuta rappresenta il giorno effettivo
+  // dell'operazione, mentre alcuni istituti espongono transaction_date uguale
+  // alla data contabile. Per i pending conserviamo transaction_date in testa:
+  // la value_date può essere una data futura stimata prima della contabilizzazione.
+  const occurredOn = normalizedStatus === 'booked'
+    ? valueDate || transactionDate || bookingDate
+    : transactionDate || valueDate || bookingDate
   const described = describe(transaction)
   const structuredTime = [
     transaction.transaction_date_time,
@@ -314,8 +318,6 @@ export function normalizeBankTransaction(transaction, accountIdentity) {
   const stableKey = entryReference
     ? `entry:${entryReference}`
     : `fingerprint:${contentFingerprint}`
-  const normalizedStatus = status(transaction.status)
-
   return {
     stableKey,
     contentFingerprint,
