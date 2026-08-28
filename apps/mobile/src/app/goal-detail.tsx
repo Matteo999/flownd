@@ -27,7 +27,7 @@ import {
 } from '@/components/flownd-ui';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import { financialCycleForDate } from '@/lib/financial-cycle';
-import { formatDateItalian, formatEuro } from '@/lib/onboarding';
+import { formatDateItalian, formatEuro, monthsUntil } from '@/lib/onboarding';
 import { supabase } from '@/lib/supabase';
 import { useApp } from '@/providers/app-provider';
 
@@ -111,6 +111,10 @@ export default function GoalDetailScreen() {
   const progress = goal.targetAmount
     ? Math.min(goal.savedAmount / goal.targetAmount, 1)
     : 0;
+  const requiredMonthlyContribution = goal.deadline
+    ? Math.max(0, goal.targetAmount - goal.savedAmount) /
+      monthsUntil(goal.deadline)
+    : 0;
   const currentCycle = financialCycleForDate(
     new Date(),
     budgetCycleStartDay,
@@ -162,6 +166,33 @@ export default function GoalDetailScreen() {
             <Text style={[styles.progressLabel, { color: colors.accent }]}>
               {amountsVisible ? `${Math.round(progress * 100)}% completato` : 'Avanzamento nascosto'}
             </Text>
+            {goal.deadline ? (
+              <View
+                style={[
+                  styles.monthlyPlan,
+                  { backgroundColor: colors.sunken },
+                ]}>
+                <View
+                  style={[
+                    styles.monthlyPlanIcon,
+                    { backgroundColor: colors.accentSoft },
+                  ]}>
+                  <Text style={[styles.materialIcon, { color: colors.accent }]}>
+                    calendar_month
+                  </Text>
+                </View>
+                <View style={styles.flex}>
+                  <Text style={[styles.monthlyPlanLabel, { color: colors.textSecondary }]}>
+                    ACCANTONAMENTO MENSILE NECESSARIO
+                  </Text>
+                  <Text style={[styles.monthlyPlanAmount, { color: colors.text }]}>
+                    {amountsVisible
+                      ? `${formatEuro(requiredMonthlyContribution)} al mese`
+                      : `${HIDDEN_AMOUNT} al mese`}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
           </>
         ) : (
           <Text style={[styles.freeSavingsCopy, { color: colors.textSecondary }]}>
@@ -438,6 +469,27 @@ const styles = StyleSheet.create({
   amount: { fontFamily: font.dataMedium, fontSize: 25 },
   target: { fontFamily: font.data, fontSize: 11 },
   progressLabel: { fontFamily: font.bodySemiBold, fontSize: 10, marginTop: 8 },
+  monthlyPlan: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 13,
+    marginTop: 14,
+    padding: 11,
+  },
+  monthlyPlanIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthlyPlanLabel: {
+    fontFamily: font.bodySemiBold,
+    fontSize: 8,
+    letterSpacing: 0.55,
+  },
+  monthlyPlanAmount: { fontFamily: font.dataMedium, fontSize: 14, marginTop: 2 },
   freeSavingsCopy: { fontFamily: font.body, fontSize: 10, lineHeight: 15 },
   contributionHint: {
     fontFamily: font.body,

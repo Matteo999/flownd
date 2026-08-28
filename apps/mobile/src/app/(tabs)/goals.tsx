@@ -1,16 +1,29 @@
 import { router, type Href } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { type ReactNode, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Alert,
   Animated,
+  Easing,
   type GestureResponderEvent,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import {
   Card,
@@ -29,21 +42,36 @@ import { formatDateItalian, formatEuro } from '@/lib/onboarding';
 import { useApp } from '@/providers/app-provider';
 
 const goalColors = [
-  '#256B7E',
-  '#6D75C9',
-  '#D06A61',
-  '#E0A63D',
-  '#45A98D',
-  '#C27BAD',
-  '#2F83C5',
+  '#18A8D8',
+  '#7C5CFC',
+  '#FF6685',
+  '#FFB020',
+  '#20C58A',
+  '#E85AAD',
+  '#3D8BFF',
 ];
+const DRAG_BUBBLE_RADIUS = 26;
+const DRAG_BUBBLE_LIFT = 48;
 
 function goalColorAt(index: number) {
-  return goalColors[index] ?? `hsl(${(index * 137.5) % 360}, 48%, 50%)`;
+  return goalColors[index] ?? `hsl(${(index * 137.5) % 360}, 72%, 55%)`;
+}
+
+function triggerDragStartHaptic() {
+  return Platform.OS === 'android'
+    ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Drag_Start)
+    : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid);
+}
+
+function triggerDropHaptic() {
+  return Platform.OS === 'android'
+    ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Confirm)
+    : Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 }
 
 export default function GoalsScreen() {
   const { colors } = useFlowndTheme();
+  const insets = useSafeAreaInsets();
   const {
     goals,
     completedGoals,
@@ -60,6 +88,12 @@ export default function GoalsScreen() {
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferGoalId, setTransferGoalId] = useState('');
   const [transferAmount, setTransferAmount] = useState('');
+  const [dragActive, setDragActive] = useState(false);
+  const [dragPosition] = useState(() => new Animated.ValueXY());
+  const [dragScale] = useState(() => new Animated.Value(0.72));
+  const [sheetTranslateY] = useState(() => new Animated.Value(720));
+  const [backdropOpacity] = useState(() => new Animated.Value(0));
+  const [keyboardLift] = useState(() => new Animated.Value(0));
   const goalCardRefs = useRef(new Map<string, View | null>());
   const freeSavings = goals.find((goal) => goal.status === 'free_savings');
   const orderedGoals = goals
@@ -113,6 +147,104 @@ export default function GoalsScreen() {
     parsedTransferAmount > 0 &&
     parsedTransferAmount <= maxTransferAmount;
 
+  const closeTransfer = useCallback(() => {
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(sheetTranslateY, {
+        toValue: 900,
+        duration: 210,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setTransferOpen(false));
+  }, [backdropOpacity, sheetTranslateY]);
+
+  useEffect(() => {
+    if (!transferOpen) return;
+    sheetTranslateY.setValue(720);
+    backdropOpacity.setValue(0);
+    keyboardLift.setValue(0);
+    Animated.parallel([
+      Animated.spring(sheetTranslateY, {
+        toValue: 0,
+        damping: 24,
+        stiffness: 240,
+        mass: 0.85,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [backdropOpacity, keyboardLift, sheetTranslateY, transferOpen]);
+
+  useEffect(() => {
+    if (!transferOpen) return;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      Animated.timing(keyboardLift, {
+        toValue: -event.endCoordinates.height,
+        duration: event.duration ?? 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
+      Animated.timing(keyboardLift, {
+        toValue: 0,
+        duration: event.duration ?? 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [keyboardLift, transferOpen]);
+
+  const transferSheetGesture = useMemo(
+    () => Gesture.Pan()
+      .activeOffsetY(8)
+      .failOffsetX([-24, 24])
+      .shouldCancelWhenOutside(false)
+      .runOnJS(true)
+      .onBegin(() => {
+        sheetTranslateY.stopAnimation();
+      })
+      .onUpdate((event) => {
+        sheetTranslateY.setValue(Math.max(0, event.translationY));
+      })
+      .onEnd((event) => {
+        if (event.translationY > 110 || event.velocityY > 1050) {
+          closeTransfer();
+          return;
+        }
+        Animated.spring(sheetTranslateY, {
+          toValue: 0,
+          damping: 22,
+          stiffness: 260,
+          useNativeDriver: true,
+        }).start();
+      })
+      .onFinalize((_event, succeeded) => {
+        if (succeeded) return;
+        Animated.spring(sheetTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      }),
+    [closeTransfer, sheetTranslateY],
+  );
+
   function openTransfer(goalId = '') {
     if (!freeSavings || freeSavings.savedAmount <= 0) {
       Alert.alert(
@@ -154,7 +286,10 @@ export default function GoalsScreen() {
       ),
     ).then((matches) => {
       const goalId = matches.find(Boolean);
-      if (goalId) openTransfer(goalId);
+      if (goalId) {
+        void triggerDropHaptic();
+        openTransfer(goalId);
+      }
     });
   }
 
@@ -180,7 +315,26 @@ export default function GoalsScreen() {
   }
 
   return (
-    <Screen>
+    <Screen
+      scrollEnabled={!dragActive}
+      floatingActionPosition="free"
+      floatingAction={dragActive ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.dragBubble,
+            {
+              backgroundColor: colors.accent,
+              transform: [
+                { translateX: dragPosition.x },
+                { translateY: dragPosition.y },
+                { scale: dragScale },
+              ],
+            },
+          ]}>
+          <Text style={styles.dragBubbleIcon}>savings</Text>
+        </Animated.View>
+      ) : null}>
       <PageHeader
         title="Obiettivi"
         action={
@@ -203,8 +357,29 @@ export default function GoalsScreen() {
 
       {freeSavings ? (
         <View style={styles.freeSavingsSection}>
-          <DraggableSavingsCard
+          <SavingsDragSource
+            onDragStart={(pageX, pageY) => {
+              dragPosition.setValue({
+                x: pageX - DRAG_BUBBLE_RADIUS,
+                y: pageY - DRAG_BUBBLE_RADIUS - DRAG_BUBBLE_LIFT,
+              });
+              dragScale.setValue(0.72);
+              setDragActive(true);
+              Animated.spring(dragScale, {
+                toValue: 1,
+                speed: 28,
+                bounciness: 7,
+                useNativeDriver: true,
+              }).start();
+            }}
+            onDragMove={(pageX, pageY) => {
+              dragPosition.setValue({
+                x: pageX - DRAG_BUBBLE_RADIUS,
+                y: pageY - DRAG_BUBBLE_RADIUS - DRAG_BUBBLE_LIFT,
+              });
+            }}
             onDrop={findDropTarget}
+            onDragEnd={() => setDragActive(false)}
             onPress={() =>
               router.push(
                 `/goal-detail?goalId=${encodeURIComponent(freeSavings.id)}` as Href,
@@ -222,7 +397,7 @@ export default function GoalsScreen() {
               }
               onTransfer={() => openTransfer()}
             />
-          </DraggableSavingsCard>
+          </SavingsDragSource>
           <Text style={[styles.dragHint, { color: colors.textSecondary }]}>
             Tieni premuto e trascina la card su un obiettivo per spostare denaro.
           </Text>
@@ -232,108 +407,133 @@ export default function GoalsScreen() {
       <Modal
         visible={transferOpen}
         transparent
-        animationType="fade"
+        animationType="none"
         presentationStyle="overFullScreen"
-        onRequestClose={() => setTransferOpen(false)}>
+        onRequestClose={closeTransfer}>
         <View style={styles.modalOverlay}>
-          <Pressable
-            accessibilityLabel="Chiudi trasferimento"
-            style={StyleSheet.absoluteFill}
-            onPress={() => setTransferOpen(false)}
-          />
-          <View
-            style={[
-              styles.transferModal,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}>
-            <View style={styles.transferHeader}>
-              <View style={styles.flex}>
-                <Text style={[styles.transferTitle, { color: colors.text }]}>
-                  Sposta denaro
-                </Text>
-                <Text style={[styles.transferCaption, { color: colors.textSecondary }]}>
-                  Disponibili {amountsVisible && freeSavings
-                    ? formatEuro(freeSavings.savedAmount)
-                    : HIDDEN_AMOUNT}
-                </Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Chiudi"
-                onPress={() => setTransferOpen(false)}
-                style={styles.modalClose}>
-                <Text style={[styles.materialIcon, { color: colors.text }]}>close</Text>
-              </Pressable>
-            </View>
-
-            <Text style={[styles.modalLabel, { color: colors.text }]}>Verso</Text>
-            <View style={styles.goalChoices}>
-              {transferTargets.map((goal, index) => {
-                const selected = goal.id === transferGoalId;
-                return (
-                  <Pressable
-                    key={goal.id}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
-                    onPress={() => {
-                      setTransferGoalId(goal.id);
-                      setTransferAmount('');
-                    }}
-                    style={({ pressed }) => [
-                      styles.goalChoice,
-                      {
-                        backgroundColor: selected
-                          ? colors.accentSoft
-                          : colors.sunken,
-                        borderColor: selected ? colors.accent : colors.border,
-                      },
-                      pressed && styles.pressed,
-                    ]}>
-                    <View
-                      style={[
-                        styles.goalChoiceDot,
-                        {
-                          backgroundColor: goalColorAt(
-                            orderedGoals.findIndex((item) => item.id === goal.id),
-                          ),
-                        },
-                      ]}
-                    />
-                    <Text style={[styles.goalChoiceText, { color: colors.text }]}>
-                      {goal.name}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <Field
-              label="Importo"
-              placeholder="0,00"
-              suffix="€"
-              keyboardType="decimal-pad"
-              value={transferAmount}
-              onChangeText={setTransferAmount}
+          <Animated.View
+            style={[styles.modalBackdrop, { opacity: backdropOpacity }]}>
+            <Pressable
+              accessibilityLabel="Chiudi trasferimento"
+              style={StyleSheet.absoluteFill}
+              onPress={closeTransfer}
             />
-            {selectedTransferGoal ? (
-              <Text style={[styles.transferLimit, { color: colors.textSecondary }]}>
-                Massimo {amountsVisible ? formatEuro(maxTransferAmount) : HIDDEN_AMOUNT}
-              </Text>
-            ) : null}
-            <PrimaryButton
-              disabled={!transferValid}
-              loading={saving}
-              onPress={async () => {
-                if (!selectedTransferGoal) return;
-                const transferred = await transferFreeSavingsToGoal(
-                  parsedTransferAmount,
-                  selectedTransferGoal.id,
-                );
-                if (transferred) setTransferOpen(false);
-              }}>
-              Sposta denaro
-            </PrimaryButton>
-          </View>
+          </Animated.View>
+          <GestureDetector gesture={transferSheetGesture}>
+            <Animated.View
+              style={[
+                styles.transferModal,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  paddingBottom: Math.max(insets.bottom, 18),
+                  transform: [
+                    { translateY: sheetTranslateY },
+                    { translateY: keyboardLift },
+                  ],
+                },
+              ]}>
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.keyboardBackgroundExtension,
+                  { backgroundColor: colors.surface },
+                ]}
+              />
+              <View style={styles.sheetHandle} />
+              <View style={styles.transferContent}>
+                <View style={styles.transferHeader}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Chiudi"
+                    onPress={closeTransfer}
+                    style={[
+                      styles.modalClose,
+                      { backgroundColor: colors.sunken },
+                    ]}>
+                    <Text style={[styles.materialIcon, { color: colors.text }]}>close</Text>
+                  </Pressable>
+                  <Text style={[styles.transferTitle, { color: colors.text }]}>
+                    Sposta denaro
+                  </Text>
+                  <View style={styles.modalHeaderSpacer} />
+                </View>
+
+                <Text style={[styles.modalLabel, { color: colors.text }]}>Verso</Text>
+                <View style={styles.goalChoices}>
+                  {transferTargets.map((goal) => {
+                    const selected = goal.id === transferGoalId;
+                    return (
+                      <Pressable
+                        key={goal.id}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected }}
+                        onPress={() => {
+                          setTransferGoalId(goal.id);
+                          setTransferAmount('');
+                        }}
+                        style={({ pressed }) => [
+                          styles.goalChoice,
+                          {
+                            backgroundColor: selected
+                              ? colors.accentSoft
+                              : colors.sunken,
+                            borderColor: selected ? colors.accent : colors.border,
+                          },
+                          pressed && styles.pressed,
+                        ]}>
+                        <View
+                          style={[
+                            styles.goalChoiceDot,
+                            {
+                              backgroundColor: goalColorAt(
+                                orderedGoals.findIndex((item) => item.id === goal.id),
+                              ),
+                            },
+                          ]}
+                        />
+                        <Text style={[styles.goalChoiceText, { color: colors.text }]}>
+                          {goal.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Field
+                  label="Importo"
+                  placeholder="0,00"
+                  suffix="€"
+                  keyboardType="decimal-pad"
+                  enterKeyHint="done"
+                  inputAccessoryViewButtonLabel="Fine"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  value={transferAmount}
+                  onChangeText={setTransferAmount}
+                />
+                {selectedTransferGoal ? (
+                  <Text style={[styles.transferLimit, { color: colors.textSecondary }]}>
+                    Massimo {amountsVisible ? formatEuro(maxTransferAmount) : HIDDEN_AMOUNT}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.transferFooter}>
+                <PrimaryButton
+                  disabled={!transferValid}
+                  loading={saving}
+                  onPress={async () => {
+                    if (!selectedTransferGoal) return;
+                    const transferred = await transferFreeSavingsToGoal(
+                      parsedTransferAmount,
+                      selectedTransferGoal.id,
+                    );
+                    if (transferred) closeTransfer();
+                  }}>
+                  Sposta denaro
+                </PrimaryButton>
+              </View>
+            </Animated.View>
+          </GestureDetector>
         </View>
       </Modal>
 
@@ -542,7 +742,7 @@ function GoalCard({
             <Text style={[styles.materialIcon, { color: colors.accent }]}>savings</Text>
           </View>
         ) : (
-          <GoalPie color={color} progress={progress} trackColor={colors.sunken} />
+          <GoalDonut color={color} progress={progress} trackColor={colors.sunken} />
         )}
         <View style={styles.flex}>
           <Text style={[styles.goalName, { color: colors.text }]}>{goal.name}</Text>
@@ -600,7 +800,7 @@ function GoalCard({
   );
 }
 
-function GoalPie({
+function GoalDonut({
   color,
   progress,
   trackColor,
@@ -611,43 +811,41 @@ function GoalPie({
 }) {
   const size = 58;
   const center = size / 2;
-  const radius = center - 2;
+  const radius = 21;
+  const strokeWidth = 8;
+  const circumference = 2 * Math.PI * radius;
   const safeProgress = Math.max(0, Math.min(progress, 1));
-  const endAngle = safeProgress * Math.PI * 2 - Math.PI / 2;
-  const endX = center + radius * Math.cos(endAngle);
-  const endY = center + radius * Math.sin(endAngle);
-  const sector = safeProgress >= 1
-    ? `<circle cx="${center}" cy="${center}" r="${radius}" fill="${color}"/>`
-    : safeProgress > 0
-      ? `<path d="M ${center} ${center} L ${center} 2 A ${radius} ${radius} 0 ${safeProgress > 0.5 ? 1 : 0} 1 ${endX} ${endY} Z" fill="${color}"/>`
-      : '';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><circle cx="${center}" cy="${center}" r="${radius}" fill="${trackColor}"/>${sector}<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.4"/></svg>`;
+  const progressLength = safeProgress * circumference;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${trackColor}" stroke-width="${strokeWidth}"/><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-dasharray="${progressLength} ${circumference}" stroke-linecap="round" transform="rotate(-90 ${center} ${center})"/></svg>`;
   return (
     <Image
       accessibilityLabel={`${Math.round(safeProgress * 100)} per cento completato`}
       source={{ uri: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` }}
       contentFit="contain"
       cachePolicy="none"
-      style={styles.goalPie}
+      style={styles.goalDonut}
     />
   );
 }
 
-function DraggableSavingsCard({
+function SavingsDragSource({
   children,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
   onDrop,
   onPress,
 }: {
   children: ReactNode;
+  onDragStart: (pageX: number, pageY: number) => void;
+  onDragMove: (pageX: number, pageY: number) => void;
+  onDragEnd: () => void;
   onDrop: (pageX: number, pageY: number) => void;
   onPress: () => void;
 }) {
-  const [translation] = useState(() => new Animated.ValueXY());
-  const origin = useRef({ x: 0, y: 0 });
   const lastPoint = useRef({ x: 0, y: 0 });
   const dragging = useRef(false);
   const ignorePress = useRef(false);
-  const [dragActive, setDragActive] = useState(false);
 
   function pointFromEvent(event: GestureResponderEvent) {
     return {
@@ -657,17 +855,7 @@ function DraggableSavingsCard({
   }
 
   return (
-    <Animated.View
-      style={[
-        dragActive && styles.draggingCard,
-        {
-          transform: [
-            { translateX: translation.x },
-            { translateY: translation.y },
-            { scale: dragActive ? 1.025 : 1 },
-          ],
-        },
-      ]}>
+    <View>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Risparmio libero. Tieni premuto per spostare denaro"
@@ -676,33 +864,27 @@ function DraggableSavingsCard({
         pressRetentionOffset={{ top: 900, right: 320, bottom: 1400, left: 320 }}
         onPressIn={(event) => {
           const point = pointFromEvent(event);
-          origin.current = point;
           lastPoint.current = point;
         }}
         onLongPress={() => {
           dragging.current = true;
           ignorePress.current = true;
-          setDragActive(true);
+          const point = lastPoint.current;
+          onDragStart(point.x, point.y);
+          void triggerDragStartHaptic();
         }}
         onPressMove={(event) => {
           if (!dragging.current) return;
           const point = pointFromEvent(event);
           lastPoint.current = point;
-          translation.setValue({
-            x: point.x - origin.current.x,
-            y: point.y - origin.current.y,
-          });
+          onDragMove(point.x, point.y);
         }}
         onPressOut={() => {
           if (!dragging.current) return;
           const point = lastPoint.current;
           dragging.current = false;
-          setDragActive(false);
-          Animated.spring(translation, {
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: true,
-          }).start();
-          onDrop(point.x, point.y);
+          onDragEnd();
+          onDrop(point.x, point.y - DRAG_BUBBLE_LIFT);
         }}
         onPress={() => {
           if (ignorePress.current) {
@@ -713,7 +895,7 @@ function DraggableSavingsCard({
         }}>
         {children}
       </Pressable>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -753,7 +935,7 @@ const styles = StyleSheet.create({
   },
   list: { gap: 10 },
   goalCardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  goalPie: { width: 58, height: 58 },
+  goalDonut: { width: 58, height: 58 },
   savingsIcon: {
     width: 58,
     height: 58,
@@ -787,36 +969,84 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     paddingHorizontal: 4,
   },
-  draggingCard: {
-    zIndex: 50,
-    elevation: 20,
-    opacity: 0.94,
+  dragBubble: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 60,
+    elevation: 18,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+  },
+  dragBubbleIcon: {
+    color: '#FFFFFF',
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 24,
   },
   modalOverlay: {
     flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(5, 14, 10, 0.5)',
   },
   transferModal: {
-    borderRadius: 24,
+    maxHeight: '88%',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 18,
+    paddingTop: 9,
+  },
+  keyboardBackgroundExtension: {
+    position: 'absolute',
+    right: -1,
+    bottom: -640,
+    left: -1,
+    height: 642,
+  },
+  transferContent: {
     gap: 13,
+    paddingHorizontal: 20,
+    paddingTop: 7,
+    paddingBottom: 4,
+  },
+  transferFooter: { paddingHorizontal: 20 },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(125, 135, 130, 0.48)',
+    marginBottom: 2,
   },
   transferHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
   },
-  transferTitle: { fontFamily: font.displaySemiBold, fontSize: 21 },
-  transferCaption: { fontFamily: font.body, fontSize: 11, marginTop: 2 },
+  transferTitle: {
+    flex: 1,
+    fontFamily: font.displaySemiBold,
+    fontSize: 21,
+    textAlign: 'center',
+  },
   modalClose: {
     width: 38,
     height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  modalHeaderSpacer: { width: 38, height: 38 },
   modalLabel: { fontFamily: font.bodyMedium, fontSize: 13 },
   goalChoices: { gap: 7 },
   goalChoice: {
