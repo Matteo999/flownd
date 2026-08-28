@@ -39,7 +39,6 @@ export default function ComingSoonPage() {
       <div className="coming-soon__glow coming-soon__glow--two" />
       <section className="coming-soon__content">
         <img className="coming-soon__logo" src="/flownd-alpha.png" alt="Flownd" />
-        <p className="coming-soon__eyebrow">Nuovo modo di gestire i tuoi soldi</p>
         <h1 id="coming-soon-title">Stiamo arrivando.</h1>
         <p className="coming-soon__intro">
           Flownd ti aiuterà a vedere con chiarezza dove vanno i tuoi soldi.
