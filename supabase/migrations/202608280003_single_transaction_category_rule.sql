@@ -13,7 +13,7 @@ declare
   selected_description text;
   selected_kind text;
   selected_financial_account_id uuid;
-  description_key text;
+  normalized_description_key text;
 begin
   select
     description,
@@ -34,8 +34,8 @@ begin
     raise exception 'Only expense categories can be remembered';
   end if;
 
-  description_key := public.normalize_transaction_description(selected_description);
-  if description_key = '' or trim(coalesce(p_category, '')) = '' then
+  normalized_description_key := public.normalize_transaction_description(selected_description);
+  if normalized_description_key = '' or trim(coalesce(p_category, '')) = '' then
     raise exception 'Description and category are required';
   end if;
 
@@ -49,7 +49,7 @@ begin
   )
   values (
     auth.uid(),
-    description_key,
+    normalized_description_key,
     'expense',
     p_category,
     selected_financial_account_id,

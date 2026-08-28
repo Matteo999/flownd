@@ -39,6 +39,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { AppHeaderActions } from '@/components/app-header-actions';
+import { DraggableTransactionFab } from '@/components/draggable-transaction-fab';
 import { TransactionDateField } from '@/components/transaction-date-field';
 import {
   HIDDEN_AMOUNT,
@@ -238,19 +239,12 @@ export default function TimelineScreen() {
   const [selectedPeriod, setSelectedPeriod] =
     useState<DashboardPeriod>(initialPeriod);
   const [periodAnchor, setPeriodAnchor] = useState(() => new Date());
-  const [timelineRevision, setTimelineRevision] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      let active = true;
       // Rilegge i movimenti al ritorno dai form/import, anche con tab native congelate.
-      void refreshData().finally(() => {
-        if (active) setTimelineRevision((current) => current + 1);
-      });
-      return () => {
-        active = false;
-      };
+      void refreshData();
     }, [refreshData]),
   );
 
@@ -259,7 +253,6 @@ export default function TimelineScreen() {
     setRefreshing(true);
     try {
       await refreshData();
-      setTimelineRevision((current) => current + 1);
     } finally {
       setRefreshing(false);
     }
@@ -501,7 +494,7 @@ export default function TimelineScreen() {
     <Screen
       scroll={false}
       style={styles.virtualizedScreen}
-      floatingActionPosition={selectionMode ? 'center' : 'right'}
+      floatingActionPosition={selectionMode ? 'center' : 'free'}
       floatingAction={
         selectionMode ? (
           selectedTransactions.length ? (
@@ -521,17 +514,9 @@ export default function TimelineScreen() {
             </Pressable>
           ) : undefined
         ) : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Aggiungi una transazione"
+          <DraggableTransactionFab
             onPress={() => router.push('/add-transaction' as Href)}
-            style={({ pressed }) => [
-              styles.fab,
-              { backgroundColor: colors.accent },
-              pressed && styles.fabPressed,
-            ]}>
-            <Text style={styles.fabIcon}>add</Text>
-          </Pressable>
+          />
         )
       }>
       <View style={styles.timelineHeaderLayer}>
@@ -596,15 +581,15 @@ export default function TimelineScreen() {
           <Animated.SectionList<ExpenseDraft, TimelineSection>
             style={styles.timelineList}
             sections={sections}
-            extraData={timelineRevision}
             keyExtractor={(transaction, index) =>
               transaction.id ??
               `${transaction.occurredAt ?? 'undated'}-${transaction.description}-${index}`
             }
             keyboardShouldPersistTaps="handled"
             initialNumToRender={12}
-            maxToRenderPerBatch={10}
-            windowSize={7}
+            maxToRenderPerBatch={8}
+            updateCellsBatchingPeriod={60}
+            windowSize={5}
             stickySectionHeadersEnabled={false}
             showsVerticalScrollIndicator={false}
             refreshControl={
@@ -880,10 +865,6 @@ export default function TimelineScreen() {
                   <Text style={[styles.day, { color: colors.text }]}>
                     {section.label}
                   </Text>
-                  <Text
-                    style={[styles.date, { color: colors.textSecondary }]}>
-                    {section.caption}
-                  </Text>
                 </View>
                 <Text
                   style={[
@@ -945,8 +926,7 @@ export default function TimelineScreen() {
             setEditingTransaction(null);
           }}
           onSave={async (transactionId, changes) => {
-            const updated = await updateTransaction(transactionId, changes);
-            if (updated) setEditingTransaction(null);
+            return updateTransaction(transactionId, changes);
           }}
           onDelete={
             (
@@ -1745,7 +1725,7 @@ function EditTransactionModal({
   error: string | null;
   allowRemember: boolean;
   onClose: () => void;
-  onSave: (transactionId: string, changes: TransactionUpdate) => Promise<void>;
+  onSave: (transactionId: string, changes: TransactionUpdate) => Promise<boolean>;
   onDelete?: (transactionId: string) => void;
 }) {
   const { colors } = useFlowndTheme();
@@ -2024,9 +2004,9 @@ function EditTransactionModal({
             <PrimaryButton
               disabled={!transaction?.id || !description.trim() || numericAmount <= 0}
               loading={saving}
-              onPress={() => {
+              onPress={async () => {
                 if (!transaction?.id) return;
-                void onSave(transaction.id, {
+                const updated = await onSave(transaction.id, {
                   description: description.trim(),
                   amount: numericAmount,
                   category,
@@ -2034,6 +2014,7 @@ function EditTransactionModal({
                   occurredAt: occurredAt.toISOString(),
                   rememberSimilar,
                 });
+                if (updated) closeSheet();
               }}>
               Salva modifiche
             </PrimaryButton>

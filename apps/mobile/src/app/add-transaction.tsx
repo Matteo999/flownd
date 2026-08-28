@@ -4,7 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import {
   Field,
@@ -238,7 +238,7 @@ export default function AddTransactionScreen() {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <Screen>
+      <Screen scroll={false} style={styles.addScreen}>
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
@@ -250,6 +250,11 @@ export default function AddTransactionScreen() {
           <Text style={[styles.headerTitle, { color: colors.text }]}>Nuova transazione</Text>
           <View style={styles.headerSpacer} />
         </View>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.formScroll}
+          contentContainerStyle={styles.formContent}>
         <View
           style={[styles.quickAdd, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
@@ -473,6 +478,7 @@ export default function AddTransactionScreen() {
           }}>
           Aggiungi {kind === 'income' ? 'entrata' : 'uscita'}
         </PrimaryButton>
+        </ScrollView>
       </Screen>
       {importMenuOpen ? (
         <View style={styles.importOverlay}>
@@ -531,6 +537,9 @@ export default function AddTransactionScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  addScreen: { paddingBottom: 0 },
+  formScroll: { flex: 1 },
+  formContent: { paddingBottom: 40 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 26 },
   close: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   closeText: { fontFamily: font.body, fontSize: 25, lineHeight: 28 },
