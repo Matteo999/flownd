@@ -262,7 +262,15 @@ export function formatDateItalian(value: string) {
 
 export function defaultGoalDeadline() {
   const date = new Date();
-  date.setFullYear(date.getFullYear() + 1);
+  const day = date.getDate();
+  date.setDate(1);
+  date.setMonth(date.getMonth() + 2);
+  const lastDay = new Date(
+    date.getFullYear(),
+    date.getMonth() + 1,
+    0,
+  ).getDate();
+  date.setDate(Math.min(day, lastDay));
   return formatDateISO(date);
 }
 

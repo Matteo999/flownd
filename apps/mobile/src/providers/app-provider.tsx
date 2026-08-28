@@ -170,6 +170,10 @@ type AppContextValue = {
     amount: number,
     goalId?: string | null,
   ) => Promise<boolean>;
+  transferFreeSavingsToGoal: (
+    amount: number,
+    goalId: string,
+  ) => Promise<boolean>;
   deleteGoalContribution: (contributionId: string) => Promise<boolean>;
   completeGoal: (goalId: string) => Promise<boolean>;
   createLoan: (loan: LoanDraft) => Promise<boolean>;
@@ -1890,6 +1894,29 @@ export function AppProvider({ children }: PropsWithChildren) {
     return true;
   }
 
+  async function transferFreeSavingsToGoal(amount: number, goalId: string) {
+    if (!session || amount <= 0 || !goalId) return false;
+    setSaving(true);
+    setError(null);
+    const { data, error: transferError } = await supabase.rpc(
+      'transfer_free_savings_to_goal',
+      { p_amount: amount, p_goal_id: goalId },
+    );
+    const transferred = Number(
+      (data as { transferred?: number } | null)?.transferred ?? 0,
+    );
+    const refreshed = transferError || transferred <= 0
+      ? false
+      : await refreshGoals(session.user.id);
+    setSaving(false);
+    if (transferError || !refreshed) {
+      if (__DEV__) console.error('Flownd savings transfer failed', transferError);
+      setError('Non siamo riusciti a spostare il denaro.');
+      return false;
+    }
+    return true;
+  }
+
   async function deleteGoalContribution(contributionId: string) {
     if (!session) return false;
     setSaving(true);
@@ -2072,6 +2099,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     setGoalAllocationMode,
     moveGoal,
     addGoalContribution,
+    transferFreeSavingsToGoal,
     deleteGoalContribution,
     completeGoal,
     createLoan,
