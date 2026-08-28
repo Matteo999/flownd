@@ -13,6 +13,7 @@ import {
 
 import {
   Field,
+  Card,
   PrimaryButton,
   Screen,
   font,
@@ -20,6 +21,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { GoalDateField } from '@/components/goal-date-field';
+import { formatEuro, monthsUntil } from '@/lib/onboarding';
 import { useApp } from '@/providers/app-provider';
 
 export default function AddGoalScreen() {
@@ -39,6 +41,8 @@ export default function AddGoalScreen() {
     clearError,
     goals,
     goalAllocationMode,
+    budgetMonthlyIncome,
+    draft,
   } = useApp();
   const existingGoal = goals.find((goal) => goal.id === params.goalId);
   const isFreeSavings = existingGoal?.status === 'free_savings';
@@ -50,6 +54,38 @@ export default function AddGoalScreen() {
     existingGoal?.deadline ?? params.deadline ?? '',
   );
   const targetAmount = Number(target.replace(',', '.')) || 0;
+  const monthlyNeedFor = (
+    amount: number,
+    savedAmount: number,
+    goalDeadline: string,
+  ) => goalDeadline
+    ? Math.max(0, amount - savedAmount) / monthsUntil(goalDeadline)
+    : 0;
+  const monthlyNeed = monthlyNeedFor(
+    targetAmount,
+    existingGoal?.savedAmount ?? 0,
+    deadline,
+  );
+  const otherGoalsMonthlyNeed = goals
+    .filter(
+      (goal) =>
+        goal.id !== existingGoal?.id &&
+        goal.status !== 'free_savings' &&
+        Boolean(goal.deadline),
+    )
+    .reduce(
+      (sum, goal) =>
+        sum + monthlyNeedFor(
+          goal.targetAmount,
+          goal.savedAmount,
+          goal.deadline,
+        ),
+      0,
+    );
+  const totalMonthlyNeed = monthlyNeed + otherGoalsMonthlyNeed;
+  const savingsCapacity =
+    (budgetMonthlyIncome * draft.allocation.savings) / 100;
+  const planIsAligned = totalMonthlyNeed <= savingsCapacity;
   const usedPercentage = goals
     .filter(
       (goal) =>
@@ -91,6 +127,41 @@ export default function AddGoalScreen() {
           <>
             <Field label="Importo target" placeholder="0,00" suffix="€" keyboardType="decimal-pad" value={target} onChangeText={(value) => { clearError(); setTarget(value); }} />
             <GoalDateField value={deadline} onChange={setDeadline} />
+            {deadline && targetAmount > 0 ? (
+              <Card
+                style={[
+                  styles.insightCard,
+                  {
+                    backgroundColor: planIsAligned
+                      ? colors.accentSoft
+                      : colors.warningSoft,
+                  },
+                ]}>
+                <View
+                  style={[
+                    styles.insightIcon,
+                    {
+                      backgroundColor: planIsAligned
+                        ? colors.accent
+                        : colors.warning,
+                    },
+                  ]}>
+                  <Text style={styles.insightIconText}>
+                    {planIsAligned ? 'check' : 'priority_high'}
+                  </Text>
+                </View>
+                <View style={styles.insightCopy}>
+                  <Text style={[styles.insightTitle, { color: colors.text }]}>
+                    {formatEuro(monthlyNeed)} al mese
+                  </Text>
+                  <Text style={[styles.insightText, { color: colors.textSecondary }]}>
+                    {planIsAligned
+                      ? `Il piano complessivo è in linea con i ${formatEuro(savingsCapacity)} (${draft.allocation.savings}%) destinati ogni mese ai risparmi.`
+                      : `Gli obiettivi richiedono ${formatEuro(totalMonthlyNeed)} al mese, ${formatEuro(totalMonthlyNeed - savingsCapacity)} oltre la quota Risparmi impostata.`}
+                  </Text>
+                </View>
+              </Card>
+            ) : null}
           </>
         ) : null}
         {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
@@ -173,5 +244,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   deleteText: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  insightCard: {
+    flexDirection: 'row',
+    gap: 11,
+    marginTop: 14,
+    paddingVertical: 14,
+  },
+  insightIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  insightIconText: {
+    color: '#FFFFFF',
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 19,
+  },
+  insightCopy: { flex: 1 },
+  insightTitle: { fontFamily: font.dataMedium, fontSize: 15 },
+  insightText: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 3 },
   pressed: { opacity: 0.7 },
 });
