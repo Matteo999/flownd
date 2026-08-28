@@ -5,14 +5,27 @@
   --mint: #43d0bd;
   position: relative;
   display: grid;
-  min-height: 100svh;
+  grid-template-rows: 1fr auto;
+  min-height: 100vh;
+  min-height: 100dvh;
   place-items: center;
-  overflow: hidden;
-  padding: 32px 20px;
+  overflow-x: clip;
+  padding:
+    max(32px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(22px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
   color: var(--ink);
   background: #f8fafc;
-  font-family: "Baloo 2", sans-serif;
+  font-family: "Manrope", sans-serif;
   isolation: isolate;
+}
+
+html:has(.coming-soon),
+body:has(.coming-soon),
+body:has(.coming-soon) #root {
+  min-height: 100%;
+  background: #f8fafc;
 }
 
 .coming-soon::before {
@@ -38,9 +51,8 @@
 .coming-soon__glow--one { top: -180px; right: -110px; background: var(--mint); }
 .coming-soon__glow--two { bottom: -210px; left: -140px; background: var(--blue); }
 
-.coming-soon__content { width: min(100%, 720px); text-align: center; }
+.coming-soon__content { align-self: center; width: min(100%, 720px); text-align: center; }
 .coming-soon__logo { width: clamp(155px, 28vw, 255px); height: auto; margin-bottom: clamp(54px, 10vw, 88px); }
-.coming-soon__eyebrow { margin: 0 0 18px; color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
 .coming-soon h1 { margin: 0; font-size: clamp(52px, 10vw, 88px); line-height: .98; letter-spacing: -.055em; }
 .coming-soon__intro { max-width: 500px; margin: 26px auto 42px; color: var(--muted); font-size: clamp(16px, 2.3vw, 19px); line-height: 1.55; }
 
@@ -49,11 +61,25 @@
 .countdown-unit strong { display: block; font-size: clamp(28px, 6vw, 48px); line-height: 1; letter-spacing: -.05em; }
 .countdown-unit span { display: block; margin-top: 8px; color: var(--muted); font-size: clamp(9px, 1.7vw, 11px); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .coming-soon__released { margin: 0; color: var(--blue); font-size: 22px; font-weight: 800; }
-.coming-soon__footer { position: absolute; bottom: 22px; margin: 0; color: var(--muted); font-size: 11px; }
+.coming-soon__footer { margin: 24px 0 0; color: var(--muted); font-size: 11px; }
 
 @media (max-width: 420px) {
+  .coming-soon {
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-left: max(14px, env(safe-area-inset-left));
+  }
+
+  .coming-soon__logo { margin-bottom: 46px; }
+  .coming-soon__intro { margin: 22px auto 34px; }
   .countdown { gap: 6px; }
   .countdown-unit { border-radius: 11px; }
+}
+
+@media (max-height: 650px) {
+  .coming-soon__logo { width: 145px; margin-bottom: 28px; }
+  .coming-soon h1 { font-size: 46px; }
+  .coming-soon__intro { margin: 18px auto 26px; }
+  .countdown-unit { padding-top: 13px; padding-bottom: 13px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
