@@ -53,11 +53,11 @@ export const brandGradient = ['#457FEF', '#45D5B6'] as const;
 export const font = {
   displaySemiBold: 'Manrope_600SemiBold',
   displayBold: 'Manrope_700Bold',
-  body: 'IBMPlexSans_400Regular',
-  bodyMedium: 'IBMPlexSans_500Medium',
-  bodySemiBold: 'IBMPlexSans_600SemiBold',
-  data: 'IBMPlexMono_400Regular',
-  dataMedium: 'IBMPlexMono_500Medium',
+  body: 'Manrope_400Regular',
+  bodyMedium: 'Manrope_500Medium',
+  bodySemiBold: 'Manrope_600SemiBold',
+  data: 'Manrope_400Regular',
+  dataMedium: 'Manrope_500Medium',
 };
 
 export const radius = {

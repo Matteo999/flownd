@@ -336,13 +336,19 @@ export function SecondaryButton({ children, onPress, disabled, compact }: Button
   );
 }
 
-export function Field({ label, suffix, ...props }: TextInputProps & { label: string; suffix?: string }) {
-  const { colors } = useFlowndTheme();
+export function Field({
+  label,
+  suffix,
+  keyboardAppearance,
+  ...props
+}: TextInputProps & { label: string; suffix?: string }) {
+  const { colors, isDark } = useFlowndTheme();
   return (
     <View style={styles.fieldWrap}>
       <Text style={[styles.fieldLabel, { color: colors.text }]}>{label}</Text>
       <View style={[styles.field, { borderColor: colors.border, backgroundColor: colors.surface }]}>
         <TextInput
+          keyboardAppearance={keyboardAppearance ?? (isDark ? 'dark' : 'light')}
           placeholderTextColor={colors.textSecondary}
           selectionColor={colors.accent}
           style={[styles.input, { color: colors.text }]}

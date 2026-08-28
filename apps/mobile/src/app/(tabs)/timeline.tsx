@@ -10,6 +10,8 @@ import {
 import {
   Animated,
   Alert,
+  Easing,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -41,6 +43,7 @@ import {
 import { AppHeaderActions } from '@/components/app-header-actions';
 import { DraggableTransactionFab } from '@/components/draggable-transaction-fab';
 import { TransactionDateField } from '@/components/transaction-date-field';
+import { TransactionKindSelector } from '@/components/transaction-kind-selector';
 import {
   HIDDEN_AMOUNT,
   type DashboardPeriod,
@@ -1268,7 +1271,7 @@ function TimelineFiltersModal({
     dateRange: { start: Date; end: Date } | null,
   ) => void;
 }) {
-  const { colors } = useFlowndTheme();
+  const { colors, isDark } = useFlowndTheme();
   const insets = useSafeAreaInsets();
   const initialInsets = initialWindowMetrics?.insets;
   const topInset = Math.max(
@@ -1356,6 +1359,7 @@ function TimelineFiltersModal({
               <Text style={[styles.searchIcon, { color: colors.textSecondary }]}>search</Text>
               <TextInput
                 accessibilityLabel="Cerca movimenti"
+                keyboardAppearance={isDark ? 'dark' : 'light'}
                 value={draftQuery}
                 onChangeText={setDraftQuery}
                 placeholder="Descrizione o categoria"
@@ -1729,6 +1733,7 @@ function EditTransactionModal({
   onDelete?: (transactionId: string) => void;
 }) {
   const { colors } = useFlowndTheme();
+  const insets = useSafeAreaInsets();
   const initialKind = transaction.kind === 'income' ? 'income' : 'expense';
   const initialCategory = ['Entrata', 'Entrate'].includes(transaction.category)
     ? 'Altra entrata'
@@ -1758,11 +1763,14 @@ function EditTransactionModal({
   const numericAmount = Number(amount.replace(',', '.')) || 0;
   const [sheetTranslateY] = useState(() => new Animated.Value(480));
   const [backdropOpacity] = useState(() => new Animated.Value(0));
+  const [keyboardLift] = useState(() => new Animated.Value(0));
   const closeSheet = useCallback(() => {
+    Keyboard.dismiss();
     Animated.parallel([
       Animated.timing(sheetTranslateY, {
         toValue: 720,
         duration: 190,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(backdropOpacity, {
@@ -1774,6 +1782,7 @@ function EditTransactionModal({
   }, [backdropOpacity, onClose, sheetTranslateY]);
 
   useEffect(() => {
+    keyboardLift.setValue(0);
     Animated.parallel([
       Animated.spring(sheetTranslateY, {
         toValue: 0,
@@ -1788,16 +1797,42 @@ function EditTransactionModal({
         useNativeDriver: true,
       }),
     ]).start();
-  }, [backdropOpacity, sheetTranslateY]);
+  }, [backdropOpacity, keyboardLift, sheetTranslateY]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      Animated.timing(keyboardLift, {
+        toValue: -event.endCoordinates.height,
+        duration: event.duration ?? 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
+      Animated.timing(keyboardLift, {
+        toValue: 0,
+        duration: event.duration ?? 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [keyboardLift]);
 
   const sheetPanGesture = useMemo(
     () => Gesture.Pan()
-      .activeOffsetY(8)
+      .activeOffsetY(4)
       .failOffsetX([-24, 24])
       .shouldCancelWhenOutside(false)
       .runOnJS(true)
       .onBegin(() => {
         sheetTranslateY.stopAnimation();
+        Keyboard.dismiss();
       })
       .onUpdate((event) => {
         sheetTranslateY.setValue(Math.max(0, event.translationY));
@@ -1830,9 +1865,7 @@ function EditTransactionModal({
       transparent
       visible
       onRequestClose={closeSheet}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.modalRoot}>
+      <View style={styles.modalRoot}>
         <Animated.View style={[styles.modalBackdrop, { opacity: backdropOpacity }]}>
           <Pressable
             accessibilityRole="button"
@@ -1848,9 +1881,20 @@ function EditTransactionModal({
               {
                 backgroundColor: colors.background,
                 borderColor: colors.border,
-                transform: [{ translateY: sheetTranslateY }],
+                paddingBottom: Math.max(insets.bottom, 18),
+                transform: [
+                  { translateY: sheetTranslateY },
+                  { translateY: keyboardLift },
+                ],
               },
             ]}>
+          <View
+            pointerEvents="none"
+            style={[
+              styles.keyboardBackgroundExtension,
+              { backgroundColor: colors.background },
+            ]}
+          />
           <View>
             <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
             <View style={styles.sheetHeader}>
@@ -1866,45 +1910,20 @@ function EditTransactionModal({
                   { backgroundColor: colors.sunken },
                   pressed && styles.pressed,
                 ]}>
-                <Text style={[styles.sheetCloseText, { color: colors.text }]}>×</Text>
+                <Text style={[styles.sheetCloseIcon, { color: colors.text }]}>close</Text>
               </Pressable>
             </View>
           </View>
           <View style={styles.sheetContent}>
-            <View style={[styles.kindControl, { backgroundColor: colors.sunken }]}> 
-              {([
-                { id: 'expense', label: 'Uscita' },
-                { id: 'income', label: 'Entrata' },
-              ] as const).map((option) => {
-                const selected = kind === option.id;
-                return (
-                  <Pressable
-                    key={option.id}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    onPress={() => {
-                      setKind(option.id);
-                      if (option.id === 'income') setRememberSimilar(false);
-                      setCategory(
-                        option.id === 'income' ? 'Altra entrata' : 'Altro',
-                      );
-                      setCategoriesOpen(false);
-                    }}
-                    style={[
-                      styles.kindButton,
-                      selected && { backgroundColor: colors.surface },
-                    ]}>
-                    <Text
-                      style={[
-                        styles.kindText,
-                        { color: selected ? colors.text : colors.textSecondary },
-                      ]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <TransactionKindSelector
+              value={kind}
+              onChange={(nextKind) => {
+                setKind(nextKind);
+                if (nextKind === 'income') setRememberSimilar(false);
+                setCategory(nextKind === 'income' ? 'Altra entrata' : 'Altro');
+                setCategoriesOpen(false);
+              }}
+            />
             <Field
               label="Descrizione"
               value={description}
@@ -2083,7 +2102,7 @@ function EditTransactionModal({
           ) : null}
           </Animated.View>
         </GestureDetector>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -2511,7 +2530,13 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingTop: 9,
     paddingHorizontal: 20,
-    paddingBottom: 18,
+  },
+  keyboardBackgroundExtension: {
+    position: 'absolute',
+    right: -1,
+    bottom: -640,
+    left: -1,
+    height: 642,
   },
   bulkSheet: {
     maxHeight: '86%',
@@ -2582,21 +2607,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sheetCloseText: { fontFamily: font.body, fontSize: 25, lineHeight: 27 },
-  sheetContent: { paddingBottom: 12 },
-  kindControl: {
-    flexDirection: 'row',
-    borderRadius: 12,
-    padding: 3,
-    marginBottom: 4,
+  sheetCloseIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 21,
+    lineHeight: 24,
   },
-  kindButton: {
-    flex: 1,
-    minHeight: 40,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  kindText: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  sheetContent: { paddingBottom: 12, gap: 13 },
   editorCategoryTitle: {
     fontFamily: font.bodySemiBold,
     fontSize: 13,

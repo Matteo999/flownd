@@ -213,12 +213,13 @@ export default function GoalsScreen() {
 
   const transferSheetGesture = useMemo(
     () => Gesture.Pan()
-      .activeOffsetY(8)
+      .activeOffsetY(4)
       .failOffsetX([-24, 24])
       .shouldCancelWhenOutside(false)
       .runOnJS(true)
       .onBegin(() => {
         sheetTranslateY.stopAnimation();
+        Keyboard.dismiss();
       })
       .onUpdate((event) => {
         sheetTranslateY.setValue(Math.max(0, event.translationY));
@@ -443,6 +444,10 @@ export default function GoalsScreen() {
               <View style={styles.sheetHandle} />
               <View style={styles.transferContent}>
                 <View style={styles.transferHeader}>
+                  <View style={styles.modalHeaderSpacer} />
+                  <Text style={[styles.transferTitle, { color: colors.text }]}>
+                    Sposta denaro
+                  </Text>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Chiudi"
@@ -453,10 +458,6 @@ export default function GoalsScreen() {
                     ]}>
                     <Text style={[styles.materialIcon, { color: colors.text }]}>close</Text>
                   </Pressable>
-                  <Text style={[styles.transferTitle, { color: colors.text }]}>
-                    Sposta denaro
-                  </Text>
-                  <View style={styles.modalHeaderSpacer} />
                 </View>
 
                 <Text style={[styles.modalLabel, { color: colors.text }]}>Verso</Text>
@@ -505,9 +506,6 @@ export default function GoalsScreen() {
                   placeholder="0,00"
                   suffix="€"
                   keyboardType="decimal-pad"
-                  enterKeyHint="done"
-                  inputAccessoryViewButtonLabel="Fine"
-                  onSubmitEditing={() => Keyboard.dismiss()}
                   value={transferAmount}
                   onChangeText={setTransferAmount}
                 />
