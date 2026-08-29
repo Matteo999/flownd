@@ -37,12 +37,12 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#0F1712",
-          "image": "./assets/images/f-alpha-splash.png",
+          "image": "../../assets/F_donut.png",
           "imageWidth": 88,
           "resizeMode": "contain",
           "dark": {
             "backgroundColor": "#0F1712",
-            "image": "./assets/images/f-alpha-splash.png"
+            "image": "../../assets/F_donut.png"
           }
         }
       ]
