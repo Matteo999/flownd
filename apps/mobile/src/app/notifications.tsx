@@ -1,7 +1,7 @@
 import { router, type Href, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, LayoutAnimation, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -9,6 +9,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 
 import { Card, PrimaryButton, Screen, font, useFlowndTheme } from '@/components/flownd-ui';
@@ -29,7 +30,7 @@ type NotificationItem = {
 };
 
 const SWIPE_ACTION_WIDTH = 86;
-const SWIPE_DELETE_THRESHOLD = 168;
+const SWIPE_DELETE_THRESHOLD = 128;
 const SWIPE_DISMISS_DISTANCE = 520;
 const SWIPE_SPRING = { damping: 22, stiffness: 240, mass: 0.82 };
 
@@ -39,7 +40,7 @@ function deleteThresholdHaptic() {
 
 export default function NotificationsScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const { session, dismissGoalNotice } = useApp();
+  const { session, dismissGoalNotice, goals } = useApp();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -86,7 +87,16 @@ export default function NotificationsScreen() {
 
   function openNotification(item: NotificationItem) {
     if (!session) return;
-    if (item.actionRoute) router.push(item.actionRoute as Href);
+    const savingsGoal = goals.find((goal) => goal.status === 'free_savings');
+    const inferredRoute = /accantonato|risparmi accantonati/i.test(
+      `${item.title} ${item.body}`,
+    )
+      ? savingsGoal
+        ? `/goal-detail?goalId=${encodeURIComponent(savingsGoal.id)}`
+        : '/budget-allocation'
+      : null;
+    const destination = item.actionRoute ?? inferredRoute;
+    if (destination) router.push(destination as Href);
     if (!item.readAt) void (async () => {
       const readAt = new Date().toISOString();
       const { error } = await supabase
@@ -107,14 +117,24 @@ export default function NotificationsScreen() {
 
   async function deleteNotification(item: NotificationItem) {
     if (!session) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setItems((current) => current.filter((entry) => entry.id !== item.id));
+    const restoreItem = () => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setItems((current) =>
+        [...current.filter((entry) => entry.id !== item.id), item].sort(
+          (first, second) =>
+            new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime(),
+        ),
+      );
+    };
     const importJobId = jobIdFromActionRoute(item.actionRoute);
     if (importJobId) {
       try {
         await deleteTransactionImportJob(session.user.id, importJobId);
-        setItems((current) => current.filter((entry) => entry.id !== item.id));
         await dismissGoalNotice(item.id);
       } catch (error) {
-        setLoadError(true);
+        restoreItem();
         await reportClientError(session.access_token, 'notification_delete', error);
       }
       return;
@@ -125,11 +145,10 @@ export default function NotificationsScreen() {
       .eq('user_id', session.user.id)
       .eq('id', item.id);
     if (error) {
-      setLoadError(true);
+      restoreItem();
       await reportClientError(session.access_token, 'notification_delete', error);
       return;
     }
-    setItems((current) => current.filter((entry) => entry.id !== item.id));
     await dismissGoalNotice(item.id);
   }
 
@@ -292,12 +311,12 @@ function SwipeNotificationRow({
         deleteArmed.value = false;
       }
     })
-    .onEnd(() => {
-      if (deleteArmed.value) {
+    .onEnd((event) => {
+      if (deleteArmed.value || event.velocityX < -850) {
         // eslint-disable-next-line react-hooks/immutability
-        translateX.value = withSpring(
+        translateX.value = withTiming(
           -SWIPE_DISMISS_DISTANCE,
-          SWIPE_SPRING,
+          { duration: 180 },
           (finished) => {
             if (finished) runOnJS(onDelete)();
           },
@@ -315,9 +334,9 @@ function SwipeNotificationRow({
 
   const deleteFromButton = useCallback(() => {
     // eslint-disable-next-line react-hooks/immutability
-    translateX.value = withSpring(
+    translateX.value = withTiming(
       -SWIPE_DISMISS_DISTANCE,
-      SWIPE_SPRING,
+      { duration: 180 },
       (finished) => {
         if (finished) runOnJS(onDelete)();
       },

@@ -611,6 +611,15 @@ async function geminiExtract(chunk, signal) {
 }
 
 export async function fileChunks(buffer, extension) {
+  if (['jpg', 'jpeg', 'png', 'webp'].includes(extension)) {
+    const mimeType = extension === 'jpg' || extension === 'jpeg'
+      ? 'image/jpeg'
+      : `image/${extension}`
+    return [{
+      text: 'Immagine di uno scontrino o screenshot bancario. Estrai esclusivamente le transazioni chiaramente visibili.',
+      images: [`data:${mimeType};base64,${buffer.toString('base64')}`],
+    }]
+  }
   if (extension === 'csv') {
     const rows = delimitedRows(buffer.toString('utf8').replace(/^\uFEFF/, ''))
     const chunks = []
@@ -773,12 +782,15 @@ export async function processImportJob({
       .eq('id', job.id)
     if (completeError) throw completeError
     try {
+      const imageJob = ['jpg', 'jpeg', 'png', 'webp'].includes(job.extension)
       await notifyImport(
         service,
         job.userId,
-        'Importazione pronta',
-        `${transactions.length} transazioni riconosciute da ${job.name}. Tocca per controllarle.`,
-        `/transaction-import?mode=file&jobId=${encodeURIComponent(job.id)}`,
+        imageJob ? 'Scansione pronta' : 'Importazione pronta',
+        imageJob
+          ? `${transactions.length} transazioni riconosciute. Tocca per controllare il riepilogo.`
+          : `${transactions.length} transazioni riconosciute da ${job.name}. Tocca per controllarle.`,
+        `/transaction-import?mode=${imageJob ? 'ai' : 'file'}&jobId=${encodeURIComponent(job.id)}`,
       )
     } catch (notificationError) {
       console.error('Flownd import completion notification failed', { reportId, notificationError })
@@ -859,8 +871,22 @@ export default async function handler(req, res) {
     const name = String(req.body?.name || '')
     const base64 = String(req.body?.base64 || '')
     const extension = name.split('.').at(-1)?.toLowerCase()
-    if (!['csv', 'xlsx', 'pdf'].includes(extension)) {
+    if (!['csv', 'xlsx', 'pdf', 'jpg', 'jpeg', 'png', 'webp'].includes(extension)) {
       throw new Error(`Unsupported file extension: ${extension || 'missing'}`)
+    }
+    if (['jpg', 'jpeg', 'png', 'webp'].includes(extension)) {
+      const { data: profile, error: profileError } = await service
+        .from('profiles')
+        .select('plan_tier')
+        .eq('id', user.id)
+        .single()
+      if (profileError) throw profileError
+      if (!['pro', 'max'].includes(profile?.plan_tier)) {
+        return res.status(403).json({
+          error: 'Il riconoscimento da immagini è disponibile con Pro e Max.',
+          code: 'PAID_PLAN_REQUIRED',
+        })
+      }
     }
     const buffer = Buffer.from(base64, 'base64')
     if (!buffer.length || buffer.length > MAX_FILE_BYTES) {

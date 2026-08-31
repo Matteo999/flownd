@@ -45,6 +45,10 @@ import { DraggableTransactionFab } from '@/components/draggable-transaction-fab'
 import { TransactionDateField } from '@/components/transaction-date-field';
 import { TransactionKindSelector } from '@/components/transaction-kind-selector';
 import {
+  NUMERIC_KEYBOARD_ACCESSORY_ID,
+  NumericKeyboardAccessory,
+} from '@/components/numeric-keyboard-accessory';
+import {
   HIDDEN_AMOUNT,
   type DashboardPeriod,
   transactionsForPeriod,
@@ -1763,7 +1767,6 @@ function EditTransactionModal({
   const numericAmount = Number(amount.replace(',', '.')) || 0;
   const [sheetTranslateY] = useState(() => new Animated.Value(480));
   const [backdropOpacity] = useState(() => new Animated.Value(0));
-  const [keyboardLift] = useState(() => new Animated.Value(0));
   const closeSheet = useCallback(() => {
     Keyboard.dismiss();
     Animated.parallel([
@@ -1782,7 +1785,6 @@ function EditTransactionModal({
   }, [backdropOpacity, onClose, sheetTranslateY]);
 
   useEffect(() => {
-    keyboardLift.setValue(0);
     Animated.parallel([
       Animated.spring(sheetTranslateY, {
         toValue: 0,
@@ -1797,32 +1799,7 @@ function EditTransactionModal({
         useNativeDriver: true,
       }),
     ]).start();
-  }, [backdropOpacity, keyboardLift, sheetTranslateY]);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSubscription = Keyboard.addListener(showEvent, (event) => {
-      Animated.timing(keyboardLift, {
-        toValue: -event.endCoordinates.height,
-        duration: event.duration ?? 250,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    });
-    const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
-      Animated.timing(keyboardLift, {
-        toValue: 0,
-        duration: event.duration ?? 220,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    });
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, [keyboardLift]);
+  }, [backdropOpacity, sheetTranslateY]);
 
   const sheetPanGesture = useMemo(
     () => Gesture.Pan()
@@ -1874,47 +1851,45 @@ function EditTransactionModal({
             style={StyleSheet.absoluteFill}
           />
         </Animated.View>
-        <GestureDetector gesture={sheetPanGesture}>
-          <Animated.View
-            style={[
-              styles.editSheet,
-              {
-                backgroundColor: colors.background,
-                borderColor: colors.border,
-                paddingBottom: Math.max(insets.bottom, 18),
-                transform: [
-                  { translateY: sheetTranslateY },
-                  { translateY: keyboardLift },
-                ],
-              },
-            ]}>
-          <View
-            pointerEvents="none"
-            style={[
-              styles.keyboardBackgroundExtension,
-              { backgroundColor: colors.background },
-            ]}
-          />
-          <View>
-            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={[styles.sheetTitle, { color: colors.text }]}>Modifica movimento</Text>
+        <Animated.View
+          style={[
+            styles.editSheet,
+            {
+              backgroundColor: colors.background,
+              borderColor: colors.border,
+              transform: [{ translateY: sheetTranslateY }],
+            },
+          ]}>
+          <GestureDetector gesture={sheetPanGesture}>
+            <View>
+              <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+              <View style={styles.sheetHeader}>
+                <View>
+                  <Text style={[styles.sheetTitle, { color: colors.text }]}>Modifica movimento</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Chiudi"
+                  onPress={closeSheet}
+                  style={({ pressed }) => [
+                    styles.sheetClose,
+                    { backgroundColor: colors.sunken },
+                    pressed && styles.pressed,
+                  ]}>
+                  <Text style={[styles.sheetCloseIcon, { color: colors.text }]}>close</Text>
+                </Pressable>
               </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Chiudi"
-                onPress={closeSheet}
-                style={({ pressed }) => [
-                  styles.sheetClose,
-                  { backgroundColor: colors.sunken },
-                  pressed && styles.pressed,
-                ]}>
-                <Text style={[styles.sheetCloseIcon, { color: colors.text }]}>close</Text>
-              </Pressable>
             </View>
-          </View>
-          <View style={styles.sheetContent}>
+          </GestureDetector>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.editKeyboardBody}>
+            <ScrollView
+              keyboardDismissMode="none"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              style={styles.editFormScroll}
+              contentContainerStyle={styles.sheetContent}>
             <TransactionKindSelector
               value={kind}
               onChange={(nextKind) => {
@@ -1936,6 +1911,7 @@ function EditTransactionModal({
               onChangeText={setAmount}
               placeholder="0,00"
               keyboardType="decimal-pad"
+              inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
               suffix="€"
             />
             <TransactionDateField value={occurredAt} onChange={setOccurredAt} />
@@ -1973,7 +1949,7 @@ function EditTransactionModal({
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: rememberSimilar }}
                 onPress={() => setRememberSimilar((current) => !current)}
-                style={styles.rememberRule}>
+                style={[styles.rememberRule, styles.editRememberRule]}>
                 <View
                   style={[
                     styles.rememberCheckbox,
@@ -2020,24 +1996,34 @@ function EditTransactionModal({
                 </Text>
               </Pressable>
             ) : null}
-            <PrimaryButton
-              disabled={!transaction?.id || !description.trim() || numericAmount <= 0}
-              loading={saving}
-              onPress={async () => {
-                if (!transaction?.id) return;
-                const updated = await onSave(transaction.id, {
-                  description: description.trim(),
-                  amount: numericAmount,
-                  category,
-                  kind,
-                  occurredAt: occurredAt.toISOString(),
-                  rememberSimilar,
-                });
-                if (updated) closeSheet();
-              }}>
-              Salva modifiche
-            </PrimaryButton>
-          </View>
+            </ScrollView>
+            <View
+              style={[
+                styles.editFooter,
+                {
+                  backgroundColor: colors.background,
+                  paddingBottom: Math.max(insets.bottom, 18),
+                },
+              ]}>
+              <PrimaryButton
+                disabled={!transaction?.id || !description.trim() || numericAmount <= 0}
+                loading={saving}
+                onPress={async () => {
+                  if (!transaction?.id) return;
+                  const updated = await onSave(transaction.id, {
+                    description: description.trim(),
+                    amount: numericAmount,
+                    category,
+                    kind,
+                    occurredAt: occurredAt.toISOString(),
+                    rememberSimilar,
+                  });
+                  if (updated) closeSheet();
+                }}>
+                Salva modifiche
+              </PrimaryButton>
+            </View>
+          </KeyboardAvoidingView>
           {categoriesOpen ? (
             <View style={styles.categoryPopoverLayer}>
               <Pressable
@@ -2100,8 +2086,8 @@ function EditTransactionModal({
               </View>
             </View>
           ) : null}
-          </Animated.View>
-        </GestureDetector>
+          <NumericKeyboardAccessory />
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -2523,21 +2509,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(4, 12, 9, 0.42)',
   },
   editSheet: {
-    maxHeight: '88%',
-    overflow: 'hidden',
+    height: '90%',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,
     paddingTop: 9,
     paddingHorizontal: 20,
   },
-  keyboardBackgroundExtension: {
-    position: 'absolute',
-    right: -1,
-    bottom: -640,
-    left: -1,
-    height: 642,
-  },
+  editKeyboardBody: { flex: 1 },
+  editFormScroll: { flex: 1 },
   bulkSheet: {
     maxHeight: '86%',
     borderTopLeftRadius: 26,
@@ -2565,6 +2545,7 @@ const styles = StyleSheet.create({
     marginTop: 18,
     paddingVertical: 5,
   },
+  editRememberRule: { marginTop: 12 },
   rememberCheckbox: {
     width: 24,
     height: 24,
@@ -2612,12 +2593,13 @@ const styles = StyleSheet.create({
     fontSize: 21,
     lineHeight: 24,
   },
-  sheetContent: { paddingBottom: 12, gap: 13 },
+  sheetContent: { paddingBottom: 12 },
+  editFooter: { paddingTop: 2 },
   editorCategoryTitle: {
     fontFamily: font.bodySemiBold,
     fontSize: 13,
-    marginTop: 18,
-    marginBottom: 9,
+    marginTop: 16,
+    marginBottom: 7,
   },
   editorDropdown: {
     borderWidth: 1,
@@ -2701,11 +2683,11 @@ const styles = StyleSheet.create({
     fontFamily: font.body,
     fontSize: 10,
     lineHeight: 15,
-    marginTop: 10,
+    marginTop: 8,
   },
   deleteButton: {
     minHeight: 44,
-    marginTop: 16,
+    marginTop: 12,
     borderWidth: 1,
     borderRadius: 10,
     alignItems: 'center',

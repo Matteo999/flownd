@@ -7,7 +7,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   KeyboardAvoidingView,
@@ -40,7 +39,6 @@ import {
   getTransactionImportJob,
   type ImportedTransaction,
   reportClientError,
-  scanTransactionImage,
 } from '@/lib/transaction-import';
 import {
   categoriesForTransactionKind,
@@ -84,6 +82,7 @@ export default function TransactionImportScreen() {
   } = useApp();
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [queuedJobId, setQueuedJobId] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<ImportedTransaction[]>([]);
   const [excluded, setExcluded] = useState<Set<number>>(() => new Set());
   const [includedDuplicates, setIncludedDuplicates] = useState<Set<number>>(() => new Set());
@@ -107,6 +106,16 @@ export default function TransactionImportScreen() {
   const selected = selectedIndexes.map((index) => candidates[index]);
   const waitingForStoredResult = Boolean(
     jobId && !candidates.length && !analysisError,
+  );
+  const preparingAutomaticSource = Boolean(
+    requestedSource &&
+      !jobId &&
+      !analysisError &&
+      !candidates.length &&
+      ['image-asset', 'file-asset'].includes(requestedSource),
+  );
+  const processingInBackground = Boolean(
+    queuedJobId || analyzing || preparingAutomaticSource,
   );
 
   const toggleCandidate = useCallback((index: number, duplicate: boolean) => {
@@ -159,6 +168,7 @@ export default function TransactionImportScreen() {
     }
     clearError();
     setAnalysisError(null);
+    setQueuedJobId(null);
     try {
       if ((asset.size ?? 0) > 3 * 1024 * 1024) {
         throw new Error(`File too large: ${asset.size} bytes`);
@@ -170,7 +180,7 @@ export default function TransactionImportScreen() {
         base64,
       });
       if (!response.id) throw new Error('Import job missing');
-      router.dismissAll();
+      setQueuedJobId(response.id);
     } catch (reason) {
       await showOperationalError('transaction_file_import', reason);
     } finally {
@@ -221,6 +231,7 @@ export default function TransactionImportScreen() {
     }
     setAnalyzing(true);
     setAnalysisError(null);
+    setQueuedJobId(null);
     try {
       const context = ImageManipulator.manipulate(asset.uri);
       if (asset.width > 1600) context.resize({ width: 1600, height: null });
@@ -231,17 +242,18 @@ export default function TransactionImportScreen() {
         format: SaveFormat.JPEG,
       });
       if (!image.base64) throw new Error('Non è stato possibile preparare l’immagine.');
-      const response = await scanTransactionImage(
-        session.access_token,
-        `data:image/jpeg;base64,${image.base64}`,
-      );
-      showCandidates(response.transactions);
+      const response = await analyzeTransactionFile(session.access_token, {
+        name: 'scansione-flownd.jpg',
+        base64: image.base64,
+      });
+      if (!response.id) throw new Error('Scan job missing');
+      setQueuedJobId(response.id);
     } catch (reason) {
       await showOperationalError('transaction_image_analysis', reason);
     } finally {
       setAnalyzing(false);
     }
-  }, [session, showCandidates, showOperationalError]);
+  }, [session, showOperationalError]);
 
   const chooseScreenshot = useCallback(async () => {
     if (pickerBusyRef.current) return;
@@ -366,52 +378,38 @@ export default function TransactionImportScreen() {
     }
   }
 
-  const title = mode === 'ai' ? 'Scansiona con Flownd AI' : 'Importa con Flownd AI';
+  const title = mode === 'ai' ? 'Scansione AI' : 'Importazione AI';
 
   return (
     <Screen>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={styles.header}>
+        <View style={styles.headerSpacer} />
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{title}</Text>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Torna indietro"
+          accessibilityLabel="Chiudi"
           onPress={() => router.back()}
           style={[styles.close, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Text style={[styles.backIcon, { color: colors.text }]}>arrow_back</Text>
+          <Text style={[styles.backIcon, { color: colors.text }]}>close</Text>
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>{title}</Text>
-        <View style={styles.headerSpacer} />
       </View>
 
       {waitingForStoredResult ? (
         <ImportReviewSkeleton />
+      ) : processingInBackground ? (
+        <AIProcessingState mode={mode} queued={Boolean(queuedJobId)} />
       ) : !candidates.length ? (
         <>
-          <Text style={[uiStyles.title, { color: colors.text }]}>
-            {mode === 'ai' ? 'Da immagine a transazione' : 'Carica il tuo estratto'}
+          <Text style={[styles.compactTitle, { color: colors.text }]}>
+            {mode === 'ai' ? 'Riconosci una transazione' : 'Scegli un documento'}
           </Text>
-          <Text style={[uiStyles.subtitle, { color: colors.textSecondary }]}>
+          <Text style={[styles.compactCopy, { color: colors.textSecondary }]}>
             {mode === 'ai'
-              ? 'Flownd riconosce una foto dello scontrino o le transazioni visibili in uno screenshot. Confermi sempre tu prima del salvataggio.'
-              : 'Flownd AI riconosce le transazioni anche quando CSV, PDF e XLSX hanno strutture e colonne differenti.'}
+              ? 'Scansiona uno scontrino o scegli uno screenshot.'
+              : 'CSV, PDF e XLSX vengono analizzati in background.'}
           </Text>
-          <Card style={styles.infoCard}>
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoIcon, { color: colors.positive }]}>verified_user</Text>
-              <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-                {mode === 'ai'
-                  ? 'L’immagine viene compressa, analizzata e non viene conservata.'
-                  : 'Il file viene analizzato da Flownd AI e non viene conservato.'}
-              </Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoIcon, { color: colors.accent }]}>difference</Text>
-              <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-                Data, importo e descrizione vengono confrontati con lo storico per escludere i duplicati.
-              </Text>
-            </View>
-          </Card>
 
           {mode === 'file' ? (
             <GradientButton onPress={chooseFile} disabled={analyzing}>
@@ -434,20 +432,12 @@ export default function TransactionImportScreen() {
               </GradientButton>
             </>
           )}
-          {analyzing ? (
-            <View style={styles.loadingRow}>
-              <ActivityIndicator color={colors.accent} />
-              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-                {mode === 'ai' ? 'Riconoscimento IA in corso…' : 'Analisi del file…'}
-              </Text>
-            </View>
-          ) : null}
           {analysisError ? <Text style={[uiStyles.error, { color: colors.negative }]}>{analysisError}</Text> : null}
         </>
       ) : (
         <>
-          <Text style={[uiStyles.title, { color: colors.text }]}>Controlla prima di importare</Text>
-          <Text style={[uiStyles.subtitle, { color: colors.textSecondary }]}>
+          <Text style={[styles.compactTitle, { color: colors.text }]}>Riepilogo</Text>
+          <Text style={[styles.compactCopy, { color: colors.textSecondary }]}>
             {selected.length} da importare · {duplicates.size} possibili duplicati
           </Text>
           <View style={styles.list}>
@@ -511,6 +501,76 @@ export default function TransactionImportScreen() {
   );
 }
 
+function AIProcessingState({
+  mode,
+  queued,
+}: {
+  mode: ImportMode;
+  queued: boolean;
+}) {
+  const { colors } = useFlowndTheme();
+  const [pulse] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulse]);
+
+  return (
+    <View style={styles.processingWrap}>
+      <Animated.View
+        style={[
+          styles.aiOrb,
+          {
+            backgroundColor: colors.accentSoft,
+            opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.68, 1] }),
+            transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1.06] }) }],
+          },
+        ]}>
+        <Text style={[styles.aiOrbIcon, { color: colors.accent }]}>auto_awesome</Text>
+      </Animated.View>
+      <Text style={[styles.processingTitle, { color: colors.text }]}>
+        {queued
+          ? mode === 'ai' ? 'Scansione in corso' : 'Importazione in corso'
+          : 'Preparazione…'}
+      </Text>
+      <Text style={[styles.processingCopy, { color: colors.textSecondary }]}>
+        Puoi chiudere questa schermata. Quando il riconoscimento sarà pronto troverai il riepilogo nelle notifiche.
+      </Text>
+      <Animated.View style={[styles.processingSkeleton, { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.42, 0.78] }) }]}>
+        {[0.72, 0.9, 0.58].map((width, index) => (
+          <View
+            key={index}
+            style={[
+              styles.processingSkeletonRow,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}>
+            <View style={[styles.processingSkeletonIcon, { backgroundColor: colors.sunken }]} />
+            <View style={styles.skeletonCopy}>
+              <View style={[styles.processingSkeletonLine, { width: `${width * 100}%`, backgroundColor: colors.sunken }]} />
+              <View style={[styles.processingSkeletonMeta, { backgroundColor: colors.sunken }]} />
+            </View>
+          </View>
+        ))}
+      </Animated.View>
+    </View>
+  );
+}
+
 function ImportReviewSkeleton() {
   const { colors } = useFlowndTheme();
   const [opacity] = useState(() => new Animated.Value(0.45));
@@ -536,8 +596,8 @@ function ImportReviewSkeleton() {
 
   return (
     <>
-      <Text style={[uiStyles.title, { color: colors.text }]}>Controlla prima di importare</Text>
-      <Text style={[uiStyles.subtitle, { color: colors.textSecondary }]}>Recupero del resoconto…</Text>
+      <Text style={[styles.compactTitle, { color: colors.text }]}>Riepilogo</Text>
+      <Text style={[styles.compactCopy, { color: colors.textSecondary }]}>Recupero dei movimenti riconosciuti…</Text>
       <Animated.View style={[styles.skeletonList, { opacity }]}>
         {Array.from({ length: 6 }, (_, index) => (
           <View
@@ -832,11 +892,23 @@ function EditorDropdown({
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 26 },
-  close: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  close: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   backIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21, lineHeight: 24 },
   headerTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   headerSpacer: { width: 40 },
+  compactTitle: { fontFamily: font.displaySemiBold, fontSize: 20, lineHeight: 26 },
+  compactCopy: { fontFamily: font.body, fontSize: 12, lineHeight: 18, marginTop: 4, marginBottom: 18 },
+  processingWrap: { alignItems: 'center', paddingTop: 20 },
+  aiOrb: { width: 66, height: 66, borderRadius: 33, alignItems: 'center', justifyContent: 'center' },
+  aiOrbIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 30, lineHeight: 34 },
+  processingTitle: { fontFamily: font.displaySemiBold, fontSize: 20, lineHeight: 26, marginTop: 18 },
+  processingCopy: { maxWidth: 330, fontFamily: font.body, fontSize: 12, lineHeight: 19, textAlign: 'center', marginTop: 6 },
+  processingSkeleton: { width: '100%', gap: 8, marginTop: 28 },
+  processingSkeletonRow: { minHeight: 62, borderWidth: 1, borderRadius: 15, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  processingSkeletonIcon: { width: 36, height: 36, borderRadius: 11 },
+  processingSkeletonLine: { height: 10, borderRadius: 5 },
+  processingSkeletonMeta: { width: '45%', height: 7, borderRadius: 4, marginTop: 8 },
   infoCard: { marginTop: 22, gap: 14 },
   infoRow: { flexDirection: 'row', gap: 11, alignItems: 'flex-start' },
   infoIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 20, lineHeight: 23 },

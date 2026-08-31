@@ -7,24 +7,26 @@ export type TransactionKind = 'expense' | 'income';
 export function TransactionKindSelector({
   value,
   onChange,
+  compact = false,
+  showLabel = true,
 }: {
   value: TransactionKind;
   onChange: (value: TransactionKind) => void;
+  compact?: boolean;
+  showLabel?: boolean;
 }) {
   const { colors, isDark } = useFlowndTheme();
   const options = [
     {
       id: 'expense' as const,
       label: 'Uscita',
-      description: 'Denaro speso',
       icon: 'north_east',
-      color: '#FF6685',
-      soft: isDark ? '#43232E' : '#FFF0F4',
+      color: '#3D8BFF',
+      soft: isDark ? '#203552' : '#EBF3FF',
     },
     {
       id: 'income' as const,
       label: 'Entrata',
-      description: 'Denaro ricevuto',
       icon: 'south_west',
       color: '#20C58A',
       soft: isDark ? '#153B30' : '#E8FBF4',
@@ -33,7 +35,9 @@ export function TransactionKindSelector({
 
   return (
     <View>
-      <Text style={[styles.label, { color: colors.text }]}>Tipo di movimento</Text>
+      {showLabel ? (
+        <Text style={[styles.label, { color: colors.text }]}>Tipo di movimento</Text>
+      ) : null}
       <View style={styles.options}>
         {options.map((option) => {
           const selected = value === option.id;
@@ -42,29 +46,30 @@ export function TransactionKindSelector({
               key={option.id}
               accessibilityRole="radio"
               accessibilityState={{ checked: selected }}
-              accessibilityLabel={`${option.label}, ${option.description}`}
+              accessibilityLabel={option.label}
               onPress={() => onChange(option.id)}
               style={({ pressed }) => [
                 styles.option,
+                compact && styles.compactOption,
                 {
                   backgroundColor: selected ? option.soft : colors.surface,
                   borderColor: selected ? option.color : colors.border,
                 },
                 pressed && styles.pressed,
               ]}>
-              <View style={[styles.iconBox, { backgroundColor: option.soft }]}>
+              <View
+                style={[
+                  styles.iconBox,
+                  compact && styles.compactIconBox,
+                  { backgroundColor: option.soft },
+                ]}>
                 <Text style={[styles.icon, { color: option.color }]}>
                   {option.icon}
                 </Text>
               </View>
-              <View style={styles.copy}>
-                <Text style={[styles.title, { color: colors.text }]}>
-                  {option.label}
-                </Text>
-                <Text style={[styles.description, { color: colors.textSecondary }]}>
-                  {option.description}
-                </Text>
-              </View>
+              <Text style={[styles.title, { color: colors.text }]}>
+                {option.label}
+              </Text>
               <View
                 style={[
                   styles.radio,
@@ -91,13 +96,19 @@ const styles = StyleSheet.create({
   options: { flexDirection: 'row', gap: 10 },
   option: {
     flex: 1,
-    minHeight: 64,
+    minHeight: 56,
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 9,
+  },
+  compactOption: {
+    minHeight: 44,
+    borderRadius: 12,
+    paddingHorizontal: 9,
+    gap: 7,
   },
   iconBox: {
     width: 34,
@@ -106,14 +117,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  compactIconBox: { width: 28, height: 28, borderRadius: 9 },
   icon: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 20,
     lineHeight: 23,
   },
-  copy: { flex: 1 },
-  title: { fontFamily: font.bodySemiBold, fontSize: 12 },
-  description: { fontFamily: font.body, fontSize: 9, marginTop: 2 },
+  title: { flex: 1, fontFamily: font.bodySemiBold, fontSize: 12 },
   radio: {
     width: 17,
     height: 17,
