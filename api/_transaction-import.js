@@ -788,8 +788,8 @@ export async function processImportJob({
         job.userId,
         imageJob ? 'Scansione pronta' : 'Importazione pronta',
         imageJob
-          ? `${transactions.length} transazioni riconosciute. Tocca per controllare il riepilogo.`
-          : `${transactions.length} transazioni riconosciute da ${job.name}. Tocca per controllarle.`,
+          ? `${transactions.length === 1 ? '1 transazione riconosciuta' : `${transactions.length} transazioni riconosciute`}. Tocca per controllare il riepilogo.`
+          : `${transactions.length === 1 ? '1 transazione riconosciuta' : `${transactions.length} transazioni riconosciute`} da ${job.name}. Tocca per controllare il riepilogo.`,
         `/transaction-import?mode=${imageJob ? 'ai' : 'file'}&jobId=${encodeURIComponent(job.id)}`,
       )
     } catch (notificationError) {

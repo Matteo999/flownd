@@ -378,4 +378,5 @@ test('completa un job persistente e crea la notifica che apre la revisione', asy
   assert.equal(completion.values.result.transactions[0].description, 'Openmove')
   const notification = operations.find((item) => item.table === 'goal_notifications')
   assert.match(notification.values.action_route, /jobId=11111111/)
+  assert.match(notification.values.body, /^1 transazione riconosciuta(?: da .+)?\./)
 })
