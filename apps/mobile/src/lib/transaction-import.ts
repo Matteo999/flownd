@@ -113,7 +113,6 @@ export async function getTransactionImportJob(userId: string, jobId: string) {
 }
 
 export async function deleteTransactionImportJob(userId: string, jobId: string) {
-  const actionRoute = `/transaction-import?mode=file&jobId=${encodeURIComponent(jobId)}`;
   const { error } = await supabase
     .from('transaction_import_jobs')
     .delete()
@@ -124,7 +123,7 @@ export async function deleteTransactionImportJob(userId: string, jobId: string) 
     .from('goal_notifications')
     .delete()
     .eq('user_id', userId)
-    .eq('action_route', actionRoute);
+    .like('action_route', `%jobId=${encodeURIComponent(jobId)}%`);
   if (notificationError) throw notificationError;
 }
 

@@ -1,22 +1,16 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as Device from 'expo-device';
 import * as ImagePicker from 'expo-image-picker';
+import { DateTimePicker } from '@expo/ui/community/datetime-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, type Href, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Alert, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Alert, Dimensions, Easing, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import {
-  Field,
-  PrimaryButton,
-  font,
-  uiStyles,
-  useFlowndTheme,
-} from '@/components/flownd-ui';
-import { TransactionDateField } from '@/components/transaction-date-field';
+import { PrimaryButton, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
 import { TransactionKindSelector } from '@/components/transaction-kind-selector';
 import { GENERIC_OPERATION_ERROR, reportClientError } from '@/lib/transaction-import';
 import {
@@ -25,6 +19,89 @@ import {
   suggestTransactionCategory,
 } from '@/lib/transaction-categories';
 import { useApp } from '@/providers/app-provider';
+
+type TransactionStep = 'amount' | 'description' | 'category';
+const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
+
+function categoryIcon(category: string) {
+  const icons: Record<string, string> = {
+    'ATM (prelievo contante)': 'local_atm',
+    'Bar e ristoranti': 'restaurant',
+    'Spese aziendali': 'business_center',
+    Educazione: 'school',
+    'Famiglia e Amici': 'group',
+    'Cibo e Spesa': 'shopping_cart',
+    'Cure sanitarie e Farmacia': 'medical_services',
+    'Casa e utenze': 'home',
+    'Assicurazioni e Finanza': 'account_balance',
+    'Tempo libero e intrattenimento': 'sports_esports',
+    'Multimedia e Elettronica': 'devices',
+    Altro: 'more_horiz',
+    Shopping: 'shopping_bag',
+    'Sottoscrizioni e donazioni': 'subscriptions',
+    'Tasse e Multe': 'receipt_long',
+    'Trasporti e Auto': 'directions_car',
+    'Viaggi e Vacanze': 'flight',
+    Giroconto: 'swap_horiz',
+    Stipendio: 'payments',
+    Tredicesima: 'redeem',
+    'Altra entrata': 'add_card',
+    'Rimborso spese': 'currency_exchange',
+  };
+  return icons[category] ?? 'category';
+}
+
+function compactDateLabel(date: Date) {
+  const today = new Date();
+  if (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  ) {
+    return 'Oggi';
+  }
+  return new Intl.DateTimeFormat('it-IT', {
+    day: 'numeric',
+    month: 'short',
+  }).format(date);
+}
+
+function preserveTransactionTime(date: Date, current: Date) {
+  const next = new Date(date);
+  next.setHours(
+    current.getHours(),
+    current.getMinutes(),
+    current.getSeconds(),
+    current.getMilliseconds(),
+  );
+  return next;
+}
+
+function normalizeAmountInput(value: string) {
+  const normalizedSeparator = value.replace(/\./g, ',');
+  const separatorIndex = normalizedSeparator.indexOf(',');
+  const hasSeparator = separatorIndex >= 0;
+  const integerSource = hasSeparator
+    ? normalizedSeparator.slice(0, separatorIndex)
+    : normalizedSeparator;
+  const decimalSource = hasSeparator
+    ? normalizedSeparator.slice(separatorIndex + 1)
+    : '';
+  const integerDigits = integerSource.replace(/\D/g, '').slice(0, 9);
+  const decimals = decimalSource.replace(/\D/g, '').slice(0, 2);
+  const integer = integerDigits.replace(/^0+(?=\d)/, '') || '0';
+  return hasSeparator ? `${integer},${decimals}` : integer;
+}
+
+function formatAmountDisplay(value: string) {
+  const [integerSource = '0', decimalSource = ''] = value.split(',');
+  const groupedInteger = integerSource.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${groupedInteger},${decimalSource.padEnd(2, '0')}`;
+}
+
+function parseAmountInput(value: string) {
+  return Number(value.replace(',', '.')) || 0;
+}
 
 export default function AddTransactionScreen() {
   const { colors, isDark } = useFlowndTheme();
@@ -46,7 +123,7 @@ export default function AddTransactionScreen() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
     accountId ?? null,
   );
-  const [accountsOpen, setAccountsOpen] = useState(false);
+  const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const manualAccounts = financialAccounts.filter(
     (account) => account.source === 'manual',
   );
@@ -55,17 +132,25 @@ export default function AddTransactionScreen() {
   );
   const effectiveAccountId = selectedAccount?.id ?? null;
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
+  const [step, setStep] = useState<TransactionStep>('amount');
   const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState('0');
   const [occurredAt, setOccurredAt] = useState(() => new Date());
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [categoryOverride, setCategoryOverride] = useState<string | null>(null);
-  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(300);
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const [importSheetTranslateY] = useState(() => new Animated.Value(480));
   const [importBackdropOpacity] = useState(() => new Animated.Value(0));
   const [sheetTranslateY] = useState(() => new Animated.Value(720));
   const [backdropOpacity] = useState(() => new Animated.Value(0));
-  const [keyboardLift] = useState(() => new Animated.Value(0));
+  const [contentProgress] = useState(() => new Animated.Value(0));
+  const [keyboardInset] = useState(() => new Animated.Value(0));
+  const amountInputRef = useRef<TextInput>(null);
+  const descriptionInputRef = useRef<TextInput>(null);
+  const modalRootRef = useRef<View>(null);
+  const keyboardVisibleRef = useRef(false);
+  const switchingInputRef = useRef(false);
   const pickerBusy = useRef(false);
   const suggestedCategory = useMemo(
     () =>
@@ -80,7 +165,7 @@ export default function AddTransactionScreen() {
   );
   const category = categoryOverride ?? suggestedCategory;
   const categoryOptions = categoriesForTransactionKind(kind);
-  const numericAmount = Number(amount.replace(',', '.')) || 0;
+  const numericAmount = parseAmountInput(amount);
   const insufficientCash = Boolean(
     selectedAccount?.accountKind === 'cash_wallet' &&
       kind === 'expense' &&
@@ -107,7 +192,6 @@ export default function AddTransactionScreen() {
   useEffect(() => {
     sheetTranslateY.setValue(720);
     backdropOpacity.setValue(0);
-    keyboardLift.setValue(0);
     Animated.parallel([
       Animated.spring(sheetTranslateY, {
         toValue: 0,
@@ -122,42 +206,116 @@ export default function AddTransactionScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [backdropOpacity, keyboardLift, sheetTranslateY]);
+  }, [backdropOpacity, sheetTranslateY]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSubscription = Keyboard.addListener(showEvent, (event) => {
-      Animated.timing(keyboardLift, {
-        toValue: -event.endCoordinates.height,
-        duration: event.duration ?? 250,
+    const moveFooterAboveKeyboard = (height: number, duration?: number) => {
+      Animated.timing(keyboardInset, {
+        toValue: -height,
+        duration: duration ?? 250,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
+    };
+    const moveFooterForFrame = (
+      screenY: number,
+      duration?: number,
+      preserveCurrentInset = false,
+    ) => {
+      const fallbackOverlap = Math.max(0, Dimensions.get('screen').height - screenY);
+      if (fallbackOverlap > 0) setKeyboardHeight(fallbackOverlap);
+      if (!modalRootRef.current) {
+        if (preserveCurrentInset && fallbackOverlap <= 0) return;
+        moveFooterAboveKeyboard(fallbackOverlap, duration);
+        return;
+      }
+      modalRootRef.current.measureInWindow((_x, rootY, _width, rootHeight) => {
+        const overlap = Math.max(0, rootY + rootHeight - screenY);
+        if (preserveCurrentInset && overlap <= 0) return;
+        moveFooterAboveKeyboard(overlap, duration);
+      });
+    };
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      keyboardVisibleRef.current = true;
+      moveFooterForFrame(
+        event.endCoordinates.screenY,
+        event.duration,
+        switchingInputRef.current,
+      );
+      switchingInputRef.current = false;
     });
     const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
-      Animated.timing(keyboardLift, {
-        toValue: 0,
-        duration: event.duration ?? 220,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
+      if (switchingInputRef.current) return;
+      keyboardVisibleRef.current = false;
+      moveFooterAboveKeyboard(0, event.duration ?? 220);
     });
+    const frameSubscription = Platform.OS === 'ios'
+      ? Keyboard.addListener('keyboardWillChangeFrame', (event) => {
+          const preservesInputSwitch = switchingInputRef.current;
+          moveFooterForFrame(
+            event.endCoordinates.screenY,
+            event.duration,
+            preservesInputSwitch,
+          );
+          if (
+            preservesInputSwitch &&
+            Dimensions.get('screen').height - event.endCoordinates.screenY > 0
+          ) {
+            switchingInputRef.current = false;
+          }
+        })
+      : null;
     return () => {
       showSubscription.remove();
       hideSubscription.remove();
+      frameSubscription?.remove();
     };
-  }, [keyboardLift]);
+  }, [keyboardInset]);
+
+  function restoreActiveKeyboard(delay = 120) {
+    setTimeout(() => {
+      if (step === 'amount') amountInputRef.current?.focus();
+      if (step === 'description') descriptionInputRef.current?.focus();
+    }, delay);
+  }
+
+  useEffect(() => {
+    if (step === 'description') {
+      requestAnimationFrame(() => descriptionInputRef.current?.focus());
+    } else if (step === 'amount') {
+      requestAnimationFrame(() => amountInputRef.current?.focus());
+    }
+  }, [step]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (
+        step === 'category' ||
+        importMenuOpen ||
+        accountPickerOpen ||
+        datePickerOpen
+      ) {
+        return undefined;
+      }
+      const timer = setTimeout(() => {
+        if (step === 'amount') amountInputRef.current?.focus();
+        if (step === 'description') descriptionInputRef.current?.focus();
+      }, 180);
+      return () => clearTimeout(timer);
+    }, [accountPickerOpen, datePickerOpen, importMenuOpen, step]),
+  );
 
   const sheetPanGesture = useMemo(
     () => Gesture.Pan()
+      .enabled(step !== 'category' && !accountPickerOpen && !datePickerOpen)
       .activeOffsetY(4)
       .failOffsetX([-24, 24])
       .shouldCancelWhenOutside(false)
       .runOnJS(true)
       .onBegin(() => {
         sheetTranslateY.stopAnimation();
-        Keyboard.dismiss();
       })
       .onUpdate((event) => {
         sheetTranslateY.setValue(Math.max(0, event.translationY));
@@ -174,7 +332,7 @@ export default function AddTransactionScreen() {
           useNativeDriver: true,
         }).start();
       }),
-    [closeSheet, sheetTranslateY],
+    [accountPickerOpen, closeSheet, datePickerOpen, sheetTranslateY, step],
   );
 
   useEffect(() => {
@@ -196,6 +354,50 @@ export default function AddTransactionScreen() {
       }),
     ]).start();
   }, [importBackdropOpacity, importMenuOpen, importSheetTranslateY]);
+
+  const importSheetPanGesture = useMemo(
+    () => Gesture.Pan()
+      .activeOffsetY(6)
+      .failOffsetX([-24, 24])
+      .shouldCancelWhenOutside(false)
+      .runOnJS(true)
+      .onBegin(() => {
+        importSheetTranslateY.stopAnimation();
+      })
+      .onUpdate((event) => {
+        importSheetTranslateY.setValue(Math.max(0, event.translationY));
+      })
+      .onEnd((event) => {
+        if (event.translationY > 90 || event.velocityY > 950) {
+          Animated.parallel([
+            Animated.timing(importSheetTranslateY, {
+              toValue: 480,
+              duration: 160,
+              useNativeDriver: true,
+            }),
+            Animated.timing(importBackdropOpacity, {
+              toValue: 0,
+              duration: 130,
+              useNativeDriver: true,
+            }),
+          ]).start(() => {
+            setImportMenuOpen(false);
+            setTimeout(() => {
+              if (step === 'amount') amountInputRef.current?.focus();
+              if (step === 'description') descriptionInputRef.current?.focus();
+            }, 120);
+          });
+          return;
+        }
+        Animated.spring(importSheetTranslateY, {
+          toValue: 0,
+          damping: 22,
+          stiffness: 260,
+          useNativeDriver: true,
+        }).start();
+      }),
+    [importBackdropOpacity, importSheetTranslateY, step],
+  );
 
   function canUseImageAi() {
     if (planTier === 'free') {
@@ -227,9 +429,13 @@ export default function AddTransactionScreen() {
   }
 
   async function openCamera() {
-    if (!canUseImageAi()) return;
+    if (!canUseImageAi()) {
+      restoreActiveKeyboard(300);
+      return;
+    }
     if (pickerBusy.current) return;
     pickerBusy.current = true;
+    let shouldRestoreKeyboard = true;
     try {
       if (Platform.OS === 'ios' && !Device.isDevice) {
         throw new Error('Camera unavailable on iOS Simulator');
@@ -248,11 +454,15 @@ export default function AddTransactionScreen() {
         allowsEditing: false,
         quality: 1,
       });
-      if (!result.canceled) openImageReview(result.assets[0]);
+      if (!result.canceled) {
+        shouldRestoreKeyboard = false;
+        openImageReview(result.assets[0]);
+      }
     } catch (reason) {
       await showAiError('transaction_camera_launch', reason);
     } finally {
       pickerBusy.current = false;
+      if (shouldRestoreKeyboard) restoreActiveKeyboard();
     }
   }
 
@@ -260,25 +470,31 @@ export default function AddTransactionScreen() {
     if (!canUseImageAi()) return;
     if (pickerBusy.current) return;
     pickerBusy.current = true;
-    closeImportMenu();
+    closeImportMenu(false);
+    let shouldRestoreKeyboard = true;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: false,
         quality: 1,
       });
-      if (!result.canceled) openImageReview(result.assets[0]);
+      if (!result.canceled) {
+        shouldRestoreKeyboard = false;
+        openImageReview(result.assets[0]);
+      }
     } catch (reason) {
       await showAiError('transaction_library_launch', reason);
     } finally {
       pickerBusy.current = false;
+      if (shouldRestoreKeyboard) restoreActiveKeyboard();
     }
   }
 
   async function openFilePicker() {
     if (pickerBusy.current) return;
     pickerBusy.current = true;
-    closeImportMenu();
+    closeImportMenu(false);
+    let shouldRestoreKeyboard = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
@@ -292,6 +508,7 @@ export default function AddTransactionScreen() {
       });
       if (result.canceled) return;
       const asset = result.assets[0];
+      shouldRestoreKeyboard = false;
       router.push({
         pathname: '/transaction-import',
         params: {
@@ -306,10 +523,11 @@ export default function AddTransactionScreen() {
       await showAiError('transaction_file_picker', reason);
     } finally {
       pickerBusy.current = false;
+      if (shouldRestoreKeyboard) restoreActiveKeyboard();
     }
   }
 
-  function closeImportMenu() {
+  function closeImportMenu(restoreKeyboard = true) {
     Animated.parallel([
       Animated.timing(importSheetTranslateY, {
         toValue: 480,
@@ -323,6 +541,7 @@ export default function AddTransactionScreen() {
       }),
     ]).start(() => {
       setImportMenuOpen(false);
+      if (restoreKeyboard) restoreActiveKeyboard();
     });
   }
 
@@ -331,8 +550,66 @@ export default function AddTransactionScreen() {
     setImportMenuOpen(true);
   }
 
+  function showDetailsStep() {
+    if (numericAmount <= 0) return;
+    clearError();
+    switchingInputRef.current = keyboardVisibleRef.current;
+    descriptionInputRef.current?.focus();
+    setStep('description');
+    Animated.timing(contentProgress, {
+      toValue: 1,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }
+
+  function showAmountStep() {
+    setAccountPickerOpen(false);
+    switchingInputRef.current = keyboardVisibleRef.current;
+    amountInputRef.current?.focus();
+    setStep('amount');
+    Animated.timing(contentProgress, {
+      toValue: 0,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }
+
+  function showDescriptionStep() {
+    setAccountPickerOpen(false);
+    switchingInputRef.current = keyboardVisibleRef.current;
+    descriptionInputRef.current?.focus();
+    setStep('description');
+    Animated.timing(contentProgress, {
+      toValue: 1,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }
+
+  function showCategoryStep() {
+    if (!description.trim()) return;
+    setStep('category');
+    Keyboard.dismiss();
+  }
+
+  async function saveTransaction() {
+    const saved = await addTransaction({
+      description: description.trim(),
+      amount: numericAmount,
+      category,
+      kind,
+      occurredAt: occurredAt.toISOString(),
+      financialAccountId: effectiveAccountId,
+    });
+    if (saved) closeSheet();
+  }
+
   return (
-    <View style={styles.modalRoot}>
+    <View ref={modalRootRef} style={styles.modalRoot}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Animated.View style={[styles.mainBackdrop, { opacity: backdropOpacity }]}> 
         <Pressable
@@ -349,20 +626,14 @@ export default function AddTransactionScreen() {
             {
               backgroundColor: colors.background,
               borderColor: colors.border,
-              paddingBottom: Math.max(insets.bottom, 18),
-              transform: [
-                { translateY: sheetTranslateY },
-                { translateY: keyboardLift },
-              ],
+              transform: [{ translateY: sheetTranslateY }],
             },
           ]}>
-          <View
-            pointerEvents="none"
-            style={[styles.keyboardBackgroundExtension, { backgroundColor: colors.background }]}
-          />
           <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
           <View style={styles.header}>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>Nuova transazione</Text>
+            <View style={styles.headerTitleGroup}>
+              <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.text }]}>Nuova transazione</Text>
+            </View>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Chiudi"
@@ -376,168 +647,186 @@ export default function AddTransactionScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.formContent}>
-            <TransactionKindSelector
-              value={kind}
-              onChange={(nextKind) => {
-                clearError();
-                setKind(nextKind);
-                setCategoryOverride(null);
-                setCategoriesOpen(false);
-              }}
-            />
-            <Field
-              label="Descrizione"
-              placeholder={kind === 'income' ? 'es. stipendio di luglio' : 'es. pranzo al bar'}
-              value={description}
-              onChangeText={(value) => {
-                clearError();
-                setDescription(value);
-              }}
-            />
-            <View style={styles.amountDateRow}>
-              <View style={styles.amountField}>
-                <Field
-                  label="Importo"
-                  placeholder="0,00"
-                  suffix="€"
-                  keyboardType="decimal-pad"
-                  value={amount}
-                  onChangeText={(value) => {
-                    clearError();
-                    setAmount(value);
-                  }}
-                />
-              </View>
-              <View style={styles.dateField}>
-                <TransactionDateField value={occurredAt} onChange={setOccurredAt} />
-              </View>
-            </View>
-            <View style={styles.selectorRow}>
-              <View style={styles.selectorColumn}>
-                <Text style={[styles.categoryTitle, { color: colors.text }]}>Conto</Text>
-                <View style={[styles.categoryDropdown, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded: accountsOpen }}
-                    onPress={() => {
-                      setCategoriesOpen(false);
-                      setAccountsOpen((current) => !current);
-                    }}
-                    style={({ pressed }) => [styles.categoryTrigger, pressed && styles.pressed]}>
-                    <Text numberOfLines={1} style={[styles.categoryValue, { color: colors.text }]}> 
-                      {selectedAccount?.name ?? 'Automatico'}
-                    </Text>
-                    <Text style={[styles.dropdownIcon, { color: colors.textSecondary }]}> 
-                      {accountsOpen ? 'expand_less' : 'expand_more'}
-                    </Text>
-                  </Pressable>
-                  {accountsOpen ? (
-                    <View style={[styles.categoryMenu, { borderTopColor: colors.border }]}> 
-                      {[null, ...manualAccounts].map((option) => {
-                        const optionId = option?.id ?? null;
-                        const selected = effectiveAccountId === optionId;
-                        return (
-                          <Pressable
-                            key={optionId ?? 'none'}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected }}
-                            onPress={() => {
-                              clearError();
-                              setSelectedAccountId(optionId);
-                              setAccountsOpen(false);
-                            }}
-                            style={({ pressed }) => [
-                              styles.categoryOption,
-                              selected && { backgroundColor: colors.accentSoft },
-                              pressed && styles.pressed,
-                            ]}>
-                            <Text numberOfLines={1} style={[styles.categoryOptionText, { color: selected ? colors.accent : colors.text }]}> 
-                              {option?.name ?? 'Automatico'}
-                            </Text>
-                            {selected ? <Text style={[styles.optionCheck, { color: colors.accent }]}>check</Text> : null}
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-              <View style={styles.selectorColumn}>
-                <Text style={[styles.categoryTitle, { color: colors.text }]}>Categoria</Text>
-                <View style={[styles.categoryDropdown, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Categoria selezionata: ${category}`}
-                    accessibilityState={{ expanded: categoriesOpen }}
-                    onPress={() => {
-                      setAccountsOpen(false);
-                      setCategoriesOpen(true);
-                    }}
-                    style={({ pressed }) => [styles.categoryTrigger, pressed && styles.pressed]}>
-                    <Text numberOfLines={1} style={[styles.categoryValue, { color: colors.text }]}>{category}</Text>
-                    <Text style={[styles.dropdownIcon, { color: colors.textSecondary }]}>expand_more</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
-            {kind === 'income' ? (
-              <Text style={[styles.categoryHint, { color: colors.textSecondary }]}> 
-                Tredicesima, rimborsi e giroconti restano visibili ma non aumentano il budget mensile.
-              </Text>
-            ) : null}
-            {insufficientCash ? (
-              <Text style={[uiStyles.error, { color: colors.negative }]}>Il portafoglio non contiene abbastanza contanti.</Text>
-            ) : null}
-            {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
-            <View style={styles.aiActions}>
-              <Pressable accessibilityRole="button" onPress={() => void openCamera()} style={styles.aiAction}>
-                <LinearGradient colors={['#7C5CFC', '#18A8D8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.aiActionGradient}>
-                  <Text style={styles.aiActionIcon}>photo_camera</Text>
-                  <Text style={styles.aiActionText}>Foto AI{planTier === 'free' ? ' · PRO' : ''}</Text>
-                </LinearGradient>
-              </Pressable>
-              <Pressable accessibilityRole="button" onPress={openImportMenu} style={styles.aiAction}>
-                <LinearGradient colors={['#E85AAD', '#7C5CFC']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.aiActionGradient}>
-                  <Text style={styles.aiActionIcon}>upload_file</Text>
-                  <Text style={styles.aiActionText}>Importa AI</Text>
-                </LinearGradient>
-              </Pressable>
-            </View>
-            <PrimaryButton
-              disabled={!description.trim() || numericAmount <= 0 || insufficientCash}
-              loading={saving}
-              onPress={async () => {
-                const saved = await addTransaction({
-                  description: description.trim(),
-                  amount: numericAmount,
-                  category,
-                  kind,
-                  occurredAt: occurredAt.toISOString(),
-                  financialAccountId: effectiveAccountId,
-                });
-                if (saved) closeSheet();
-              }}>
-              Aggiungi {kind === 'income' ? 'entrata' : 'uscita'}
-            </PrimaryButton>
-          </View>
-
-          {categoriesOpen ? (
-            <View style={styles.categoryPopoverLayer}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Chiudi categorie"
-                onPress={() => setCategoriesOpen(false)}
-                style={StyleSheet.absoluteFill}
+          <View style={styles.keyboardBody}>
+            <View style={styles.transactionContent}>
+              <TransactionKindSelector
+                compact
+                showLabel={false}
+                value={kind}
+                onChange={(nextKind) => {
+                  clearError();
+                  setKind(nextKind);
+                  setCategoryOverride(null);
+                }}
               />
-              <View style={[styles.categoryPopover, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-                <View style={styles.categoryPopoverHeader}>
-                  <Text style={[styles.categoryPopoverTitle, { color: colors.text }]}>Scegli categoria</Text>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Chiudi categorie" onPress={() => setCategoriesOpen(false)} hitSlop={8}>
-                    <Text style={[styles.dropdownIcon, { color: colors.textSecondary }]}>close</Text>
-                  </Pressable>
-                </View>
-                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.categoryPopoverScroll}>
+
+              <View style={styles.inputWorkspace}>
+                <Animated.View
+                  style={[
+                    styles.animatedAmount,
+                    {
+                      transform: [
+                        {
+                          translateY: contentProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [68, 24],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}>
+                  <AnimatedTextInput
+                    ref={amountInputRef}
+                    accessibilityLabel="Importo della transazione"
+                    autoFocus
+                    caretHidden
+                    editable={step !== 'category'}
+                    keyboardAppearance={isDark ? 'dark' : 'light'}
+                    keyboardType="decimal-pad"
+                    onChangeText={(value) => {
+                      clearError();
+                      setAmount(normalizeAmountInput(value));
+                    }}
+                    selection={{ start: amount.length, end: amount.length }}
+                    style={styles.amountCaptureInput}
+                    value={amount}
+                  />
+                  <Animated.Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.65}
+                    numberOfLines={1}
+                    pointerEvents="none"
+                    style={[
+                      styles.amountDisplay,
+                      {
+                        color: colors.text,
+                        fontSize: contentProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [52, 27],
+                        }),
+                        lineHeight: contentProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [62, 34],
+                        }),
+                      },
+                    ]}>
+                    {formatAmountDisplay(amount)}
+                  </Animated.Text>
+                  <Animated.Text
+                    pointerEvents="none"
+                    style={[
+                      styles.amountCurrency,
+                      {
+                        color: colors.text,
+                        fontSize: contentProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [30, 20],
+                        }),
+                        lineHeight: contentProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [40, 28],
+                        }),
+                      },
+                    ]}>€</Animated.Text>
+                  {step !== 'amount' ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Modifica importo"
+                      onPress={showAmountStep}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  ) : null}
+                </Animated.View>
+
+                <Animated.View
+                  pointerEvents={step === 'amount' ? 'none' : 'auto'}
+                  style={[
+                    styles.messageComposer,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                      opacity: contentProgress,
+                      transform: [
+                        {
+                          translateX: contentProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [260, 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}>
+                    <TextInput
+                      ref={descriptionInputRef}
+                      accessibilityLabel="Descrizione della transazione"
+                      blurOnSubmit={false}
+                      editable={step !== 'category'}
+                      keyboardAppearance={isDark ? 'dark' : 'light'}
+                      multiline
+                      onChangeText={(value) => {
+                        clearError();
+                        setDescription(value);
+                      }}
+                      onSubmitEditing={showCategoryStep}
+                      placeholder={kind === 'income' ? 'Descrivi questa entrata…' : 'Cosa hai pagato?'}
+                      placeholderTextColor={colors.textSecondary}
+                      returnKeyType="next"
+                      selectionColor={colors.accent}
+                      submitBehavior="submit"
+                      style={[styles.descriptionInput, { color: colors.text }]}
+                      value={description}
+                    />
+                    {step === 'category' ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Modifica descrizione"
+                        onPress={showDescriptionStep}
+                        style={styles.descriptionReturnOverlay}
+                      />
+                    ) : null}
+                    <View style={[styles.composerMeta, { borderTopColor: colors.border }]}>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => setDatePickerOpen(true)}
+                        style={({ pressed }) => [styles.metaButton, pressed && styles.pressed]}>
+                        <Text style={[styles.metaIcon, { color: colors.accent }]}>calendar_today</Text>
+                        <Text style={[styles.metaText, { color: colors.text }]}>{compactDateLabel(occurredAt)}</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => setAccountPickerOpen(true)}
+                        style={({ pressed }) => [styles.metaButton, pressed && styles.pressed]}>
+                        <Text style={[styles.metaIcon, { color: colors.accent }]}>account_balance_wallet</Text>
+                        <Text numberOfLines={1} style={[styles.metaText, styles.walletText, { color: colors.text }]}>
+                          {selectedAccount?.name ?? 'Automatico'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </Animated.View>
+
+                {insufficientCash ? (
+                  <Text style={[uiStyles.error, styles.inlineError, { color: colors.negative }]}>Il portafoglio non contiene abbastanza contanti.</Text>
+                ) : null}
+                {error ? <Text style={[uiStyles.error, styles.inlineError, { color: colors.negative }]}>{error}</Text> : null}
+              </View>
+            </View>
+
+            {step === 'category' ? (
+              <View
+                style={[
+                  styles.categoryKeyboard,
+                  {
+                    height: Math.max(280, keyboardHeight),
+                    backgroundColor: colors.surface,
+                    borderTopColor: colors.border,
+                  },
+                ]}>
+                <Text style={[styles.categoryKeyboardTitle, { color: colors.text }]}>Scegli una categoria</Text>
+                <ScrollView
+                  contentContainerStyle={styles.categoryGrid}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  style={styles.categoryScroll}>
                   {categoryOptions.map((option) => {
                     const selected = category === option;
                     return (
@@ -548,24 +837,170 @@ export default function AddTransactionScreen() {
                         onPress={() => {
                           clearError();
                           setCategoryOverride(option);
-                          setCategoriesOpen(false);
                         }}
-                        style={({ pressed }) => [
-                          styles.categoryOption,
-                          selected && { backgroundColor: colors.accentSoft },
-                          pressed && styles.pressed,
-                        ]}>
-                        <Text style={[styles.categoryOptionText, { color: selected ? colors.accent : colors.text }]}>{option}</Text>
-                        {selected ? <Text style={[styles.optionCheck, { color: colors.accent }]}>check</Text> : null}
+                        style={({ pressed }) => [styles.categoryTile, pressed && styles.pressed]}>
+                        <View
+                          style={[
+                            styles.categoryIconCircle,
+                            { backgroundColor: selected ? colors.accent : colors.accentSoft },
+                          ]}>
+                          <Text style={[styles.categoryGridIcon, { color: selected ? '#FFFFFF' : colors.accent }]}>
+                            {categoryIcon(option)}
+                          </Text>
+                        </View>
+                        <Text
+                          numberOfLines={2}
+                          style={[styles.categoryTileLabel, { color: selected ? colors.accent : colors.text }]}>
+                          {option}
+                        </Text>
                       </Pressable>
                     );
                   })}
                 </ScrollView>
+                <View style={[styles.categoryFooter, { paddingBottom: Math.max(10, insets.bottom) }]}>
+                  <PrimaryButton
+                    disabled={!description.trim() || insufficientCash}
+                    loading={saving}
+                    onPress={() => void saveTransaction()}>
+                    Aggiungi {kind === 'income' ? 'entrata' : 'uscita'}
+                  </PrimaryButton>
+                </View>
+              </View>
+            ) : (
+              <Animated.View
+                style={[
+                  styles.formFooter,
+                  {
+                    backgroundColor: colors.background,
+                    transform: [{ translateY: keyboardInset }],
+                  },
+                ]}>
+                {step === 'amount' ? (
+                  <PrimaryButton disabled={numericAmount <= 0} onPress={showDetailsStep}>Continua</PrimaryButton>
+                ) : null}
+                <View style={styles.aiOptions}>
+                  {([
+                    {
+                      id: 'scan',
+                      label: 'Scan',
+                      icon: 'document_scanner',
+                      action: () => void openCamera(),
+                    },
+                    {
+                      id: 'import',
+                      label: 'Importa',
+                      icon: 'upload_file',
+                      action: openImportMenu,
+                    },
+                  ] as const).map((option) => (
+                    <Pressable
+                      key={option.id}
+                      accessibilityRole="button"
+                      onPress={option.action}
+                      style={({ pressed }) => [styles.aiOption, pressed && styles.pressed]}>
+                      <LinearGradient
+                        colors={isDark ? ['#9A82FF', '#42C8D7', '#D778B7'] : ['#8068E8', '#22AFC1', '#CF6AAE']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.aiOptionOutline}>
+                        <View style={[styles.aiOptionInner, { backgroundColor: colors.background }]}>
+                          <Text style={[styles.aiOptionIcon, { color: colors.accent }]}>{option.icon}</Text>
+                          <Text style={[styles.aiOptionText, { color: colors.text }]}>{option.label}</Text>
+                          {option.id === 'scan' && planTier === 'free' ? (
+                            <Text style={[styles.aiProLabel, { color: colors.accent }]}>PRO</Text>
+                          ) : null}
+                        </View>
+                      </LinearGradient>
+                    </Pressable>
+                  ))}
+                </View>
+              </Animated.View>
+            )}
+          </View>
+
+          {accountPickerOpen ? (
+            <View style={styles.categoryPopoverLayer}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => setAccountPickerOpen(false)} />
+              <View style={[styles.accountPicker, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.categoryPopoverTitle, { color: colors.text }]}>Scegli il conto</Text>
+                {[null, ...manualAccounts].map((option) => {
+                  const optionId = option?.id ?? null;
+                  const selected = effectiveAccountId === optionId;
+                  return (
+                    <Pressable
+                      key={optionId ?? 'automatic'}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      onPress={() => {
+                        setSelectedAccountId(optionId);
+                        setAccountPickerOpen(false);
+                      }}
+                      style={({ pressed }) => [
+                        styles.accountOption,
+                        selected && { backgroundColor: colors.accentSoft },
+                        pressed && styles.pressed,
+                      ]}>
+                      <Text style={[styles.metaIcon, { color: colors.accent }]}>account_balance_wallet</Text>
+                      <Text style={[styles.accountOptionText, { color: colors.text }]}>{option?.name ?? 'Automatico'}</Text>
+                      {selected ? <Text style={[styles.optionCheck, { color: colors.accent }]}>check</Text> : null}
+                    </Pressable>
+                  );
+                })}
               </View>
             </View>
           ) : null}
         </Animated.View>
       </GestureDetector>
+
+      {datePickerOpen && Platform.OS === 'android' ? (
+        <DateTimePicker
+          value={occurredAt}
+          mode="date"
+          display="default"
+          presentation="dialog"
+          maximumDate={new Date()}
+          accentColor={colors.accent}
+          positiveButton={{ label: 'Conferma' }}
+          negativeButton={{ label: 'Annulla' }}
+          onValueChange={(_event, date) => {
+            setOccurredAt(preserveTransactionTime(date, occurredAt));
+            setDatePickerOpen(false);
+          }}
+          onDismiss={() => setDatePickerOpen(false)}
+        />
+      ) : null}
+
+      {Platform.OS === 'ios' ? (
+        <Modal
+          visible={datePickerOpen}
+          transparent
+          animationType="fade"
+          presentationStyle="overFullScreen"
+          onRequestClose={() => setDatePickerOpen(false)}>
+          <View style={styles.dateOverlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setDatePickerOpen(false)} />
+            <View style={[styles.dateCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.dateHeader}>
+                <Text style={[styles.dateTitle, { color: colors.text }]}>Scegli la data</Text>
+                <Pressable onPress={() => setDatePickerOpen(false)}>
+                  <Text style={[styles.dateDone, { color: colors.accent }]}>Fatto</Text>
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={occurredAt}
+                mode="date"
+                display="inline"
+                locale="it_IT"
+                maximumDate={new Date()}
+                accentColor={colors.accent}
+                themeVariant={isDark ? 'dark' : 'light'}
+                onValueChange={(_event, date) => setOccurredAt(preserveTransactionTime(date, occurredAt))}
+                style={styles.datePicker}
+              />
+            </View>
+          </View>
+        </Modal>
+      ) : null}
       {importMenuOpen ? (
         <View style={styles.importOverlay}>
           <Animated.View
@@ -574,18 +1009,33 @@ export default function AddTransactionScreen() {
               accessibilityRole="button"
               accessibilityLabel="Chiudi menu importazione"
               style={StyleSheet.absoluteFill}
-              onPress={closeImportMenu}
+              onPress={() => closeImportMenu()}
             />
           </Animated.View>
-          <Animated.View
-            style={[
-              styles.importSheet,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-                transform: [{ translateY: importSheetTranslateY }],
-              },
-            ]}>
+          <GestureDetector gesture={importSheetPanGesture}>
+            <Animated.View
+              style={[
+                styles.importSheet,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  transform: [
+                    { translateY: keyboardInset },
+                    { translateY: importSheetTranslateY },
+                  ],
+                },
+              ]}>
+            <View
+              pointerEvents="none"
+              style={[
+                styles.importKeyboardExtension,
+                {
+                  height: keyboardHeight + 4,
+                  bottom: -(keyboardHeight + 2),
+                  backgroundColor: colors.surface,
+                },
+              ]}
+            />
             <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
             <Text style={[styles.sheetTitle, { color: colors.text }]}>Importa con Flownd AI</Text>
             <Text style={[styles.sheetCopy, { color: colors.textSecondary }]}>Scegli una foto oppure un documento CSV, PDF o XLSX.</Text>
@@ -614,7 +1064,8 @@ export default function AddTransactionScreen() {
                 <Text style={[styles.sheetOptionSubtitle, { color: colors.textSecondary }]}>CSV, PDF oppure XLSX</Text>
               </View>
             </Pressable>
-          </Animated.View>
+            </Animated.View>
+          </GestureDetector>
         </View>
       ) : null}
     </View>
@@ -628,7 +1079,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(4, 12, 9, 0.5)',
   },
   mainSheet: {
-    maxHeight: '92%',
+    height: '90%',
     overflow: 'hidden',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
@@ -636,20 +1087,187 @@ const styles = StyleSheet.create({
     paddingTop: 9,
     paddingHorizontal: 20,
   },
-  keyboardBackgroundExtension: {
-    position: 'absolute',
-    right: -1,
-    bottom: -640,
-    left: -1,
-    height: 642,
+  keyboardBody: { flex: 1 },
+  transactionContent: {
+    flex: 1,
+    minHeight: 0,
   },
-  formContent: { gap: 12 },
+  inputWorkspace: {
+    flex: 1,
+    minHeight: 126,
+    position: 'relative',
+  },
+  animatedAmount: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    left: 0,
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+  },
+  amountCaptureInput: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 1,
+    color: 'transparent',
+    opacity: 0.01,
+  },
+  amountDisplay: {
+    maxWidth: '82%',
+    fontFamily: font.dataMedium,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+  },
+  amountCurrency: {
+    fontFamily: font.dataMedium,
+    marginLeft: 6,
+  },
+  messageComposer: {
+    position: 'absolute',
+    top: 84,
+    right: 0,
+    left: 0,
+    minHeight: 126,
+    borderWidth: 1,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  descriptionReturnOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    left: 0,
+    height: 78,
+    zIndex: 2,
+  },
+  descriptionInput: {
+    minHeight: 78,
+    maxHeight: 104,
+    paddingTop: 15,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    fontFamily: font.body,
+    fontSize: 16,
+    lineHeight: 22,
+    textAlignVertical: 'top',
+  },
+  composerMeta: {
+    minHeight: 44,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  metaButton: {
+    minWidth: 0,
+    maxWidth: '56%',
+    minHeight: 34,
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  metaIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 18,
+    lineHeight: 21,
+  },
+  metaText: {
+    fontFamily: font.bodyMedium,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  walletText: { flexShrink: 1 },
+  inlineError: { position: 'absolute', top: 198, right: 0, left: 0 },
+  formFooter: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
+  categoryKeyboard: {
+    marginHorizontal: -20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    paddingHorizontal: 12,
+  },
+  categoryKeyboardTitle: {
+    fontFamily: font.displaySemiBold,
+    fontSize: 17,
+    lineHeight: 22,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  categoryScroll: { flex: 1 },
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+  },
+  categoryTile: {
+    width: '31.5%',
+    minHeight: 92,
+    alignItems: 'center',
+    paddingHorizontal: 3,
+    paddingVertical: 5,
+  },
+  categoryIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 5,
+  },
+  categoryGridIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 21,
+    lineHeight: 24,
+  },
+  categoryTileLabel: {
+    fontFamily: font.bodyMedium,
+    fontSize: 9,
+    lineHeight: 12,
+    textAlign: 'center',
+  },
+  categoryFooter: {
+    paddingTop: 6,
+  },
   header: {
     minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 8,
+  },
+  headerTitleGroup: {
+    minWidth: 0,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  backButton: {
+    width: 34,
+    height: 38,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  backIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 22,
+    lineHeight: 25,
   },
   close: {
     width: 38,
@@ -663,32 +1281,37 @@ const styles = StyleSheet.create({
     fontSize: 21,
     lineHeight: 24,
   },
-  headerTitle: { fontFamily: font.displaySemiBold, fontSize: 22, lineHeight: 28 },
-  amountDateRow: { flexDirection: 'row', gap: 10 },
-  amountField: { flex: 0.9 },
-  dateField: { flex: 1.1 },
-  selectorRow: { flexDirection: 'row', gap: 10 },
-  selectorColumn: { flex: 1 },
-  aiActions: { flexDirection: 'row', gap: 9 },
-  aiAction: { flex: 1, borderRadius: 12, overflow: 'hidden' },
-  aiActionGradient: {
-    minHeight: 40,
-    paddingHorizontal: 11,
+  headerTitle: { flexShrink: 1, fontFamily: font.displaySemiBold, fontSize: 22, lineHeight: 28 },
+  aiOptions: { marginTop: 8, flexDirection: 'row', gap: 9 },
+  aiOption: {
+    flex: 1,
+    borderRadius: 12,
+  },
+  aiOptionOutline: { borderRadius: 12, padding: 1.25 },
+  aiOptionInner: {
+    minHeight: 43,
+    borderRadius: 10.75,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 7,
   },
-  aiActionIcon: {
-    color: '#FFFFFF',
+  aiOptionIcon: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 18,
     lineHeight: 21,
   },
-  aiActionText: { color: '#FFFFFF', fontFamily: font.bodySemiBold, fontSize: 11 },
+  aiOptionText: { fontFamily: font.bodySemiBold, fontSize: 11 },
+  aiProLabel: { fontFamily: font.dataMedium, fontSize: 8, letterSpacing: 0.5 },
   importOverlay: { ...StyleSheet.absoluteFill, zIndex: 100, justifyContent: 'flex-end' },
   importBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(4, 12, 9, 0.42)' },
   importSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 34 },
+  importKeyboardExtension: {
+    position: 'absolute',
+    right: -1,
+    left: -1,
+  },
   sheetHandle: { width: 42, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 10 },
   sheetTitle: { fontFamily: font.displaySemiBold, fontSize: 21, marginBottom: 5 },
   sheetCopy: { fontFamily: font.body, fontSize: 12, lineHeight: 18, marginBottom: 18 },
@@ -745,6 +1368,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     backgroundColor: 'rgba(4, 12, 9, 0.16)',
   },
+  accountPicker: {
+    width: '100%',
+    maxHeight: '70%',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    padding: 12,
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
+  accountOption: {
+    minHeight: 48,
+    borderRadius: 11,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  accountOptionText: { flex: 1, fontFamily: font.bodyMedium, fontSize: 13 },
   categoryPopover: {
     maxHeight: '76%',
     borderWidth: StyleSheet.hairlineWidth,
@@ -770,5 +1414,21 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 21,
   },
+  dateOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(4, 12, 9, 0.4)',
+  },
+  dateCard: { borderRadius: 22, borderWidth: 1, padding: 16 },
+  dateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  dateTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
+  dateDone: { fontFamily: font.bodySemiBold, fontSize: 14, padding: 6 },
+  datePicker: { minHeight: 330 },
   pressed: { opacity: 0.68 },
 });

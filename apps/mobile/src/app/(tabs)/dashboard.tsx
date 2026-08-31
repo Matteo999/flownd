@@ -465,10 +465,10 @@ export default function DashboardScreen() {
         <View style={styles.budgetCategoryList}>
           {budgetRows.map((budget) => {
             const visual = budget.id === 'wants'
-              ? { color: '#FF7A45', soft: isDark ? '#40251D' : '#FFF0EA' }
+              ? { color: '#FF8A3D', soft: isDark ? '#57331F' : '#FFF0E7' }
               : budget.id === 'savings'
-                ? { color: '#20C58A', soft: isDark ? '#153B30' : '#E8FBF4' }
-                : { color: '#7C5CFC', soft: isDark ? '#2D2647' : '#F0ECFF' };
+                ? { color: '#27D69A', soft: isDark ? '#164D3B' : '#E5FBF3' }
+                : { color: '#3D8BFF', soft: isDark ? '#173A63' : '#EAF3FF' };
             const progressColor = budget.progress > 1
               ? colors.negative
               : visual.color;
@@ -734,10 +734,25 @@ const BUDGET_RADIAL_STROKE = 14;
 const BUDGET_RADIAL_CIRCUMFERENCE = 2 * Math.PI * BUDGET_RADIAL_RADIUS;
 const BUDGET_RADIAL_ARC_SHARE = 0.5;
 
+function mixHexColors(from: string, to: string, amount: number) {
+  const mix = Math.min(1, Math.max(0, amount));
+  const fromChannels = [1, 3, 5].map((index) =>
+    Number.parseInt(from.slice(index, index + 2), 16),
+  );
+  const toChannels = [1, 3, 5].map((index) =>
+    Number.parseInt(to.slice(index, index + 2), 16),
+  );
+  const channels = fromChannels.map((channel, index) =>
+    Math.round(channel + (toChannels[index] - channel) * mix),
+  );
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
 function budgetArcColor(spentProgress: number) {
-  if (spentProgress > 0.8) return '#FF6685';
-  if (spentProgress > 0.5) return '#FFB020';
-  return '#20C58A';
+  const progress = Math.min(1, Math.max(0, spentProgress));
+  return progress <= 0.5
+    ? mixHexColors('#20C58A', '#FFBF3F', progress / 0.5)
+    : mixHexColors('#FFBF3F', '#F05A4F', (progress - 0.5) / 0.5);
 }
 
 function BudgetRadialChart({

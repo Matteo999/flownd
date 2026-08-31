@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { useState } from 'react';
 import {
+  Animated,
   type GestureResponderEvent,
   Pressable,
   StyleSheet,
@@ -15,10 +16,11 @@ import { formatEuro } from '@/lib/onboarding';
 
 const CHART_SIZE = 190;
 const CHART_CENTER = CHART_SIZE / 2;
-const CHART_RADIUS = 68;
-const CHART_STROKE = 22;
-const SELECTED_CHART_STROKE = 38;
-const CIRCUMFERENCE = 2 * Math.PI * CHART_RADIUS;
+const INNER_RADIUS = 57;
+const OUTER_RADIUS = 76;
+const SEGMENT_CORNER_RADIUS = 5;
+const SEGMENT_GAP_ANGLE = (2 * Math.PI) / 180;
+const SELECTED_TRANSLATION = 11;
 const categoryColors = [
   '#18A8D8',
   '#7C5CFC',
@@ -34,6 +36,57 @@ const categoryColors = [
   '#F45B9B',
 ];
 const OTHER_CATEGORY_COLOR = '#9AA3A0';
+
+function polarPoint(radius: number, angle: number) {
+  return {
+    x: CHART_CENTER + Math.cos(angle) * radius,
+    y: CHART_CENTER + Math.sin(angle) * radius,
+  };
+}
+
+function pointValue(point: { x: number; y: number }) {
+  return `${point.x.toFixed(3)} ${point.y.toFixed(3)}`;
+}
+
+// Reproduces the annular Sector geometry used by Recharts/shadcn. Unlike a
+// stroked circle, inner and outer radii never change between categories.
+function annularSectorPath(startAngle: number, endAngle: number) {
+  const sweep = Math.max(0.0001, endAngle - startAngle);
+  const cornerRadius = Math.min(
+    SEGMENT_CORNER_RADIUS,
+    (OUTER_RADIUS - INNER_RADIUS) / 2,
+    (sweep * INNER_RADIUS) / 2.2,
+  );
+  const outerCornerAngle = cornerRadius / OUTER_RADIUS;
+  const innerCornerAngle = cornerRadius / INNER_RADIUS;
+  const outerLargeArc = sweep - outerCornerAngle * 2 > Math.PI ? 1 : 0;
+  const innerLargeArc = sweep - innerCornerAngle * 2 > Math.PI ? 1 : 0;
+
+  const outerStartEdge = polarPoint(OUTER_RADIUS - cornerRadius, startAngle);
+  const outerStartCorner = polarPoint(OUTER_RADIUS, startAngle);
+  const outerStartArc = polarPoint(OUTER_RADIUS, startAngle + outerCornerAngle);
+  const outerEndArc = polarPoint(OUTER_RADIUS, endAngle - outerCornerAngle);
+  const outerEndCorner = polarPoint(OUTER_RADIUS, endAngle);
+  const outerEndEdge = polarPoint(OUTER_RADIUS - cornerRadius, endAngle);
+  const innerEndEdge = polarPoint(INNER_RADIUS + cornerRadius, endAngle);
+  const innerEndCorner = polarPoint(INNER_RADIUS, endAngle);
+  const innerEndArc = polarPoint(INNER_RADIUS, endAngle - innerCornerAngle);
+  const innerStartArc = polarPoint(INNER_RADIUS, startAngle + innerCornerAngle);
+  const innerStartCorner = polarPoint(INNER_RADIUS, startAngle);
+  const innerStartEdge = polarPoint(INNER_RADIUS + cornerRadius, startAngle);
+
+  return [
+    `M ${pointValue(outerStartEdge)}`,
+    `Q ${pointValue(outerStartCorner)} ${pointValue(outerStartArc)}`,
+    `A ${OUTER_RADIUS} ${OUTER_RADIUS} 0 ${outerLargeArc} 1 ${pointValue(outerEndArc)}`,
+    `Q ${pointValue(outerEndCorner)} ${pointValue(outerEndEdge)}`,
+    `L ${pointValue(innerEndEdge)}`,
+    `Q ${pointValue(innerEndCorner)} ${pointValue(innerEndArc)}`,
+    `A ${INNER_RADIUS} ${INNER_RADIUS} 0 ${innerLargeArc} 0 ${pointValue(innerStartArc)}`,
+    `Q ${pointValue(innerStartCorner)} ${pointValue(innerStartEdge)}`,
+    'Z',
+  ].join(' ');
+}
 
 function percentageLabel(amount: number, total: number) {
   const percentage = total > 0 ? (amount / total) * 100 : 0;
@@ -58,6 +111,7 @@ export function SpendingDonutChart({
 }) {
   const { colors } = useFlowndTheme();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectionProgress] = useState(() => new Animated.Value(0));
   const allCategories = Array.from(
     transactions.reduce((categories, transaction) => {
       const category = transaction.category.trim() || 'Altro';
@@ -80,17 +134,21 @@ export function SpendingDonutChart({
     ...topCategories,
     ...(otherAmount > 0 ? [{ category: 'Altro', amount: otherAmount }] : []),
   ];
-  // Rounded caps extend beyond the measured arc. Reserve enough room for them
-  // while preserving very small categories as visible dots.
-  const gapLength =
-    grouped.length > 1 ? CHART_STROKE + 3 : 0;
   const segments = grouped.map((item, index) => {
     const share = total > 0 ? item.amount / total : 0;
     const previousAmount = grouped
       .slice(0, index)
       .reduce((sum, previousItem) => sum + previousItem.amount, 0);
     const startShare = total > 0 ? previousAmount / total : 0;
-    const arcLength = share * CIRCUMFERENCE;
+    const rawStartAngle = startShare * Math.PI * 2 - Math.PI / 2;
+    const rawEndAngle = (startShare + share) * Math.PI * 2 - Math.PI / 2;
+    const rawSweep = rawEndAngle - rawStartAngle;
+    const gapAngle = grouped.length > 1
+      ? Math.min(SEGMENT_GAP_ANGLE, rawSweep * 0.2)
+      : 0;
+    const startAngle = rawStartAngle + gapAngle / 2;
+    const endAngle = rawEndAngle - gapAngle / 2;
+    const middleAngle = (startShare + share / 2) * Math.PI * 2 - Math.PI / 2;
     return {
       ...item,
       color:
@@ -99,43 +157,80 @@ export function SpendingDonutChart({
           : categoryColors[index % categoryColors.length],
       startShare,
       endShare: startShare + share,
-      segmentLength: Math.max(
-        0.1,
-        arcLength - Math.min(gapLength, arcLength * 0.75),
-      ),
-      offset: startShare * CIRCUMFERENCE,
+      startAngle,
+      endAngle,
+      translateX: Math.cos(middleAngle) * SELECTED_TRANSLATION,
+      translateY: Math.sin(middleAngle) * SELECTED_TRANSLATION,
     };
   });
   const selectedSegment = segments.find(
     (item) => item.category === selectedCategory,
   );
-  const orderedSegments = selectedSegment
-    ? [
-        ...segments.filter((item) => item.category !== selectedCategory),
-        selectedSegment,
-      ]
-    : segments;
-  const chartSvg = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${CHART_SIZE}" height="${CHART_SIZE}" viewBox="0 0 ${CHART_SIZE} ${CHART_SIZE}">`,
-    `<circle cx="${CHART_CENTER}" cy="${CHART_CENTER}" r="${CHART_RADIUS}" fill="none" stroke="${colors.sunken}" stroke-width="${CHART_STROKE}"/>`,
-    ...orderedSegments.map(
-      (item) =>
-        `<circle cx="${CHART_CENTER}" cy="${CHART_CENTER}" r="${CHART_RADIUS}" fill="none" stroke="${item.color}" stroke-width="${item.category === selectedCategory ? SELECTED_CHART_STROKE : CHART_STROKE}" stroke-dasharray="${item.segmentLength} ${CIRCUMFERENCE - item.segmentLength}" stroke-dashoffset="${-item.offset}" stroke-linecap="round" transform="rotate(-90 ${CHART_CENTER} ${CHART_CENTER})"/>`,
-    ),
-    '</svg>',
-  ].join('');
-  const chartUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(chartSvg)}`;
+  const segmentLayers = segments.map((item) => {
+    const svg = [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${CHART_SIZE}" height="${CHART_SIZE}" viewBox="0 0 ${CHART_SIZE} ${CHART_SIZE}">`,
+      `<path d="${annularSectorPath(item.startAngle, item.endAngle)}" fill="${item.color}"/>`,
+      '</svg>',
+    ].join('');
+    return {
+      ...item,
+      uri: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    };
+  });
+
+  function animateSelection(category: string | null) {
+    selectionProgress.stopAnimation();
+    if (!category) {
+      Animated.timing(selectionProgress, {
+        toValue: 0,
+        duration: 170,
+        useNativeDriver: true,
+      }).start(() => setSelectedCategory(null));
+      return;
+    }
+    const moveOut = () => {
+      selectionProgress.setValue(0);
+      setSelectedCategory(category);
+      Animated.spring(selectionProgress, {
+        toValue: 1,
+        damping: 18,
+        stiffness: 220,
+        mass: 0.72,
+        useNativeDriver: true,
+      }).start();
+    };
+    if (selectedCategory && category !== selectedCategory) {
+      Animated.timing(selectionProgress, {
+        toValue: 0,
+        duration: 130,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) moveOut();
+      });
+      return;
+    }
+    if (category === selectedCategory) {
+      Animated.spring(selectionProgress, {
+        toValue: 1,
+        damping: 18,
+        stiffness: 220,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+    moveOut();
+  }
 
   function selectSegmentAt(event: GestureResponderEvent) {
     event.stopPropagation();
     const x = event.nativeEvent.locationX - CHART_CENTER;
     const y = event.nativeEvent.locationY - CHART_CENTER;
     const distance = Math.sqrt(x * x + y * y);
-    const innerHitRadius = CHART_RADIUS - SELECTED_CHART_STROKE / 2 - 8;
-    const outerHitRadius = CHART_RADIUS + SELECTED_CHART_STROKE / 2 + 8;
+    const innerHitRadius = INNER_RADIUS - 8;
+    const outerHitRadius = OUTER_RADIUS + 8;
 
     if (distance < innerHitRadius || distance > outerHitRadius) {
-      setSelectedCategory(null);
+      animateSelection(null);
       return;
     }
 
@@ -147,20 +242,20 @@ export function SpendingDonutChart({
         shareAtPress >= item.startShare && shareAtPress < item.endShare,
     );
     if (!segment) {
-      setSelectedCategory(null);
+      animateSelection(null);
       return;
     }
 
-    const distanceFromSegmentStart =
-      (shareAtPress - segment.startShare) * CIRCUMFERENCE;
-    const pressedVisibleArc = distanceFromSegmentStart <= segment.segmentLength;
-    setSelectedCategory(pressedVisibleArc ? segment.category : null);
+    const pressedAngle = shareAtPress * Math.PI * 2 - Math.PI / 2;
+    const pressedVisibleArc =
+      pressedAngle >= segment.startAngle && pressedAngle <= segment.endAngle;
+    animateSelection(pressedVisibleArc ? segment.category : null);
   }
 
   return (
     <Pressable
       accessible={false}
-      onPress={() => setSelectedCategory(null)}>
+      onPress={() => animateSelection(null)}>
       <View style={styles.totalHeader}>
         <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>
           {totalLabel}
@@ -181,12 +276,43 @@ export function SpendingDonutChart({
           styles.chartWrap,
           pressed && styles.chartPressed,
         ]}>
-        <Image
-          source={{ uri: chartUri }}
-          contentFit="contain"
-          cachePolicy="none"
-          style={styles.chartImage}
-        />
+        {segmentLayers.map((item) => (
+          <Animated.View
+            key={item.category}
+            pointerEvents="none"
+            style={[
+              styles.segmentLayer,
+              {
+                transform: [
+                  {
+                    translateX: selectionProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [
+                        0,
+                        item.category === selectedCategory ? item.translateX : 0,
+                      ],
+                    }),
+                  },
+                  {
+                    translateY: selectionProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [
+                        0,
+                        item.category === selectedCategory ? item.translateY : 0,
+                      ],
+                    }),
+                  },
+                ],
+              },
+            ]}>
+            <Image
+              source={{ uri: item.uri }}
+              contentFit="contain"
+              cachePolicy="none"
+              style={styles.chartImage}
+            />
+          </Animated.View>
+        ))}
       </Pressable>
 
       <View style={styles.selectionSlot}>
@@ -226,7 +352,7 @@ export function SpendingDonutChart({
                 hitSlop={4}
                 onPress={(event) => {
                   event.stopPropagation();
-                  setSelectedCategory(item.category);
+                  animateSelection(item.category);
                 }}
                 style={({ pressed }) => [
                   styles.legendRow,
@@ -287,6 +413,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   chartImage: { width: CHART_SIZE, height: CHART_SIZE },
+  segmentLayer: { position: 'absolute', inset: 0 },
   chartPressed: { opacity: 0.92 },
   selectionSlot: {
     minHeight: 36,
