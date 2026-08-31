@@ -417,7 +417,7 @@ export default function AddTransactionScreen() {
   }
 
   function openImageReview(asset: ImagePicker.ImagePickerAsset) {
-    router.push({
+    router.replace({
       pathname: '/transaction-import',
       params: {
         mode: 'ai',
@@ -509,7 +509,7 @@ export default function AddTransactionScreen() {
       if (result.canceled) return;
       const asset = result.assets[0];
       shouldRestoreKeyboard = false;
-      router.push({
+      router.replace({
         pathname: '/transaction-import',
         params: {
           mode: 'file',

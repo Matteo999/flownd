@@ -104,6 +104,7 @@ export default function TransactionImportScreen() {
     ),
   );
   const selected = selectedIndexes.map((index) => candidates[index]);
+  const activeJobId = jobId ?? queuedJobId;
   const waitingForStoredResult = Boolean(
     jobId && !candidates.length && !analysisError,
   );
@@ -115,7 +116,9 @@ export default function TransactionImportScreen() {
       ['image-asset', 'file-asset'].includes(requestedSource),
   );
   const processingInBackground = Boolean(
-    queuedJobId || analyzing || preparingAutomaticSource,
+    !candidates.length &&
+      !analysisError &&
+      (queuedJobId || analyzing || preparingAutomaticSource),
   );
 
   const toggleCandidate = useCallback((index: number, duplicate: boolean) => {
@@ -201,6 +204,45 @@ export default function TransactionImportScreen() {
       .catch((reason) => showOperationalError('transaction_import_job_load', reason))
       .finally(() => setAnalyzing(false));
   }, [jobId, session?.access_token, session?.user.id, showCandidates, showOperationalError]);
+
+  useEffect(() => {
+    if (!queuedJobId || !session?.user.id) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let failedAttempts = 0;
+
+    const refreshJob = async () => {
+      try {
+        const job = await getTransactionImportJob(session.user.id, queuedJobId);
+        if (!active) return;
+        failedAttempts = 0;
+        if (job.status === 'completed') {
+          showCandidates(job.transactions);
+          return;
+        }
+        if (job.status === 'failed') {
+          setQueuedJobId(null);
+          setAnalysisError(GENERIC_OPERATION_ERROR);
+          return;
+        }
+      } catch (reason) {
+        if (!active) return;
+        failedAttempts += 1;
+        if (failedAttempts >= 3) {
+          setQueuedJobId(null);
+          void showOperationalError('transaction_import_job_poll', reason);
+          return;
+        }
+      }
+      timer = setTimeout(refreshJob, 1800);
+    };
+
+    timer = setTimeout(refreshJob, 700);
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [queuedJobId, session?.user.id, showCandidates, showOperationalError]);
 
   const chooseFile = useCallback(async () => {
     if (pickerBusyRef.current) return;
@@ -358,9 +400,9 @@ export default function TransactionImportScreen() {
           return;
         }
       }
-      if (jobId && userId) {
+      if (activeJobId && userId) {
         try {
-          await deleteTransactionImportJob(userId, jobId);
+          await deleteTransactionImportJob(userId, activeJobId);
         } catch (reason) {
           await reportClientError(accessToken, 'transaction_import_cleanup', reason);
         }
@@ -369,9 +411,9 @@ export default function TransactionImportScreen() {
   }
 
   async function discardImport() {
-    if (!jobId || !session) return;
+    if (!activeJobId || !session) return;
     try {
-      await deleteTransactionImportJob(session.user.id, jobId);
+      await deleteTransactionImportJob(session.user.id, activeJobId);
       router.dismissAll();
     } catch (reason) {
       await showOperationalError('transaction_import_discard', reason);
@@ -464,9 +506,13 @@ export default function TransactionImportScreen() {
             <Text style={[uiStyles.error, { color: colors.negative }]}>{GENERIC_OPERATION_ERROR}</Text>
           ) : null}
           <PrimaryButton disabled={!selected.length} loading={saving} onPress={importSelected}>
-            Importa {selected.length || ''} transazioni
+            {selected.length === 1
+              ? 'Importa 1 transazione'
+              : selected.length > 1
+                ? `Importa ${selected.length} transazioni`
+                : 'Importa transazioni'}
           </PrimaryButton>
-          {jobId ? (
+          {activeJobId ? (
             <Pressable
               accessibilityRole="button"
               onPress={() => void discardImport()}
