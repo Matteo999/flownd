@@ -22,7 +22,6 @@ import { SpendingDonutChart } from '@/components/spending-donut-chart';
 import {
   HIDDEN_AMOUNT,
   type DashboardPeriod,
-  formatDueDate,
   isRecentSource,
   transactionsForPeriod,
 } from '@/lib/dashboard';
@@ -44,16 +43,13 @@ import {
   setActiveFamilyGroupId,
 } from '@/lib/family';
 import { useApp } from '@/providers/app-provider';
+import { significantUpcomingPayments } from '@/lib/recurring-payments';
 
 const periodLabels: { id: DashboardPeriod; label: string }[] = [
   { id: 'week', label: 'Settimana' },
   { id: 'month', label: 'Mese' },
   { id: 'year', label: 'Anno' },
 ];
-
-function sensitiveEuro(value: number, visible: boolean) {
-  return visible ? formatEuro(value) : HIDDEN_AMOUNT;
-}
 
 export default function DashboardScreen() {
   const { colors, isDark } = useFlowndTheme();
@@ -65,7 +61,7 @@ export default function DashboardScreen() {
     goalContributions,
     financialAccounts,
     planTier,
-    upcomingPayments,
+    recurringPayments,
     coachInsight,
     amountsVisible,
     budgetCycleStartDay,
@@ -175,6 +171,13 @@ export default function DashboardScreen() {
     ? Math.max(0, previousIncome - previousSpent - savedPreviousCycle)
     : 0;
   const monthlyBudget = budgetMonthlyIncome + rolloverAmount;
+  const significantUpcoming = significantUpcomingPayments(recurringPayments, monthlyBudget);
+  const upcomingIncome = significantUpcoming
+    .filter((item) => item.direction === 'income')
+    .reduce((sum, item) => sum + item.amount, 0);
+  const upcomingExpense = significantUpcoming
+    .filter((item) => item.direction === 'expense')
+    .reduce((sum, item) => sum + item.amount, 0);
   const chartPeriodTransactions = chartPeriod === 'month'
     ? transactionsForFinancialCycle(transactions, financialCycle)
     : transactionsForPeriod(transactions, chartPeriod);
@@ -343,6 +346,23 @@ export default function DashboardScreen() {
                       </>
                     )}
                   </Text>
+                  {significantUpcoming.length ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${significantUpcoming.length} movimenti significativi in arrivo`}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        router.push(`/recurring-payments?upcoming=significant&budget=${monthlyBudget}` as Href);
+                      }}
+                      style={({ pressed }) => [styles.upcomingBadge, pressed && styles.iconPressed]}>
+                      <Text style={[styles.upcomingBadgeIcon, { color: overviewForeground }]}>event_upcoming</Text>
+                      <Text numberOfLines={1} style={[styles.upcomingBadgeText, { color: overviewForeground }]}>
+                        {significantUpcoming.length} in arrivo
+                        {amountsVisible && upcomingIncome ? ` · +${formatEuro(upcomingIncome)}` : ''}
+                        {amountsVisible && upcomingExpense ? ` · −${formatEuro(upcomingExpense)}` : ''}
+                      </Text>
+                    </Pressable>
+                  ) : null}
                 </View>
                 <BudgetRadialChart
                   amountsVisible={amountsVisible}
@@ -598,33 +618,6 @@ export default function DashboardScreen() {
           <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
             {coachInsight.body}
           </Text>
-        </Card>
-      ) : null}
-
-      {upcomingPayments.length ? (
-        <Card style={styles.contentCard}>
-          <Text style={[styles.cardTitle, { color: colors.text }]}>
-            Prossime scadenze
-          </Text>
-          <View style={styles.deadlineList}>
-            {upcomingPayments.map((payment) => (
-              <View
-                key={payment.id}
-                style={[styles.deadlineRow, { borderBottomColor: colors.border }]}>
-                <View style={styles.flex}>
-                  <Text style={[styles.deadlineName, { color: colors.text }]}>
-                    {payment.name}
-                  </Text>
-                  <Text style={[styles.deadlineDate, { color: colors.textSecondary }]}>
-                    {formatDueDate(payment.dueAt)}
-                  </Text>
-                </View>
-                <Text style={[styles.deadlineAmount, { color: colors.text }]}>
-                  {sensitiveEuro(payment.amount, amountsVisible)}
-                </Text>
-              </View>
-            ))}
-          </View>
         </Card>
       ) : null}
 
@@ -1140,6 +1133,20 @@ const styles = StyleSheet.create({
     fontFamily: font.bodyMedium,
     fontSize: 12,
   },
+  upcomingBadge: {
+    alignSelf: 'flex-start',
+    maxWidth: '98%',
+    marginTop: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  upcomingBadgeIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 14 },
+  upcomingBadgeText: { fontFamily: font.bodySemiBold, fontSize: 10, flexShrink: 1 },
   budgetRadial: {
     width: BUDGET_RADIAL_SIZE,
     height: 84,
@@ -1367,16 +1374,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 7,
   },
-  deadlineList: { marginTop: 10 },
-  deadlineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 48,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  deadlineName: { fontFamily: font.bodyMedium, fontSize: 13 },
-  deadlineDate: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
-  deadlineAmount: { fontFamily: font.dataMedium, fontSize: 12 },
   goalTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',

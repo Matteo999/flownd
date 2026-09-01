@@ -122,6 +122,9 @@ export type ExpenseDraft = {
   excludedFromTotals?: boolean;
   internalTransfer?: boolean;
   excludedFromBudget?: boolean;
+  recurringPaymentId?: string | null;
+  recurringOccurrenceId?: string | null;
+  isRecurring?: boolean;
   incomeType?:
     | 'salary'
     | 'extra_salary'
