@@ -10,7 +10,7 @@ function apiUrl(path: string) {
 }
 
 export async function refreshRecurringDetection(accessToken: string) {
-  const response = await fetch(apiUrl('/api/recurring-payments'), {
+  const response = await fetch(apiUrl('/api/transaction-tools?action=recurring-refresh'), {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
   });

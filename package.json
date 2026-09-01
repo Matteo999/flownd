@@ -19,6 +19,7 @@
     "lint": "npm run lint --workspaces --if-present",
     "test:eb": "node --test api/eb/*.test.js",
     "test:recurring": "node --test api/_recurring-payments.test.js apps/mobile/src/lib/recurring-payments.test.mjs",
+    "test:deployment": "node --test api/_deployment-shape.test.js",
     "preview:web": "npm run preview --workspace @flownd/web"
   },
   "devDependencies": {

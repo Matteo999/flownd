@@ -1,0 +1,10 @@
+{
+  "vercelPlan": "hobby",
+  "limits": {
+    "serverlessFunctions": 12,
+    "cronJobs": 1
+  },
+  "pendingProSplits": [
+    "recurring-payments"
+  ]
+}

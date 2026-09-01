@@ -307,3 +307,30 @@ export async function processDueRecurringPayments(service, today = new Date().to
   }
   return results
 }
+
+export async function runRecurringMaintenance(
+  service,
+  { maxUsers = 250, timeBudgetMs = Number.POSITIVE_INFINITY } = {},
+) {
+  const startedAt = Date.now()
+  const result = await processDueRecurringPayments(service)
+  const since = new Date(Date.now() - 370 * DAY_MS).toISOString()
+  const { data: activeRows, error } = await service.from('transactions')
+    .select('user_id').gte('occurred_at', since)
+    .order('occurred_at', { ascending: false }).limit(5000)
+  if (error) throw error
+  const eligibleUserIds = [...new Set((activeRows || []).map((row) => row.user_id))]
+  const pageCount = Math.max(1, Math.ceil(eligibleUserIds.length / maxUsers))
+  const dailyPage = Math.floor(Date.now() / DAY_MS) % pageCount
+  const userIds = eligibleUserIds.slice(dailyPage * maxUsers, (dailyPage + 1) * maxUsers)
+  let detected = 0
+  let scannedUsers = 0
+  for (let index = 0; index < userIds.length; index += 4) {
+    if (Date.now() - startedAt >= timeBudgetMs) break
+    const counts = await Promise.all(userIds.slice(index, index + 4)
+      .map((userId) => refreshDetectedRecurringPayments(service, userId)))
+    scannedUsers += counts.length
+    detected += counts.reduce((sum, count) => sum + count, 0)
+  }
+  return { ...result, eligibleUsers: eligibleUserIds.length, scannedUsers, detected }
+}

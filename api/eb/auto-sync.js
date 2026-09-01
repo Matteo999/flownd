@@ -1,6 +1,10 @@
 import { serviceClient } from './_supabase.js'
 import { nextAutomaticSyncAt } from './_sync-schedule.js'
 import { syncConnection } from './sync.js'
+import { runRecurringMaintenance } from '../_recurring-payments.js'
+
+// HOBBY_CONSOLIDATION(pro-split:recurring-payments)
+// Su Vercel Hobby il solo cron esegue prima le ricorrenze e poi il sync bancario.
 
 function authorizedCronRequest(req) {
   const secret = process.env.CRON_SECRET
@@ -31,6 +35,14 @@ export default async function handler(req, res) {
   }
 
   const service = serviceClient()
+  const startedAt = Date.now()
+  let recurring = null
+  try {
+    recurring = await runRecurringMaintenance(service, { timeBudgetMs: 45_000 })
+  } catch (error) {
+    console.error('Flownd recurring maintenance failed inside bank cron', error)
+    recurring = { ok: false, code: error?.code || 'RECURRING_MAINTENANCE_FAILED' }
+  }
   const now = new Date().toISOString()
   const { error: expirationError } = await service
     .from('open_banking_connections')
@@ -41,7 +53,6 @@ export default async function handler(req, res) {
     console.error('Flownd expired connection cleanup failed', expirationError)
     return res.status(500).json({ error: 'Impossibile aggiornare i consensi scaduti' })
   }
-  const startedAt = Date.now()
   const results = []
   while (Date.now() - startedAt < 4 * 60 * 1000) {
     const { data: claimed, error: claimError } = await service.rpc(
@@ -90,5 +101,5 @@ export default async function handler(req, res) {
     if (claimed.length < 2) break
   }
 
-  return res.status(200).json({ claimed: results.length, results })
+  return res.status(200).json({ claimed: results.length, recurring, results })
 }
