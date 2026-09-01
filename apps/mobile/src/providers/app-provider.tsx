@@ -514,7 +514,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         .from('recurring_payments')
         .select('id,name,amount,next_due_on,series_type,direction,origin,status,frequency,category,anchor_on,financial_account_id,settlement_mode,loan_id')
         .eq('user_id', userId)
-        .neq('status', 'dismissed')
+        .in('status', ['active', 'paused'])
         .order('next_due_on'),
       supabase
         .from('coach_insights')
@@ -625,13 +625,12 @@ export function AppProvider({ children }: PropsWithChildren) {
         && recurringStartupRefreshUserId.current !== nextSession.user.id
       ) {
         recurringStartupRefreshUserId.current = nextSession.user.id;
-        try {
-          await refreshRecurringDetection(nextSession.access_token, { reason: 'startup' });
-          await hydrateUserData(nextSession.user.id);
-        } catch (recurringError) {
-          recurringStartupRefreshUserId.current = null;
-          if (__DEV__) console.error('Flownd recurring startup detection failed', recurringError);
-        }
+        void refreshRecurringDetection(nextSession.access_token, { reason: 'startup' })
+          .then(() => hydrateUserData(nextSession.user.id))
+          .catch((recurringError) => {
+            recurringStartupRefreshUserId.current = null;
+            if (__DEV__) console.error('Flownd recurring startup detection failed', recurringError);
+          });
       }
     }
   }, [hydratePrivacyPreference, hydrateUserData]);

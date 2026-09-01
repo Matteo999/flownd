@@ -408,47 +408,6 @@ export default function DashboardScreen() {
         </View>
       </Card>
 
-      {dashboardRecurrences.length ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Apri ${dashboardRecurrences.length} ricorrenze`}
-          onPress={() => router.push('/recurring-payments' as Href)}
-          style={({ pressed }) => pressed && styles.iconPressed}>
-          <Card style={styles.recurrencesCard}>
-            <View style={styles.recurrencesHeader}>
-              <View style={[styles.recurrencesIcon, { backgroundColor: colors.accentSoft }]}>
-                <Text style={[styles.materialIcon, { color: colors.accent }]}>event_repeat</Text>
-              </View>
-              <View style={styles.flex}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>Ricorrenze</Text>
-                <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>Pagamenti ed entrate previste</Text>
-              </View>
-              <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>chevron_right</Text>
-            </View>
-            <View style={styles.recurrencesList}>
-              {dashboardRecurrences.slice(0, 3).map((series) => (
-                <View key={series.id} style={styles.recurrenceRow}>
-                  <View style={styles.flex}>
-                    <Text numberOfLines={1} style={[styles.recurrenceName, { color: colors.text }]}>{series.name}</Text>
-                    <Text style={[styles.recurrenceMeta, { color: colors.textSecondary }]}>
-                      {series.status === 'paused' ? 'In pausa' : frequencyLabels[series.frequency]} · {series.nextDueOn}
-                    </Text>
-                  </View>
-                  <Text style={[styles.recurrenceAmount, { color: series.direction === 'income' ? colors.positive : colors.text }]}>
-                    {amountsVisible
-                      ? `${series.direction === 'income' ? '+' : '−'} ${formatEuro(series.amount)}`
-                      : HIDDEN_AMOUNT}
-                  </Text>
-                </View>
-              ))}
-            </View>
-            {dashboardRecurrences.length > 3 ? (
-              <Text style={[styles.cardLink, { color: colors.accent }]}>Altre {dashboardRecurrences.length - 3} ricorrenze</Text>
-            ) : null}
-          </Card>
-        </Pressable>
-      ) : null}
-
       {firstDashboardVisit ? (
         <Card
           style={[
@@ -626,6 +585,46 @@ export default function DashboardScreen() {
           )}
         </Card>
       </View>
+
+      {dashboardRecurrences.length ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Apri ${dashboardRecurrences.length} ricorrenze`}
+          onPress={() => router.push('/recurring-payments' as Href)}
+          style={({ pressed }) => pressed && styles.iconPressed}>
+          <Card style={styles.recurrencesCard}>
+            <View style={styles.recurrencesHeader}>
+              <View style={[styles.recurrencesIcon, { backgroundColor: colors.accentSoft }]}>
+                <Text style={[styles.materialIcon, { color: colors.accent }]}>event_repeat</Text>
+              </View>
+              <View style={styles.flex}>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>Ricorrenze</Text>
+              </View>
+              <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>chevron_right</Text>
+            </View>
+            <View style={styles.recurrencesList}>
+              {dashboardRecurrences.slice(0, 3).map((series) => (
+                <View key={series.id} style={styles.recurrenceRow}>
+                  <View style={styles.flex}>
+                    <Text numberOfLines={1} style={[styles.recurrenceName, { color: colors.text }]}>{series.name}</Text>
+                    <Text style={[styles.recurrenceMeta, { color: colors.textSecondary }]}> 
+                      {series.status === 'paused' ? 'In pausa' : frequencyLabels[series.frequency]} · {series.nextDueOn}
+                    </Text>
+                  </View>
+                  <Text style={[styles.recurrenceAmount, { color: series.direction === 'income' ? colors.positive : colors.text }]}> 
+                    {amountsVisible
+                      ? `${series.direction === 'income' ? '+' : '−'} ${formatEuro(series.amount)}`
+                      : HIDDEN_AMOUNT}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            {dashboardRecurrences.length > 3 ? (
+              <Text style={[styles.cardLink, { color: colors.accent }]}>Altre {dashboardRecurrences.length - 3} ricorrenze</Text>
+            ) : null}
+          </Card>
+        </Pressable>
+      ) : null}
 
       {coachInsight ? (
         <Card style={[styles.contentCard, { backgroundColor: colors.accentSoft }]}>

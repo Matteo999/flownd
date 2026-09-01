@@ -7,7 +7,7 @@ import transactionScanHandler from './_transaction-scan.js'
 import { refreshDetectedRecurringPayments } from './_recurring-payments.js'
 import { authenticateRequest } from './eb/_supabase.js'
 
-const CURRENT_RECURRING_DETECTION_VERSION = 1
+const CURRENT_RECURRING_DETECTION_VERSION = 2
 
 // HOBBY_CONSOLIDATION(pro-split:recurring-payments)
 // Con Vercel Pro questa action torna nell'entrypoint /api/recurring-payments.

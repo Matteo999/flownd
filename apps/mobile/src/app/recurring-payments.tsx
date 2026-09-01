@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 
 import {
-  Card, Field, PageHeader, PrimaryButton, Screen, SecondaryButton,
+  Card, Field, PrimaryButton, Screen, SecondaryButton,
   font, uiStyles, useFlowndTheme,
 } from '@/components/flownd-ui';
 import { formatEuro } from '@/lib/onboarding';
@@ -81,11 +81,7 @@ export default function RecurringPaymentsScreen() {
 
   return (
     <Screen>
-      <PageHeader
-        title="Ricorrenze"
-        leading={<BackButton />}
-        action={<AddButton onPress={() => setEditor('new')} />}
-      />
+      <RecurringHeader onAdd={() => setEditor('new')} />
 
       <View style={styles.list}>
         {visible.map((series) => (
@@ -300,31 +296,45 @@ function Dropdown({ label, value, open, onToggle, options }: {
   );
 }
 
+function RecurringHeader({ onAdd }: { onAdd: () => void }) {
+  const { colors } = useFlowndTheme();
+  return (
+    <View style={styles.header}>
+      <BackButton />
+      <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.text }]}>Ricorrenze</Text>
+      <AddButton onPress={onAdd} />
+    </View>
+  );
+}
+
 function BackButton() {
   const { colors } = useFlowndTheme();
   return (
     <Pressable
       accessibilityRole="button" accessibilityLabel="Indietro" hitSlop={8}
       onPress={() => router.back()}
-      style={({ pressed }) => [styles.backButton, { backgroundColor: colors.sunken, borderColor: colors.border }, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.backButton, { backgroundColor: colors.surface, borderColor: colors.border }, pressed && styles.pressed]}>
       <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
     </Pressable>
   );
 }
 
 function AddButton({ onPress }: { onPress: () => void }) {
+  const { colors } = useFlowndTheme();
   return (
     <Pressable accessibilityRole="button" accessibilityLabel="Nuova ricorrenza" hitSlop={8} onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
-      <View style={styles.addButton}><Text style={styles.addIcon}>add</Text></View>
+      <View style={[styles.addButton, { backgroundColor: colors.accent }]}><Text style={styles.addIcon}>add</Text></View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 24 },
+  headerTitle: { flex: 1, textAlign: 'center', fontFamily: font.bodySemiBold, fontSize: 14 },
   materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 25 },
-  backButton: { width: 38, height: 38, borderRadius: 11, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
-  addButton: { width: 34, height: 34, borderRadius: 11, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
+  backButton: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  addButton: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   addIcon: { color: '#FFFFFF', fontFamily: 'MaterialSymbols_400Regular', fontSize: 21, lineHeight: 24 },
   pressed: { opacity: 0.68 },
   list: { gap: 10, paddingBottom: 30 },

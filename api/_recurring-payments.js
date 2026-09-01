@@ -11,6 +11,16 @@ const FREQUENCIES = [
   { id: 'semiannual', days: 182.62, tolerance: 10, samples: 2 },
   { id: 'annual', days: 365.25, tolerance: 10, samples: 2 },
 ]
+const DISCRETIONARY_EXPENSE_CATEGORIES = new Set([
+  'ATM (prelievo contante)',
+  'Bar e ristoranti',
+  'Cibo e Spesa',
+  'Tempo libero e intrattenimento',
+  'Multimedia e Elettronica',
+  'Shopping',
+  'Trasporti e Auto',
+  'Viaggi e Vacanze',
+])
 
 function dateOnly(value) {
   return String(value || '').slice(0, 10)
@@ -30,6 +40,8 @@ function normalizedIdentity(row) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/\b(?:pagamento|bonifico|addebito|accredito|sepa|carta|card)\b/g, ' ')
+    .replace(/\b(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\b/g, ' ')
+    .replace(/\b\d{3,}\b/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .slice(0, 90)
@@ -61,19 +73,29 @@ function detectedFrequency(rows) {
   if (rows.length < 2) return null
   const gaps = rows.slice(1).map((row, index) => dayDistance(rows[index].occurred_at, row.occurred_at))
   const typical = median(gaps)
-  return FREQUENCIES.find((candidate) =>
-    rows.length >= candidate.samples && Math.abs(typical - candidate.days) <= candidate.tolerance,
-  ) || null
+  return FREQUENCIES.find((candidate) => {
+    if (rows.length < candidate.samples || Math.abs(typical - candidate.days) > candidate.tolerance) return false
+    const regularGaps = gaps.filter((gap) => {
+      const multiple = Math.max(1, Math.round(gap / candidate.days))
+      return multiple <= 2 && Math.abs(gap - candidate.days * multiple) <= candidate.tolerance
+    })
+    return regularGaps.length / gaps.length >= 0.75
+  }) || null
 }
 
-export function detectRecurringCandidates(rows, dismissedSignatures = new Set()) {
+export function detectRecurringCandidates(
+  rows,
+  dismissedSignatures = new Set(),
+  allowedLinkedSeriesIds = new Set(),
+  today = new Date(),
+) {
   const clusters = new Map()
   for (const row of rows) {
     if (
       row.internal_transfer || row.excluded_from_totals
       || row.source === 'manual_balance_adjustment'
       || row.source === 'recurring_generated'
-      || row.recurring_payment_id
+      || (row.recurring_payment_id && !allowedLinkedSeriesIds.has(row.recurring_payment_id))
       || (row.bank_status && row.bank_status !== 'booked')
     ) continue
     const identity = normalizedIdentity(row)
@@ -86,11 +108,19 @@ export function detectRecurringCandidates(rows, dismissedSignatures = new Set())
   const candidates = []
   for (const [key, unordered] of clusters) {
     const rowsForKey = [...unordered].sort((a, b) => dateOnly(a.occurred_at).localeCompare(dateOnly(b.occurred_at)))
+    if (
+      rowsForKey[0]?.kind !== 'income'
+      && DISCRETIONARY_EXPENSE_CATEGORIES.has(rowsForKey[0]?.category)
+    ) continue
     const amount = median(rowsForKey.map((row) => Number(row.amount)))
     const amountRows = rowsForKey.filter((row) => Math.abs(Number(row.amount) - amount) <= amount * 0.25)
+    if (amountRows.length / rowsForKey.length < 0.7) continue
     const frequency = detectedFrequency(amountRows)
     if (!frequency) continue
     const last = amountRows.at(-1)
+    const ageInDays = dayDistance(last.occurred_at, today.toISOString())
+    const recencyFactor = ['semiannual', 'annual'].includes(frequency.id) ? 1.5 : 2.2
+    if (ageInDays > frequency.days * recencyFactor + frequency.tolerance) continue
     let nextDueOn = nextRecurringDate(last.occurred_at, frequency.id, new Date(dateAtNoon(amountRows[0].occurred_at)).getUTCDate())
     while (nextDueOn < new Date().toISOString().slice(0, 10)) {
       nextDueOn = nextRecurringDate(nextDueOn, frequency.id, new Date(dateAtNoon(amountRows[0].occurred_at)).getUTCDate())
@@ -138,9 +168,33 @@ export async function refreshDetectedRecurringPayments(service, userId, { transa
     .select('detection_signature')
     .eq('user_id', userId)
   if (dismissalError) throw dismissalError
+  const { data: existingDetected, error: existingDetectedError } = await service
+    .from('recurring_payments')
+    .select('id,detection_signature,status')
+    .eq('user_id', userId)
+    .eq('origin', 'detected')
+  if (existingDetectedError) throw existingDetectedError
   const dismissedSignatures = new Set((dismissalRows || []).map((row) => row.detection_signature))
-  const candidates = detectRecurringCandidates(data || [], dismissedSignatures)
+  const allowedLinkedSeriesIds = new Set((existingDetected || []).map((series) => series.id))
+  const candidates = detectRecurringCandidates(data || [], dismissedSignatures, allowedLinkedSeriesIds)
     .filter((candidate) => !transactionId || candidate.transactionIds.includes(transactionId))
+  if (!transactionId) {
+    const validSignatures = new Set(candidates.map((candidate) => candidate.signature))
+    const invalidActiveIds = (existingDetected || [])
+      .filter((series) => series.status === 'active' && !validSignatures.has(series.detection_signature))
+      .map((series) => series.id)
+    if (invalidActiveIds.length) {
+      const { error: unlinkError } = await service.from('transactions').update({
+        recurring_payment_id: null,
+        recurring_occurrence_id: null,
+      }).eq('user_id', userId).in('recurring_payment_id', invalidActiveIds)
+      if (unlinkError) throw unlinkError
+      const { error: completeError } = await service.from('recurring_payments').update({
+        status: 'completed', active: false, updated_at: new Date().toISOString(),
+      }).eq('user_id', userId).in('id', invalidActiveIds)
+      if (completeError) throw completeError
+    }
+  }
   for (const candidate of candidates) {
     const { data: account } = candidate.financialAccountId
       ? await service.from('financial_accounts').select('source').eq('id', candidate.financialAccountId).maybeSingle()
@@ -181,6 +235,13 @@ export async function refreshDetectedRecurringPayments(service, userId, { transa
         seriesError = concurrent.error
       }
       if (seriesError) throw seriesError
+    }
+    if (series?.status === 'completed') {
+      const reactivated = await service.from('recurring_payments').update({
+        status: 'active', active: true, updated_at: new Date().toISOString(),
+      }).eq('id', series.id).eq('user_id', userId).select('id,status').single()
+      if (reactivated.error) throw reactivated.error
+      series = reactivated.data
     }
     if (!series || series.status !== 'active') continue
     await service.rpc('ensure_recurring_occurrence', { p_series_id: series.id })
