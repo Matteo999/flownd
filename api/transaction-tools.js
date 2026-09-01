@@ -7,13 +7,33 @@ import transactionScanHandler from './_transaction-scan.js'
 import { refreshDetectedRecurringPayments } from './_recurring-payments.js'
 import { authenticateRequest } from './eb/_supabase.js'
 
+const CURRENT_RECURRING_DETECTION_VERSION = 1
+
 // HOBBY_CONSOLIDATION(pro-split:recurring-payments)
 // Con Vercel Pro questa action torna nell'entrypoint /api/recurring-payments.
 async function recurringRefreshHandler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Metodo non supportato' })
   const { service, user } = await authenticateRequest(req)
-  const detected = await refreshDetectedRecurringPayments(service, user.id)
-  return res.status(200).json({ detected })
+  const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
+  const reason = body.reason === 'startup' ? 'startup' : 'activity'
+  if (reason === 'startup') {
+    const { data: profile, error: profileError } = await service.from('profiles')
+      .select('recurring_detection_version').eq('id', user.id).single()
+    if (profileError) throw profileError
+    if (Number(profile.recurring_detection_version) >= CURRENT_RECURRING_DETECTION_VERSION) {
+      return res.status(200).json({ detected: 0, skipped: true })
+    }
+  }
+  const transactionId = typeof body.transactionId === 'string' ? body.transactionId : null
+  const detected = await refreshDetectedRecurringPayments(service, user.id, { transactionId })
+  if (reason === 'startup') {
+    const { error: updateError } = await service.from('profiles').update({
+      recurring_detection_version: CURRENT_RECURRING_DETECTION_VERSION,
+      updated_at: new Date().toISOString(),
+    }).eq('id', user.id)
+    if (updateError) throw updateError
+  }
+  return res.status(200).json({ detected, skipped: false })
 }
 
 const handlers = {

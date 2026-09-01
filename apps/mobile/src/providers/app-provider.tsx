@@ -51,6 +51,7 @@ import {
   type RecurringSeries,
   type RecurringSeriesDraft,
   type RecurringStatus,
+  RECURRING_DETECTION_VERSION,
   refreshRecurringDetection,
 } from '@/lib/recurring-payments';
 
@@ -599,7 +600,7 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     const { data, error: profileError } = await supabase
       .from('profiles')
-      .select('onboarding_completed')
+      .select('onboarding_completed,recurring_detection_version')
       .eq('id', nextSession.user.id)
       .maybeSingle();
 
@@ -619,10 +620,13 @@ export function AppProvider({ children }: PropsWithChildren) {
     await hydratePrivacyPreference(nextSession.user.id);
     if (completed) {
       await hydrateUserData(nextSession.user.id);
-      if (recurringStartupRefreshUserId.current !== nextSession.user.id) {
+      if (
+        Number(data?.recurring_detection_version ?? 0) < RECURRING_DETECTION_VERSION
+        && recurringStartupRefreshUserId.current !== nextSession.user.id
+      ) {
         recurringStartupRefreshUserId.current = nextSession.user.id;
         try {
-          await refreshRecurringDetection(nextSession.access_token);
+          await refreshRecurringDetection(nextSession.access_token, { reason: 'startup' });
           await hydrateUserData(nextSession.user.id);
         } catch (recurringError) {
           recurringStartupRefreshUserId.current = null;
@@ -865,7 +869,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       if (recordedTransaction.kind !== 'income') {
         setDraft((current) => ({ ...current, expense: recordedTransaction }));
       }
-      void refreshRecurringDetection(session.access_token)
+      void refreshRecurringDetection(session.access_token, { transactionId: String(transactionId) })
         .then(() => hydrateUserData(session.user.id))
         .catch(() => undefined);
       return true;
@@ -946,7 +950,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       setDraft((current) => ({ ...current, expense: recordedTransaction }));
     }
     setTransactions((current) => [recordedTransaction, ...current]);
-    void refreshRecurringDetection(session.access_token)
+    void refreshRecurringDetection(session.access_token, { transactionId: String(data.id) })
       .then(() => hydrateUserData(session.user.id))
       .catch(() => undefined);
     return true;

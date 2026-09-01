@@ -584,7 +584,9 @@ export async function syncConnection({
       throw unavailable
     }
     const internalTransfers = await markInternalTransfers(service, userId)
-    const recurringDetected = await refreshDetectedRecurringPayments(service, userId)
+    const recurringDetected = totals.imported + totals.linked > 0
+      ? await refreshDetectedRecurringPayments(service, userId)
+      : 0
     const { error: savingsError } = await service.rpc(
       'finalize_deferred_savings',
       { p_user_id: userId },
