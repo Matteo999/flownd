@@ -13,6 +13,10 @@ import {
   sendApiError,
 } from './_supabase.js'
 import { nextAutomaticSyncAt } from './_sync-schedule.js'
+import {
+  reconcileRecurringTransaction,
+  refreshDetectedRecurringPayments,
+} from '../_recurring-payments.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -165,6 +169,9 @@ async function reconcileTransaction({
       .eq('id', transactionId)
       .eq('source', 'open_banking')
     if (dateError) throw dateError
+    if (normalized.status === 'booked') {
+      await reconcileRecurringTransaction(service, userId, transactionId)
+    }
     return { imported: 0, linked: 0, pending: normalized.status === 'booked' ? 0 : 1 }
   }
 
@@ -199,6 +206,7 @@ async function reconcileTransaction({
         .from('open_banking_transaction_imports')
         .update({ match_status: 'auto_linked' })
         .eq('id', imported.id)
+      await reconcileRecurringTransaction(service, userId, transactionId)
       return { imported: 0, linked: 1, pending: 0 }
     }
   }
@@ -247,6 +255,7 @@ async function reconcileTransaction({
     relation: 'bank_created',
     confidence: 1,
   })
+  await reconcileRecurringTransaction(service, userId, transactionId)
   return { imported: 1, linked: 0, pending: 0 }
 }
 
@@ -575,6 +584,7 @@ export async function syncConnection({
       throw unavailable
     }
     const internalTransfers = await markInternalTransfers(service, userId)
+    const recurringDetected = await refreshDetectedRecurringPayments(service, userId)
     const { error: savingsError } = await service.rpc(
       'finalize_deferred_savings',
       { p_user_id: userId },
@@ -602,6 +612,7 @@ export async function syncConnection({
       warnings: resourceWarnings + transientFailures.length,
       ...totals,
       internalTransfers,
+      recurringDetected,
     }
 }
 

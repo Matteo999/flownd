@@ -127,6 +127,12 @@ export default function ProfileScreen() {
           onPress={() => router.push('/budget' as Href)}
         />
         <ProfileRow
+          icon="event_repeat"
+          label="Ricorrenze"
+          caption="Pagamenti ed entrate previste"
+          onPress={() => router.push('/recurring-payments' as Href)}
+        />
+        <ProfileRow
           icon="group"
           label="Gruppi e condivisione"
           caption="Famiglia, permessi, split e budget condivisi"

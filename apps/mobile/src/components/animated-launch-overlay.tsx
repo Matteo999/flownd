@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+import { Animated, Easing, StyleSheet } from 'react-native';
 
 import { BrandLogo } from '@/components/brand-logo';
 import { useApp } from '@/providers/app-provider';
@@ -8,20 +9,22 @@ export function AnimatedLaunchOverlay() {
   const { loading } = useApp();
   const [visible, setVisible] = useState(true);
   const [opacity] = useState(() => new Animated.Value(1));
-  const [scale] = useState(() => new Animated.Value(0.94));
+  const [logoOpacity] = useState(() => new Animated.Value(1));
+  const [scale] = useState(() => new Animated.Value(1));
+  const nativeSplashHidden = useRef(false);
 
   useEffect(() => {
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(scale, {
-          toValue: 1.035,
-          duration: 650,
+          toValue: 1.025,
+          duration: 720,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
         Animated.timing(scale, {
-          toValue: 0.97,
-          duration: 650,
+          toValue: 0.985,
+          duration: 720,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
@@ -33,24 +36,34 @@ export function AnimatedLaunchOverlay() {
 
   useEffect(() => {
     if (loading) return;
-    scale.stopAnimation();
-    Animated.sequence([
-      Animated.spring(scale, {
-        toValue: 1,
-        damping: 12,
-        stiffness: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 360,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      if (finished) setVisible(false);
-    });
-  }, [loading, opacity, scale]);
+    const timer = setTimeout(() => {
+      scale.stopAnimation(() => {
+        Animated.parallel([
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 520,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(logoOpacity, {
+            toValue: 0,
+            duration: 360,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(scale, {
+            toValue: 1.075,
+            duration: 500,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]).start(({ finished }) => {
+          if (finished) setVisible(false);
+        });
+      });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [loading, logoOpacity, opacity, scale]);
 
   if (!visible) return null;
 
@@ -60,11 +73,15 @@ export function AnimatedLaunchOverlay() {
       style={[
         styles.overlay,
         { backgroundColor: '#0F1712', opacity },
-      ]}>
-      <Animated.View style={{ transform: [{ scale }] }}>
-        <BrandLogo size={78} />
+      ]}
+      onLayout={() => {
+        if (nativeSplashHidden.current) return;
+        nativeSplashHidden.current = true;
+        void SplashScreen.hideAsync();
+      }}>
+      <Animated.View style={{ opacity: logoOpacity, transform: [{ scale }] }}>
+        <BrandLogo size={88} />
       </Animated.View>
-      <View style={[styles.dot, { backgroundColor: '#45D5B6' }]} />
     </Animated.View>
   );
 }
@@ -79,12 +96,5 @@ const styles = StyleSheet.create({
     zIndex: 1000,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    marginTop: 24,
-    opacity: 0.7,
   },
 });

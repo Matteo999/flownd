@@ -207,6 +207,7 @@ export default function TimelineScreen() {
     filterCategories?: string | string[];
     filterStart?: string | string[];
     filterEnd?: string | string[];
+    transactionId?: string | string[];
   }>();
   const {
     transactions,
@@ -238,6 +239,20 @@ export default function TimelineScreen() {
   } | null>(null);
   const [editingTransaction, setEditingTransaction] =
     useState<ExpenseDraft | null>(null);
+  const openedTransactionParam = useRef<string | null>(null);
+  useEffect(() => {
+    const transactionId = Array.isArray(params.transactionId)
+      ? params.transactionId[0]
+      : params.transactionId;
+    if (!transactionId || openedTransactionParam.current === transactionId) return;
+    const selected = transactions.find((item) => item.id === transactionId);
+    if (selected) {
+      openedTransactionParam.current = transactionId;
+      const timer = setTimeout(() => setEditingTransaction(selected), 0);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [params.transactionId, transactions]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<string>>(
     () => new Set(),
@@ -935,9 +950,19 @@ export default function TimelineScreen() {
           onSave={async (transactionId, changes) => {
             return updateTransaction(transactionId, changes);
           }}
+          onRecurring={() => {
+            const transactionId = editingTransaction.id;
+            const recurringPaymentId = editingTransaction.recurringPaymentId;
+            setEditingTransaction(null);
+            router.push(
+              recurringPaymentId
+                ? `/recurring-payments?edit=${recurringPaymentId}` as Href
+                : `/recurring-payments?transactionId=${transactionId}` as Href,
+            );
+          }}
           onDelete={
             (
-              ['manual', 'onboarding', 'ai_scan', 'file_import'].includes(
+              ['manual', 'onboarding', 'ai_scan', 'file_import', 'recurring_generated'].includes(
                 editingTransaction.source ?? '',
               ) ||
               (['open_banking', 'manual_open_banking'].includes(
@@ -1231,6 +1256,11 @@ const TransactionRow = memo(function TransactionRow({
             <Text style={[styles.category, { color: colors.textSecondary }]}>
               {transaction.internalTransfer ? 'Trasferimento interno' : transaction.category}
             </Text>
+            {transaction.isRecurring ? (
+              <View style={[styles.recurringTag, { backgroundColor: colors.accentSoft }]}>
+                <Text style={[styles.recurringTagText, { color: colors.accent }]}>Ricorrente</Text>
+              </View>
+            ) : null}
             {timeLabel ? (
               <Text style={[styles.transactionDate, { color: colors.textSecondary }]}>
                 {timeLabel}
@@ -1726,6 +1756,7 @@ function EditTransactionModal({
   allowRemember,
   onClose,
   onSave,
+  onRecurring,
   onDelete,
 }: {
   transaction: ExpenseDraft;
@@ -1734,6 +1765,7 @@ function EditTransactionModal({
   allowRemember: boolean;
   onClose: () => void;
   onSave: (transactionId: string, changes: TransactionUpdate) => Promise<boolean>;
+  onRecurring: () => void;
   onDelete?: (transactionId: string) => void;
 }) {
   const { colors } = useFlowndTheme();
@@ -1976,6 +2008,17 @@ function EditTransactionModal({
               </Pressable>
             ) : null}
             {error ? <Text style={[styles.sheetError, { color: colors.negative }]}>{error}</Text> : null}
+            {transaction.id ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={onRecurring}
+                style={[styles.recurringAction, { borderColor: colors.accent }]}>
+                <Text style={[styles.materialIcon, { color: colors.accent }]}>event_repeat</Text>
+                <Text style={[styles.recurringActionText, { color: colors.accent }]}>
+                  {transaction.isRecurring ? 'Gestisci ricorrenza' : 'Rendi ricorrente'}
+                </Text>
+              </Pressable>
+            ) : null}
             {onDelete && transaction.id ? (
               <Pressable
                 accessibilityRole="button"
@@ -2443,6 +2486,8 @@ const styles = StyleSheet.create({
     gap: 7,
     marginTop: 3,
   },
+  recurringTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 7 },
+  recurringTagText: { fontFamily: font.bodySemiBold, fontSize: 9 },
   category: { fontFamily: font.bodyMedium, fontSize: 10 },
   transactionDate: { fontFamily: font.data, fontSize: 9 },
   amount: { fontFamily: font.dataMedium, fontSize: 11 },
@@ -2546,6 +2591,17 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   editRememberRule: { marginTop: 12 },
+  recurringAction: {
+    marginTop: 12,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  recurringActionText: { fontFamily: font.bodySemiBold, fontSize: 13 },
   rememberCheckbox: {
     width: 24,
     height: 24,

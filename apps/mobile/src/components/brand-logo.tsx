@@ -17,14 +17,14 @@ export function BrandLogo({
       source={
         isWordmark
           ? require('@/assets/images/flownd-alpha.png')
-          : require('@/assets/images/f-alpha.png')
+          : require('../../../../assets/F_donut.png')
       }
       contentFit="contain"
       style={[
         styles.logo,
         isWordmark
           ? { width: size, height: Math.round(size * (150 / 698)) }
-          : { width: size, height: Math.round(size * (465 / 378)) },
+          : { width: size, height: size },
         style,
       ]}
     />

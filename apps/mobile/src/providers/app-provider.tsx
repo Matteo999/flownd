@@ -1,6 +1,5 @@
 import type { Session } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SplashScreen from 'expo-splash-screen';
 import { AppState } from 'react-native';
 import React, {
   createContext,
@@ -48,6 +47,12 @@ import {
   budgetIncomeForFinancialCycle,
   incomeCandidatesForFinancialCycle,
 } from '@/lib/financial-cycle';
+import {
+  type RecurringSeries,
+  type RecurringSeriesDraft,
+  type RecurringStatus,
+  refreshRecurringDetection,
+} from '@/lib/recurring-payments';
 
 export type TransactionUpdate = {
   description: string;
@@ -78,14 +83,6 @@ export type ManualFinancialAccountDraft = {
   balance: number;
   accountKind: 'manual_bank' | 'cash_wallet';
   balanceAsOf: string;
-};
-
-export type UpcomingPayment = {
-  id: string;
-  name: string;
-  amount: number;
-  dueAt: string;
-  kind: 'loan' | 'subscription';
 };
 
 export type CoachInsight = {
@@ -126,7 +123,7 @@ type AppContextValue = {
   goalNotice: GoalNotice | null;
   planTier: 'free' | 'pro' | 'max';
   financialAccounts: FinancialAccount[];
-  upcomingPayments: UpcomingPayment[];
+  recurringPayments: RecurringSeries[];
   coachInsight: CoachInsight | null;
   amountsVisible: boolean;
   budgetCycleStartDay: number;
@@ -140,6 +137,15 @@ type AppContextValue = {
     transactionId: string,
     transaction: TransactionUpdate,
   ) => Promise<boolean>;
+  createRecurringPayment: (draft: RecurringSeriesDraft) => Promise<string | null>;
+  createRecurringFromTransaction: (
+    transactionId: string,
+    frequency: RecurringSeries['frequency'],
+    nextDueOn: string,
+    financialAccountId?: string | null,
+  ) => Promise<string | null>;
+  updateRecurringPayment: (id: string, draft: RecurringSeriesDraft) => Promise<boolean>;
+  setRecurringPaymentStatus: (id: string, status: RecurringStatus) => Promise<boolean>;
   createManualFinancialAccount: (
     account: ManualFinancialAccountDraft,
   ) => Promise<string | null>;
@@ -176,7 +182,7 @@ type AppContextValue = {
   ) => Promise<boolean>;
   deleteGoalContribution: (contributionId: string) => Promise<boolean>;
   completeGoal: (goalId: string) => Promise<boolean>;
-  createLoan: (loan: LoanDraft) => Promise<boolean>;
+  createLoan: (loan: LoanDraft, financialAccountId?: string | null) => Promise<boolean>;
   dismissGoalNotice: (noticeId: string) => Promise<void>;
   updateBudgetAmount: (id: string, amount: number) => Promise<boolean>;
   saveBudgetAllocations: (
@@ -223,6 +229,8 @@ type TransactionHistoryRow = {
   import_memo: string | null;
   import_reference: string | null;
   import_confidence: number | string | null;
+  recurring_payment_id: string | null;
+  recurring_occurrence_id: string | null;
 };
 
 async function fetchTransactionHistory(userId: string) {
@@ -231,7 +239,7 @@ async function fetchTransactionHistory(userId: string) {
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from('transactions')
-      .select('id,description,amount,category,occurred_at,occurred_time,occurred_time_source,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type,raw_description,merchant_name,counterparty_name,import_memo,import_reference,import_confidence')
+      .select('id,description,amount,category,occurred_at,occurred_time,occurred_time_source,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type,raw_description,merchant_name,counterparty_name,import_memo,import_reference,import_confidence,recurring_payment_id,recurring_occurrence_id')
       .eq('user_id', userId)
       .order('occurred_at', { ascending: false })
       .range(from, from + pageSize - 1);
@@ -261,7 +269,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [goalNotice, setGoalNotice] = useState<GoalNotice | null>(null);
   const [planTier, setPlanTier] = useState<'free' | 'pro' | 'max'>('free');
   const [financialAccounts, setFinancialAccounts] = useState<FinancialAccount[]>([]);
-  const [upcomingPayments, setUpcomingPayments] = useState<UpcomingPayment[]>([]);
+  const [recurringPayments, setRecurringPayments] = useState<RecurringSeries[]>([]);
   const [coachInsight, setCoachInsight] = useState<CoachInsight | null>(null);
   const [amountsVisible, setAmountsVisible] = useState(true);
   const [budgetCycleStartDay, setBudgetCycleStartDay] = useState(1);
@@ -290,8 +298,6 @@ export function AppProvider({ children }: PropsWithChildren) {
     const contributionHistoryStart = new Date();
     contributionHistoryStart.setFullYear(contributionHistoryStart.getFullYear() - 1);
     contributionHistoryStart.setHours(0, 0, 0, 0);
-    const upcomingLimit = new Date();
-    upcomingLimit.setDate(upcomingLimit.getDate() + 7);
     const [
       budgetsResult,
       goalsResult,
@@ -391,7 +397,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       memo: item.import_memo,
       bankReference: item.import_reference,
       importConfidence:
-        item.import_confidence == null ? null : Number(item.import_confidence),
+          item.import_confidence == null ? null : Number(item.import_confidence),
+      recurringPaymentId: item.recurring_payment_id,
+      recurringOccurrenceId: item.recurring_occurrence_id,
+      isRecurring: Boolean(item.recurring_payment_id),
     }));
     const incomeBand = goalSettingsResult.data.income_band as IncomeBandId | null;
     const plannedMonthlyIncome = incomeReferenceForBand(incomeBand);
@@ -501,12 +510,10 @@ export function AppProvider({ children }: PropsWithChildren) {
         .order('created_at'),
       supabase
         .from('recurring_payments')
-        .select('id,name,amount,next_due_at,kind')
+        .select('id,name,amount,next_due_on,series_type,direction,origin,status,frequency,category,anchor_on,financial_account_id,settlement_mode,loan_id')
         .eq('user_id', userId)
-        .eq('active', true)
-        .gte('next_due_at', new Date().toISOString())
-        .lte('next_due_at', upcomingLimit.toISOString())
-        .order('next_due_at'),
+        .neq('status', 'dismissed')
+        .order('next_due_on'),
       supabase
         .from('coach_insights')
         .select('id,title,body')
@@ -538,15 +545,22 @@ export function AppProvider({ children }: PropsWithChildren) {
         currency: account.currency,
       })),
     );
-    setUpcomingPayments(
-      (paymentsResult.data ?? []).map((payment) => ({
-        id: payment.id,
-        name: payment.name,
-        amount: Number(payment.amount),
-        dueAt: payment.next_due_at,
-        kind: payment.kind as UpcomingPayment['kind'],
-      })),
-    );
+    const hydratedRecurringPayments: RecurringSeries[] = (paymentsResult.data ?? []).map((payment) => ({
+      id: payment.id,
+      name: payment.name,
+      amount: Number(payment.amount),
+      direction: payment.direction as RecurringSeries['direction'],
+      origin: payment.origin as RecurringSeries['origin'],
+      status: payment.status as RecurringSeries['status'],
+      frequency: payment.frequency as RecurringSeries['frequency'],
+      category: payment.category,
+      anchorOn: payment.anchor_on,
+      nextDueOn: payment.next_due_on,
+      financialAccountId: payment.financial_account_id,
+      settlementMode: payment.settlement_mode as RecurringSeries['settlementMode'],
+      loanId: payment.loan_id,
+    }));
+    setRecurringPayments(hydratedRecurringPayments);
     setCoachInsight(
       insightResult.data
         ? {
@@ -572,7 +586,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       setGoalNotice(null);
       setPlanTier('free');
       setFinancialAccounts([]);
-      setUpcomingPayments([]);
+      setRecurringPayments([]);
       setCoachInsight(null);
       setAmountsVisible(true);
       setBudgetCycleStartDay(1);
@@ -621,7 +635,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       await readProfile(initialSession);
       if (mounted) {
         setLoading(false);
-        await SplashScreen.hideAsync();
       }
     });
 
@@ -838,6 +851,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       if (recordedTransaction.kind !== 'income') {
         setDraft((current) => ({ ...current, expense: recordedTransaction }));
       }
+      void refreshRecurringDetection(session.access_token)
+        .then(() => hydrateUserData(session.user.id))
+        .catch(() => undefined);
       return true;
     }
 
@@ -916,6 +932,144 @@ export function AppProvider({ children }: PropsWithChildren) {
       setDraft((current) => ({ ...current, expense: recordedTransaction }));
     }
     setTransactions((current) => [recordedTransaction, ...current]);
+    void refreshRecurringDetection(session.access_token)
+      .then(() => hydrateUserData(session.user.id))
+      .catch(() => undefined);
+    return true;
+  }
+
+  async function createRecurringPayment(draft: RecurringSeriesDraft) {
+    if (!session || !draft.name.trim() || draft.amount <= 0) return null;
+    const account = draft.financialAccountId
+      ? financialAccounts.find((item) => item.id === draft.financialAccountId)
+      : null;
+    setSaving(true);
+    setError(null);
+    const { data, error: insertError } = await supabase
+      .from('recurring_payments')
+      .insert({
+        user_id: session.user.id,
+        name: draft.name.trim(),
+        amount: draft.amount,
+        next_due_at: `${draft.nextDueOn}T12:00:00.000Z`,
+        series_type: 'custom',
+        direction: draft.direction,
+        origin: 'manual',
+        status: 'active',
+        frequency: draft.frequency,
+        category: draft.category,
+        anchor_on: draft.nextDueOn,
+        next_due_on: draft.nextDueOn,
+        financial_account_id: draft.financialAccountId,
+        settlement_mode: account?.source === 'open_banking' ? 'bank_match' : 'manual_post',
+      })
+      .select('id')
+      .single();
+    if (!insertError && data) {
+      const { error: occurrenceError } = await supabase.rpc(
+        'ensure_recurring_occurrence',
+        { p_series_id: data.id },
+      );
+      if (occurrenceError) {
+        setSaving(false);
+        setError('La ricorrenza è stata creata, ma la prima scadenza non è disponibile.');
+        return data.id;
+      }
+    }
+    setSaving(false);
+    if (insertError || !data) {
+      setError('Non siamo riusciti a creare la ricorrenza.');
+      return null;
+    }
+    await hydrateUserData(session.user.id);
+    return data.id;
+  }
+
+  async function createRecurringFromTransaction(
+    transactionId: string,
+    frequency: RecurringSeries['frequency'],
+    nextDueOn: string,
+    financialAccountId: string | null = null,
+  ) {
+    if (!session) return null;
+    setSaving(true);
+    setError(null);
+    const { data, error: createError } = await supabase.rpc(
+      'create_recurring_from_transaction',
+      {
+        p_transaction_id: transactionId,
+        p_frequency: frequency,
+        p_next_due_on: nextDueOn,
+        p_financial_account_id: financialAccountId,
+      },
+    );
+    setSaving(false);
+    if (createError || !data) {
+      setError('Non siamo riusciti a rendere ricorrente il movimento.');
+      return null;
+    }
+    await hydrateUserData(session.user.id);
+    return String(data);
+  }
+
+  async function updateRecurringPayment(id: string, draft: RecurringSeriesDraft) {
+    if (!session || draft.amount <= 0 || !draft.name.trim()) return false;
+    const account = draft.financialAccountId
+      ? financialAccounts.find((item) => item.id === draft.financialAccountId)
+      : null;
+    setSaving(true);
+    setError(null);
+    const { error: occurrenceCleanupError } = await supabase
+      .from('recurring_payment_occurrences')
+      .delete()
+      .eq('recurring_payment_id', id)
+      .eq('user_id', session.user.id)
+      .eq('status', 'projected');
+    if (occurrenceCleanupError) {
+      setSaving(false);
+      setError('Non siamo riusciti ad aggiornare la prossima scadenza.');
+      return false;
+    }
+    const { error: updateError } = await supabase.from('recurring_payments').update({
+      name: draft.name.trim(),
+      amount: draft.amount,
+      direction: draft.direction,
+      frequency: draft.frequency,
+      category: draft.category,
+      anchor_on: draft.nextDueOn,
+      next_due_on: draft.nextDueOn,
+      next_due_at: `${draft.nextDueOn}T12:00:00.000Z`,
+      financial_account_id: draft.financialAccountId,
+      settlement_mode: account?.source === 'open_banking' ? 'bank_match' : 'manual_post',
+      updated_at: new Date().toISOString(),
+    }).eq('id', id).eq('user_id', session.user.id);
+    if (!updateError) await supabase.rpc('ensure_recurring_occurrence', { p_series_id: id });
+    setSaving(false);
+    if (updateError) {
+      setError('Non siamo riusciti ad aggiornare la ricorrenza.');
+      return false;
+    }
+    await hydrateUserData(session.user.id);
+    return true;
+  }
+
+  async function setRecurringPaymentStatus(id: string, status: RecurringStatus) {
+    if (!session) return false;
+    setSaving(true);
+    const { error: updateError } = await supabase.from('recurring_payments').update({
+      status,
+      active: status === 'active',
+      updated_at: new Date().toISOString(),
+    }).eq('id', id).eq('user_id', session.user.id);
+    if (!updateError && status === 'active') {
+      await supabase.rpc('ensure_recurring_occurrence', { p_series_id: id });
+    }
+    setSaving(false);
+    if (updateError) {
+      setError('Non siamo riusciti a cambiare lo stato della ricorrenza.');
+      return false;
+    }
+    await hydrateUserData(session.user.id);
     return true;
   }
 
@@ -1198,7 +1352,18 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     setSaving(true);
     setError(null);
-    const { error: updateError } = manualAccount
+    const { error: updateError } = existingTransaction?.source === 'recurring_generated'
+      ? await supabase.rpc('update_generated_recurring_transaction', {
+          p_transaction_id: transactionId,
+          p_description: nextDescription,
+          p_amount: transaction.amount,
+          p_category: nextCategory,
+          p_kind: transaction.kind,
+          p_occurred_at: transaction.occurredAt,
+          p_income_type: incomeTreatment?.incomeType ?? null,
+          p_excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
+        })
+      : manualAccount
       ? await supabase.rpc('update_manual_financial_account_transaction', {
           p_transaction_id: transactionId,
           p_description: nextDescription,
@@ -1254,7 +1419,7 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     setSaving(false);
 
-    if (manualAccount) {
+    if (manualAccount || existingTransaction?.source === 'recurring_generated') {
       await hydrateUserData(session.user.id);
       return true;
     }
@@ -1386,7 +1551,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (
       !transaction ||
       (!disconnectedBankTransaction &&
-        !['manual', 'onboarding', 'ai_scan', 'file_import'].includes(
+        !['manual', 'onboarding', 'ai_scan', 'file_import', 'recurring_generated'].includes(
           transaction.source ?? '',
         ))
     ) {
@@ -1401,7 +1566,11 @@ export function AppProvider({ children }: PropsWithChildren) {
             account.id === transaction.financialAccountId && account.source === 'manual',
         )
       : false;
-    const { error: deleteError } = linkedManualAccount
+    const { error: deleteError } = transaction.source === 'recurring_generated'
+      ? await supabase.rpc('delete_generated_recurring_transaction', {
+          p_transaction_id: transactionId,
+        })
+      : linkedManualAccount
       ? await supabase.rpc('delete_manual_financial_account_transaction', {
           p_transaction_id: transactionId,
         })
@@ -1417,6 +1586,7 @@ export function AppProvider({ children }: PropsWithChildren) {
             'file_import',
             'open_banking',
             'manual_open_banking',
+            'recurring_generated',
           ]);
     setSaving(false);
     if (deleteError) {
@@ -1971,7 +2141,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     return true;
   }
 
-  async function createLoan(loan: LoanDraft) {
+  async function createLoan(loan: LoanDraft, financialAccountId: string | null = null) {
     if (!session) return false;
     const monthlyPayment =
       loan.monthlyPayment && loan.monthlyPayment > 0
@@ -1999,6 +2169,19 @@ export function AppProvider({ children }: PropsWithChildren) {
       setError('Non siamo riusciti a salvare il finanziamento.');
       return false;
     }
+    const selectedAccount = financialAccountId
+      ? financialAccounts.find((account) => account.id === financialAccountId)
+      : null;
+    const { error: recurringError } = await supabase
+      .from('recurring_payments')
+      .update({
+        financial_account_id: financialAccountId,
+        settlement_mode: selectedAccount?.source === 'open_banking' ? 'bank_match' : 'manual_post',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('loan_id', data.id)
+      .eq('user_id', session.user.id);
+    if (recurringError && __DEV__) console.error('Flownd loan recurrence update failed', recurringError);
     setLoans((current) => [
       {
         id: data.id,
@@ -2013,6 +2196,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       },
       ...current,
     ]);
+    await hydrateUserData(session.user.id);
     return true;
   }
 
@@ -2076,7 +2260,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     goalNotice,
     planTier,
     financialAccounts,
-    upcomingPayments,
+    recurringPayments,
     coachInsight,
     amountsVisible,
     budgetCycleStartDay,
@@ -2086,6 +2270,10 @@ export function AppProvider({ children }: PropsWithChildren) {
     updateDraft: (next) => setDraft((current) => ({ ...current, ...next })),
     completeOnboarding,
     addTransaction,
+    createRecurringPayment,
+    createRecurringFromTransaction,
+    updateRecurringPayment,
+    setRecurringPaymentStatus,
     createManualFinancialAccount,
     updateManualFinancialAccountOpeningBalance,
     deleteManualFinancialAccount,

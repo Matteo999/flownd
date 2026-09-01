@@ -4,6 +4,7 @@ import coachHandler from './coach.js'
 import transactionToolsHandler from './transaction-tools.js'
 import ebAuthHandler from './eb/auth.js'
 import ebAutoSyncHandler from './eb/auto-sync.js'
+import recurringPaymentsHandler from './recurring-payments.js'
 import ebBanksHandler from './eb/banks.js'
 import ebCallbackHandler from './eb/callback.js'
 import ebConnectionsHandler from './eb/connections.js'
@@ -15,6 +16,7 @@ const handlers = new Map([
   ['/api/transaction-tools', transactionToolsHandler],
   ['/api/eb/auth', ebAuthHandler],
   ['/api/eb/auto-sync', ebAutoSyncHandler],
+  ['/api/recurring-payments', recurringPaymentsHandler],
   ['/api/eb/banks', ebBanksHandler],
   ['/api/eb/callback', ebCallbackHandler],
   ['/api/eb/connections', ebConnectionsHandler],

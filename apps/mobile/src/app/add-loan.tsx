@@ -22,6 +22,7 @@ export default function AddLoanScreen() {
     saving,
     error,
     budgetMonthlyIncome,
+    financialAccounts,
   } = useApp();
   const [name, setName] = useState('');
   const [financed, setFinanced] = useState('');
@@ -31,6 +32,7 @@ export default function AddLoanScreen() {
   const [manualPayment, setManualPayment] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [balloon, setBalloon] = useState('');
+  const [accountId, setAccountId] = useState<string | null>(null);
   const draftLoan: LoanDraft = {
     name: name.trim(),
     financedAmount: numberValue(financed),
@@ -82,6 +84,11 @@ export default function AddLoanScreen() {
         <Field label="Rata mensile (opzionale)" suffix="€" keyboardType="decimal-pad" value={manualPayment} onChangeText={setManualPayment} />
         <Field label="Data inizio" placeholder="AAAA-MM-GG" value={startDate} onChangeText={setStartDate} />
         <Field label="Maxirata finale (opzionale)" suffix="€" keyboardType="decimal-pad" value={balloon} onChangeText={setBalloon} />
+        <Text style={[styles.accountLabel, { color: colors.text }]}>Conto della rata</Text>
+        <View style={styles.accountChoices}>
+          <Pressable onPress={() => setAccountId(null)} style={[styles.accountChoice, { borderColor: !accountId ? colors.accent : colors.border, backgroundColor: !accountId ? colors.accentSoft : colors.surface }]}><Text style={[styles.accountChoiceText, { color: !accountId ? colors.accent : colors.text }]}>Senza conto</Text></Pressable>
+          {financialAccounts.map((account) => <Pressable key={account.id} onPress={() => setAccountId(account.id)} style={[styles.accountChoice, { borderColor: accountId === account.id ? colors.accent : colors.border, backgroundColor: accountId === account.id ? colors.accentSoft : colors.surface }]}><Text style={[styles.accountChoiceText, { color: accountId === account.id ? colors.accent : colors.text }]}>{account.name}{account.source === 'open_banking' ? ' · Banca' : ''}</Text></Pressable>)}
+        </View>
 
         {calculatedPayment > 0 ? (
           <Card style={styles.feasibility}>
@@ -93,7 +100,7 @@ export default function AddLoanScreen() {
         ) : null}
         {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
         <PrimaryButton disabled={!valid} loading={saving} onPress={async () => {
-          const saved = await createLoan({ ...draftLoan, monthlyPayment: calculatedPayment });
+          const saved = await createLoan({ ...draftLoan, monthlyPayment: calculatedPayment }, accountId);
           if (saved) router.back();
         }}>Salva finanziamento</PrimaryButton>
       </Screen>
@@ -108,6 +115,10 @@ const styles = StyleSheet.create({
   closeText: { fontFamily: font.body, fontSize: 25, lineHeight: 28 },
   headerTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   headerSpacer: { width: 40 },
+  accountLabel: { fontFamily: font.bodySemiBold, fontSize: 13, marginTop: 4 },
+  accountChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  accountChoice: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8 },
+  accountChoiceText: { fontFamily: font.bodySemiBold, fontSize: 11 },
   icon: { width: 56, height: 56, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
   iconText: { color: '#FFFFFF', fontFamily: 'MaterialSymbols_400Regular', fontSize: 26 },
   feasibility: { marginTop: 18 },
