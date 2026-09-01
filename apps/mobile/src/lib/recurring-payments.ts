@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 
 export * from './recurring-payments-core';
 
-export const RECURRING_DETECTION_VERSION = 1;
+export const RECURRING_DETECTION_VERSION = 2;
 
 function apiUrl(path: string) {
   const configured = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
