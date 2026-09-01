@@ -217,6 +217,7 @@ export default function TimelineScreen() {
     categorizeTransactions,
     updateTransaction,
     deleteTransaction,
+    unlinkTransactionFromRecurring,
     saving,
     error,
     clearError,
@@ -960,6 +961,26 @@ export default function TimelineScreen() {
                 : `/recurring-payments?transactionId=${transactionId}` as Href,
             );
           }}
+          onUnlinkRecurring={editingTransaction.isRecurring && editingTransaction.id
+            ? (transactionId) => {
+                Alert.alert(
+                  'Rimuovere dalla ricorrenza?',
+                  'Il movimento resta nella Timeline, ma non sarà più collegato alla serie.',
+                  [
+                    { text: 'Annulla', style: 'cancel' },
+                    {
+                      text: 'Rimuovi collegamento',
+                      style: 'destructive',
+                      onPress: () => {
+                        void unlinkTransactionFromRecurring(transactionId).then((unlinked) => {
+                          if (unlinked) setEditingTransaction(null);
+                        });
+                      },
+                    },
+                  ],
+                );
+              }
+            : undefined}
           onDelete={
             (
               ['manual', 'onboarding', 'ai_scan', 'file_import', 'recurring_generated'].includes(
@@ -1757,6 +1778,7 @@ function EditTransactionModal({
   onClose,
   onSave,
   onRecurring,
+  onUnlinkRecurring,
   onDelete,
 }: {
   transaction: ExpenseDraft;
@@ -1766,6 +1788,7 @@ function EditTransactionModal({
   onClose: () => void;
   onSave: (transactionId: string, changes: TransactionUpdate) => Promise<boolean>;
   onRecurring: () => void;
+  onUnlinkRecurring?: (transactionId: string) => void;
   onDelete?: (transactionId: string) => void;
 }) {
   const { colors } = useFlowndTheme();
@@ -2017,6 +2040,16 @@ function EditTransactionModal({
                 <Text style={[styles.recurringActionText, { color: colors.accent }]}>
                   {transaction.isRecurring ? 'Gestisci ricorrenza' : 'Rendi ricorrente'}
                 </Text>
+              </Pressable>
+            ) : null}
+            {onUnlinkRecurring && transaction.id ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={saving}
+                onPress={() => onUnlinkRecurring(transaction.id!)}
+                style={[styles.recurringAction, { borderColor: colors.textSecondary }]}>
+                <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>link_off</Text>
+                <Text style={[styles.recurringActionText, { color: colors.textSecondary }]}>Rimuovi dalla ricorrenza</Text>
               </Pressable>
             ) : null}
             {onDelete && transaction.id ? (

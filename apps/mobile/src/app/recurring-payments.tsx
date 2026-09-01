@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   Card, Field, PrimaryButton, Screen, SecondaryButton, font, uiStyles, useFlowndTheme,
@@ -28,7 +28,7 @@ export default function RecurringPaymentsScreen() {
   const {
     recurringPayments, financialAccounts, budgetMonthlyIncome, saving, error,
     transactions, createRecurringPayment, createRecurringFromTransaction,
-    updateRecurringPayment, setRecurringPaymentStatus,
+    updateRecurringPayment, setRecurringPaymentStatus, deleteRecurringPayment,
   } = useApp();
   const visible = useMemo(
     () => params.upcoming === 'significant'
@@ -72,10 +72,8 @@ export default function RecurringPaymentsScreen() {
               ? seedTransaction?.id
                 ? Boolean(await createRecurringFromTransaction(
                     seedTransaction.id,
-                    draft.frequency,
-                    draft.nextDueOn,
-                    draft.financialAccountId,
-                  ).then(async (id) => id && updateRecurringPayment(id, draft)))
+                    draft,
+                  ))
                 : Boolean(await createRecurringPayment(draft))
               : await updateRecurringPayment(editor.id, draft);
             if (saved) setEditor(null);
@@ -105,11 +103,26 @@ export default function RecurringPaymentsScreen() {
                 <Text style={[styles.status, { color: series.status === 'active' ? colors.positive : colors.textSecondary }]}>
                   {series.settlementMode === 'review' ? 'Scegli il conto' : series.status === 'active' ? 'Attiva' : 'In pausa'}
                 </Text>
-                <Pressable onPress={() => void setRecurringPaymentStatus(series.id, series.status === 'active' ? 'paused' : 'active')}>
+                <Pressable onPress={(event) => { event.stopPropagation(); void setRecurringPaymentStatus(series.id, series.status === 'active' ? 'paused' : 'active'); }}>
                   <Text style={[styles.action, { color: colors.accent }]}>{series.status === 'active' ? 'Pausa' : 'Riattiva'}</Text>
                 </Pressable>
-                <Pressable onPress={() => void setRecurringPaymentStatus(series.id, 'dismissed')}>
-                  <Text style={[styles.action, { color: colors.negative }]}>Archivia</Text>
+                <Pressable onPress={(event) => {
+                  event.stopPropagation();
+                  Alert.alert(
+                    'Eliminare la ricorrenza?',
+                    'I movimenti Open Banking saranno solo scollegati e resteranno nella Timeline.',
+                    [
+                      { text: 'Annulla', style: 'cancel' },
+                      { text: 'Solo ricorrenza', onPress: () => void deleteRecurringPayment(series.id) },
+                      {
+                        text: 'Anche movimenti manuali',
+                        style: 'destructive',
+                        onPress: () => void deleteRecurringPayment(series.id, true),
+                      },
+                    ],
+                  );
+                }}>
+                  <Text style={[styles.action, { color: colors.negative }]}>Elimina</Text>
                 </Pressable>
               </View>
             </Card>
@@ -143,27 +156,49 @@ function RecurringEditor({ series, seed, accounts, saving, error, onCancel, onSa
     return next.toISOString().slice(0, 10);
   });
   const [accountId, setAccountId] = useState<string | null>(series?.financialAccountId ?? seed?.financialAccountId ?? null);
+  const [step, setStep] = useState(0);
   const valid = name.trim() && asAmount(amount) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(nextDueOn);
   return (
     <Card style={styles.editor}>
       <Text style={[styles.editorTitle, { color: colors.text }]}>{series ? 'Modifica ricorrenza' : 'Nuova ricorrenza'}</Text>
-      <View style={styles.chips}>
-        {(['expense', 'income'] as const).map((value) => <Choice key={value} selected={direction === value} label={value === 'expense' ? 'Uscita' : 'Entrata'} onPress={() => { setDirection(value); setCategory(value === 'income' ? 'Altra entrata' : 'Altro'); }} />)}
-      </View>
-      <Field label="Nome" value={name} onChangeText={setName} placeholder="es. Affitto" />
-      <Field label="Importo previsto" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" suffix="€" />
-      <Field label="Prossima data" value={nextDueOn} onChangeText={setNextDueOn} placeholder="AAAA-MM-GG" />
-      <Text style={[styles.label, { color: colors.text }]}>Frequenza</Text>
-      <View style={styles.chips}>{frequencies.map((value) => <Choice key={value} selected={frequency === value} label={frequencyLabels[value]} onPress={() => setFrequency(value)} />)}</View>
-      <Text style={[styles.label, { color: colors.text }]}>Categoria</Text>
-      <View style={styles.chips}>{categoriesForTransactionKind(direction).map((value) => <Choice key={value} selected={category === value} label={value} onPress={() => setCategory(value)} />)}</View>
-      <Text style={[styles.label, { color: colors.text }]}>Conto</Text>
-      <View style={styles.chips}>
-        <Choice selected={!accountId} label="Senza conto" onPress={() => setAccountId(null)} />
-        {accounts.map((account) => <Choice key={account.id} selected={accountId === account.id} label={`${account.name}${account.source === 'open_banking' ? ' · Banca' : ''}`} onPress={() => setAccountId(account.id)} />)}
-      </View>
+      <Text style={[styles.stepLabel, { color: colors.textSecondary }]}>PASSAGGIO {step + 1} DI 3</Text>
+      {step === 0 ? <>
+        <Text style={[styles.stepTitle, { color: colors.text }]}>Di quale movimento si tratta?</Text>
+        {seed ? (
+          <Text style={[styles.seedKind, { color: colors.textSecondary }]}>{direction === 'expense' ? 'Uscita' : 'Entrata'} dalla transazione selezionata</Text>
+        ) : (
+          <View style={styles.chips}>
+            {(['expense', 'income'] as const).map((value) => <Choice key={value} selected={direction === value} label={value === 'expense' ? 'Uscita' : 'Entrata'} onPress={() => { setDirection(value); setCategory(value === 'income' ? 'Altra entrata' : 'Altro'); }} />)}
+          </View>
+        )}
+        <Field label="Nome" value={name} onChangeText={setName} placeholder="es. Affitto" />
+        <Field label="Importo previsto" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" suffix="€" />
+      </> : null}
+      {step === 1 ? <>
+        <Text style={[styles.stepTitle, { color: colors.text }]}>Quando si ripete?</Text>
+        <Text style={[styles.label, { color: colors.text }]}>Frequenza</Text>
+        <View style={styles.chips}>{frequencies.map((value) => <Choice key={value} selected={frequency === value} label={frequencyLabels[value]} onPress={() => setFrequency(value)} />)}</View>
+        <Field label="Prossima data" value={nextDueOn} onChangeText={setNextDueOn} placeholder="AAAA-MM-GG" />
+      </> : null}
+      {step === 2 ? <>
+        <Text style={[styles.stepTitle, { color: colors.text }]}>Ultimi dettagli</Text>
+        <Text style={[styles.label, { color: colors.text }]}>Categoria</Text>
+        <View style={styles.chips}>{categoriesForTransactionKind(direction).map((value) => <Choice key={value} selected={category === value} label={value} onPress={() => setCategory(value)} />)}</View>
+        <Text style={[styles.label, { color: colors.text }]}>Conto</Text>
+        <View style={styles.chips}>
+          <Choice selected={!accountId} label="Senza conto" onPress={() => setAccountId(null)} />
+          {accounts.map((account) => <Choice key={account.id} selected={accountId === account.id} label={`${account.name}${account.source === 'open_banking' ? ' · Banca' : ''}`} onPress={() => setAccountId(account.id)} />)}
+        </View>
+        <View style={[styles.review, { backgroundColor: colors.sunken }]}>
+          <Text style={[styles.reviewText, { color: colors.text }]}>{name || 'Ricorrenza'} · {frequencyLabels[frequency]}</Text>
+          <Text style={[styles.meta, { color: colors.textSecondary }]}>Prossima data {nextDueOn}</Text>
+        </View>
+      </> : null}
       {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
-      <View style={styles.editorActions}><View style={styles.flex}><SecondaryButton onPress={onCancel}>Annulla</SecondaryButton></View><View style={styles.flex}><PrimaryButton disabled={!valid} loading={saving} onPress={() => void onSave({ name: name.trim(), amount: asAmount(amount), direction, frequency, category, nextDueOn, financialAccountId: accountId })}>Salva</PrimaryButton></View></View>
+      <View style={styles.editorActions}>
+        <View style={styles.flex}><SecondaryButton onPress={step === 0 ? onCancel : () => setStep((current) => current - 1)}>{step === 0 ? 'Annulla' : 'Indietro'}</SecondaryButton></View>
+        <View style={styles.flex}><PrimaryButton disabled={step === 0 ? !(name.trim() && asAmount(amount) > 0) : step === 1 ? !/^\d{4}-\d{2}-\d{2}$/.test(nextDueOn) : !valid} loading={step === 2 && saving} onPress={() => step < 2 ? setStep((current) => current + 1) : void onSave({ name: name.trim(), amount: asAmount(amount), direction, frequency, category, nextDueOn, financialAccountId: accountId })}>{step === 2 ? 'Salva' : 'Continua'}</PrimaryButton></View>
+      </View>
     </Card>
   );
 }
@@ -184,6 +219,10 @@ const styles = StyleSheet.create({
   status: { flex: 1, fontFamily: font.bodySemiBold, fontSize: 11, textTransform: 'uppercase' }, action: { fontFamily: font.bodySemiBold, fontSize: 12 },
   empty: { textAlign: 'center', marginTop: 30, fontFamily: font.body }, editor: { marginTop: 18, gap: 12 },
   editorTitle: { fontFamily: font.displayBold, fontSize: 18 }, label: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  stepLabel: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 0.8 },
+  stepTitle: { fontFamily: font.displayBold, fontSize: 16 },
+  seedKind: { fontFamily: font.bodyMedium, fontSize: 12 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
   choiceText: { fontFamily: font.bodySemiBold, fontSize: 11 }, editorActions: { flexDirection: 'row', gap: 10 },
+  review: { padding: 12, borderRadius: 12, gap: 2 }, reviewText: { fontFamily: font.bodySemiBold, fontSize: 13 },
 });
