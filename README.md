@@ -22,7 +22,11 @@ npm run dev:mobile
 npm run dev:web
 npm run build:web
 npm run lint
+npm run test:deployment
 ```
+
+La topologia Vercel Hobby e la checklist vincolante per lo split su Pro sono
+documentate in [`docs/deployment-vercel.md`](docs/deployment-vercel.md).
 
 ## Sito pubblico in attesa del lancio
 
@@ -34,8 +38,8 @@ Le funzioni serverless sotto `/api/eb/*` restano invariate per il flusso Enable 
 
 ## Sincronizzazione bancaria automatica
 
-Il cron di produzione controlla ogni 15 minuti le connessioni bancarie e avvia
-solo quelle la cui ultima sincronizzazione risale ad almeno 6 ore prima. In
+Sul profilo Hobby il cron di produzione parte ogni giorno alle 05:17 UTC,
+gestisce prima le ricorrenze e poi le connessioni bancarie che risultano dovute. In
 Vercel configura `CRON_SECRET` per l'ambiente Production usando una stringa
 casuale, per esempio generata con `openssl rand -hex 32`. Inserisci soltanto il
 valore prodotto, senza il prefisso `Bearer`: Vercel aggiunge automaticamente

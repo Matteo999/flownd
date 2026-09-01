@@ -7,19 +7,12 @@
     },
     "api/transaction-tools.js": {
       "maxDuration": 300
-    },
-    "api/recurring-payments.js": {
-      "maxDuration": 300
     }
   },
   "crons": [
     {
       "path": "/api/eb/auto-sync",
       "schedule": "17 5 * * *"
-    },
-    {
-      "path": "/api/recurring-payments",
-      "schedule": "17 6 * * *"
     }
   ],
   "rewrites": [
