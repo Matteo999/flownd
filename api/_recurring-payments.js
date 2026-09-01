@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 
 const DAY_MS = 86_400_000
+export const DETECTION_LOOKBACK_DAYS = 730
 const FREQUENCIES = [
   { id: 'weekly', days: 7, tolerance: 2, samples: 3 },
   { id: 'biweekly', days: 14, tolerance: 3, samples: 3 },
@@ -111,7 +112,7 @@ export function detectRecurringCandidates(rows) {
 }
 
 export async function refreshDetectedRecurringPayments(service, userId) {
-  const since = new Date(Date.now() - 370 * DAY_MS).toISOString()
+  const since = new Date(Date.now() - DETECTION_LOOKBACK_DAYS * DAY_MS).toISOString()
   const { data, error } = await service
     .from('transactions')
     .select('id,description,amount,category,kind,occurred_at,source,financial_account_id,bank_status,internal_transfer,excluded_from_totals,merchant_name,counterparty_name,recurring_payment_id')
@@ -314,7 +315,7 @@ export async function runRecurringMaintenance(
 ) {
   const startedAt = Date.now()
   const result = await processDueRecurringPayments(service)
-  const since = new Date(Date.now() - 370 * DAY_MS).toISOString()
+  const since = new Date(Date.now() - DETECTION_LOOKBACK_DAYS * DAY_MS).toISOString()
   const { data: activeRows, error } = await service.from('transactions')
     .select('user_id').gte('occurred_at', since)
     .order('occurred_at', { ascending: false }).limit(5000)

@@ -140,12 +140,12 @@ type AppContextValue = {
   createRecurringPayment: (draft: RecurringSeriesDraft) => Promise<string | null>;
   createRecurringFromTransaction: (
     transactionId: string,
-    frequency: RecurringSeries['frequency'],
-    nextDueOn: string,
-    financialAccountId?: string | null,
+    draft: RecurringSeriesDraft,
   ) => Promise<string | null>;
   updateRecurringPayment: (id: string, draft: RecurringSeriesDraft) => Promise<boolean>;
   setRecurringPaymentStatus: (id: string, status: RecurringStatus) => Promise<boolean>;
+  deleteRecurringPayment: (id: string, deleteManualTransactions?: boolean) => Promise<boolean>;
+  unlinkTransactionFromRecurring: (transactionId: string) => Promise<boolean>;
   createManualFinancialAccount: (
     account: ManualFinancialAccountDraft,
   ) => Promise<string | null>;
@@ -940,67 +940,43 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   async function createRecurringPayment(draft: RecurringSeriesDraft) {
     if (!session || !draft.name.trim() || draft.amount <= 0) return null;
-    const account = draft.financialAccountId
-      ? financialAccounts.find((item) => item.id === draft.financialAccountId)
-      : null;
     setSaving(true);
     setError(null);
-    const { data, error: insertError } = await supabase
-      .from('recurring_payments')
-      .insert({
-        user_id: session.user.id,
-        name: draft.name.trim(),
-        amount: draft.amount,
-        next_due_at: `${draft.nextDueOn}T12:00:00.000Z`,
-        series_type: 'custom',
-        direction: draft.direction,
-        origin: 'manual',
-        status: 'active',
-        frequency: draft.frequency,
-        category: draft.category,
-        anchor_on: draft.nextDueOn,
-        next_due_on: draft.nextDueOn,
-        financial_account_id: draft.financialAccountId,
-        settlement_mode: account?.source === 'open_banking' ? 'bank_match' : 'manual_post',
-      })
-      .select('id')
-      .single();
-    if (!insertError && data) {
-      const { error: occurrenceError } = await supabase.rpc(
-        'ensure_recurring_occurrence',
-        { p_series_id: data.id },
-      );
-      if (occurrenceError) {
-        setSaving(false);
-        setError('La ricorrenza è stata creata, ma la prima scadenza non è disponibile.');
-        return data.id;
-      }
-    }
+    const { data, error: insertError } = await supabase.rpc('create_recurring_payment', {
+      p_name: draft.name.trim(),
+      p_amount: draft.amount,
+      p_direction: draft.direction,
+      p_frequency: draft.frequency,
+      p_category: draft.category,
+      p_next_due_on: draft.nextDueOn,
+      p_financial_account_id: draft.financialAccountId,
+    });
     setSaving(false);
     if (insertError || !data) {
       setError('Non siamo riusciti a creare la ricorrenza.');
       return null;
     }
     await hydrateUserData(session.user.id);
-    return data.id;
+    return String(data);
   }
 
   async function createRecurringFromTransaction(
     transactionId: string,
-    frequency: RecurringSeries['frequency'],
-    nextDueOn: string,
-    financialAccountId: string | null = null,
+    draft: RecurringSeriesDraft,
   ) {
     if (!session) return null;
     setSaving(true);
     setError(null);
     const { data, error: createError } = await supabase.rpc(
-      'create_recurring_from_transaction',
+      'create_recurring_from_transaction_v2',
       {
         p_transaction_id: transactionId,
-        p_frequency: frequency,
-        p_next_due_on: nextDueOn,
-        p_financial_account_id: financialAccountId,
+        p_name: draft.name.trim(),
+        p_expected_amount: draft.amount,
+        p_frequency: draft.frequency,
+        p_category: draft.category,
+        p_next_due_on: draft.nextDueOn,
+        p_financial_account_id: draft.financialAccountId,
       },
     );
     setSaving(false);
@@ -1067,6 +1043,41 @@ export function AppProvider({ children }: PropsWithChildren) {
     setSaving(false);
     if (updateError) {
       setError('Non siamo riusciti a cambiare lo stato della ricorrenza.');
+      return false;
+    }
+    await hydrateUserData(session.user.id);
+    return true;
+  }
+
+  async function deleteRecurringPayment(id: string, deleteManualTransactions = false) {
+    if (!session) return false;
+    setSaving(true);
+    setError(null);
+    const { error: deleteError } = await supabase.rpc('delete_recurring_payment', {
+      p_series_id: id,
+      p_delete_manual_transactions: deleteManualTransactions,
+    });
+    setSaving(false);
+    if (deleteError) {
+      if (__DEV__) console.error('Flownd recurring payment delete failed', deleteError);
+      setError('Non siamo riusciti a eliminare la ricorrenza.');
+      return false;
+    }
+    await hydrateUserData(session.user.id);
+    return true;
+  }
+
+  async function unlinkTransactionFromRecurring(transactionId: string) {
+    if (!session) return false;
+    setSaving(true);
+    setError(null);
+    const { data, error: unlinkError } = await supabase.rpc(
+      'unlink_transaction_from_recurring',
+      { p_transaction_id: transactionId },
+    );
+    setSaving(false);
+    if (unlinkError || data !== true) {
+      setError('Non siamo riusciti a rimuovere il movimento dalla ricorrenza.');
       return false;
     }
     await hydrateUserData(session.user.id);
@@ -1566,7 +1577,11 @@ export function AppProvider({ children }: PropsWithChildren) {
             account.id === transaction.financialAccountId && account.source === 'manual',
         )
       : false;
-    const { error: deleteError } = transaction.source === 'recurring_generated'
+    const { error: deleteError } = transaction.isRecurring
+      ? await supabase.rpc('delete_recurring_linked_transaction', {
+          p_transaction_id: transactionId,
+        })
+      : transaction.source === 'recurring_generated'
       ? await supabase.rpc('delete_generated_recurring_transaction', {
           p_transaction_id: transactionId,
         })
@@ -2274,6 +2289,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     createRecurringFromTransaction,
     updateRecurringPayment,
     setRecurringPaymentStatus,
+    deleteRecurringPayment,
+    unlinkTransactionFromRecurring,
     createManualFinancialAccount,
     updateManualFinancialAccountOpeningBalance,
     deleteManualFinancialAccount,

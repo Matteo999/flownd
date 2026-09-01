@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { detectRecurringCandidates, nextRecurringDate } from './_recurring-payments.js'
+import { DETECTION_LOOKBACK_DAYS, detectRecurringCandidates, nextRecurringDate } from './_recurring-payments.js'
 
 test('le frequenze preservano il giorno e limitano la fine del mese', () => {
   assert.equal(nextRecurringDate('2026-01-31', 'monthly', 31), '2026-02-28')
@@ -39,6 +39,10 @@ test('rileva una ricorrenza annuale con due campioni', () => {
     { ...common, id: '2', amount: 255, occurred_at: '2026-08-30T12:00:00Z' },
   ])
   assert.equal(candidates[0]?.frequency, 'annual')
+})
+
+test('il backfill copre due anni per intercettare le ricorrenze annuali', () => {
+  assert.equal(DETECTION_LOOKBACK_DAYS, 730)
 })
 
 test('ignora trasferimenti e movimenti generati dal motore', () => {

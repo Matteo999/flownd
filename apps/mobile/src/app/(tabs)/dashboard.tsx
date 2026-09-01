@@ -43,7 +43,7 @@ import {
   setActiveFamilyGroupId,
 } from '@/lib/family';
 import { useApp } from '@/providers/app-provider';
-import { significantUpcomingPayments } from '@/lib/recurring-payments';
+import { frequencyLabels } from '@/lib/recurring-payments';
 
 const periodLabels: { id: DashboardPeriod; label: string }[] = [
   { id: 'week', label: 'Settimana' },
@@ -171,13 +171,9 @@ export default function DashboardScreen() {
     ? Math.max(0, previousIncome - previousSpent - savedPreviousCycle)
     : 0;
   const monthlyBudget = budgetMonthlyIncome + rolloverAmount;
-  const significantUpcoming = significantUpcomingPayments(recurringPayments, monthlyBudget);
-  const upcomingIncome = significantUpcoming
-    .filter((item) => item.direction === 'income')
-    .reduce((sum, item) => sum + item.amount, 0);
-  const upcomingExpense = significantUpcoming
-    .filter((item) => item.direction === 'expense')
-    .reduce((sum, item) => sum + item.amount, 0);
+  const dashboardRecurrences = [...recurringPayments]
+    .filter((item) => item.status === 'active' || item.status === 'paused')
+    .sort((first, second) => first.nextDueOn.localeCompare(second.nextDueOn));
   const chartPeriodTransactions = chartPeriod === 'month'
     ? transactionsForFinancialCycle(transactions, financialCycle)
     : transactionsForPeriod(transactions, chartPeriod);
@@ -346,23 +342,6 @@ export default function DashboardScreen() {
                       </>
                     )}
                   </Text>
-                  {significantUpcoming.length ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`${significantUpcoming.length} movimenti significativi in arrivo`}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        router.push(`/recurring-payments?upcoming=significant&budget=${monthlyBudget}` as Href);
-                      }}
-                      style={({ pressed }) => [styles.upcomingBadge, pressed && styles.iconPressed]}>
-                      <Text style={[styles.upcomingBadgeIcon, { color: overviewForeground }]}>event_upcoming</Text>
-                      <Text numberOfLines={1} style={[styles.upcomingBadgeText, { color: overviewForeground }]}>
-                        {significantUpcoming.length} in arrivo
-                        {amountsVisible && upcomingIncome ? ` · +${formatEuro(upcomingIncome)}` : ''}
-                        {amountsVisible && upcomingExpense ? ` · −${formatEuro(upcomingExpense)}` : ''}
-                      </Text>
-                    </Pressable>
-                  ) : null}
                 </View>
                 <BudgetRadialChart
                   amountsVisible={amountsVisible}
@@ -428,6 +407,47 @@ export default function DashboardScreen() {
           })}
         </View>
       </Card>
+
+      {dashboardRecurrences.length ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Apri ${dashboardRecurrences.length} ricorrenze`}
+          onPress={() => router.push('/recurring-payments' as Href)}
+          style={({ pressed }) => pressed && styles.iconPressed}>
+          <Card style={styles.recurrencesCard}>
+            <View style={styles.recurrencesHeader}>
+              <View style={[styles.recurrencesIcon, { backgroundColor: colors.accentSoft }]}>
+                <Text style={[styles.materialIcon, { color: colors.accent }]}>event_repeat</Text>
+              </View>
+              <View style={styles.flex}>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>Ricorrenze</Text>
+                <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>Pagamenti ed entrate previste</Text>
+              </View>
+              <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>chevron_right</Text>
+            </View>
+            <View style={styles.recurrencesList}>
+              {dashboardRecurrences.slice(0, 3).map((series) => (
+                <View key={series.id} style={styles.recurrenceRow}>
+                  <View style={styles.flex}>
+                    <Text numberOfLines={1} style={[styles.recurrenceName, { color: colors.text }]}>{series.name}</Text>
+                    <Text style={[styles.recurrenceMeta, { color: colors.textSecondary }]}>
+                      {series.status === 'paused' ? 'In pausa' : frequencyLabels[series.frequency]} · {series.nextDueOn}
+                    </Text>
+                  </View>
+                  <Text style={[styles.recurrenceAmount, { color: series.direction === 'income' ? colors.positive : colors.text }]}>
+                    {amountsVisible
+                      ? `${series.direction === 'income' ? '+' : '−'} ${formatEuro(series.amount)}`
+                      : HIDDEN_AMOUNT}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            {dashboardRecurrences.length > 3 ? (
+              <Text style={[styles.cardLink, { color: colors.accent }]}>Altre {dashboardRecurrences.length - 3} ricorrenze</Text>
+            ) : null}
+          </Card>
+        </Pressable>
+      ) : null}
 
       {firstDashboardVisit ? (
         <Card
@@ -1133,20 +1153,14 @@ const styles = StyleSheet.create({
     fontFamily: font.bodyMedium,
     fontSize: 12,
   },
-  upcomingBadge: {
-    alignSelf: 'flex-start',
-    maxWidth: '98%',
-    marginTop: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  upcomingBadgeIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 14 },
-  upcomingBadgeText: { fontFamily: font.bodySemiBold, fontSize: 10, flexShrink: 1 },
+  recurrencesCard: { gap: 14 },
+  recurrencesHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  recurrencesIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  recurrencesList: { gap: 11 },
+  recurrenceRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  recurrenceName: { fontFamily: font.bodySemiBold, fontSize: 14 },
+  recurrenceMeta: { fontFamily: font.body, fontSize: 11, marginTop: 2 },
+  recurrenceAmount: { fontFamily: font.dataMedium, fontSize: 13 },
   budgetRadial: {
     width: BUDGET_RADIAL_SIZE,
     height: 84,

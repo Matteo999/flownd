@@ -524,7 +524,7 @@ export async function syncConnection({
       ? shiftDate(dateTo, -14)
       : incrementalSync
         ? shiftDate(dateOnly(connection.last_synced_at), -14)
-        : shiftDate(dateTo, -370)
+        : shiftDate(dateTo, -730)
     const totals = { imported: 0, linked: 0, pending: 0 }
     let syncedAccounts = 0
     let skippedAccounts = 0
