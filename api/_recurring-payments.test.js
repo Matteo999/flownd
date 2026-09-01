@@ -41,6 +41,20 @@ test('rileva una ricorrenza annuale con due campioni', () => {
   assert.equal(candidates[0]?.frequency, 'annual')
 })
 
+test('non ricrea una serie rilevata che l’utente ha eliminato', () => {
+  const common = {
+    description: 'Palestra Centro', category: 'Cure sanitarie e Farmacia', kind: 'expense',
+    financial_account_id: 'account-a', source: 'open_banking', bank_status: 'booked',
+    internal_transfer: false, excluded_from_totals: false,
+  }
+  const rows = ['2026-05-01', '2026-06-01', '2026-07-01'].map((date, index) => ({
+    ...common, id: String(index), amount: 45, occurred_at: `${date}T12:00:00Z`,
+  }))
+  const detected = detectRecurringCandidates(rows)
+  assert.equal(detected.length, 1)
+  assert.equal(detectRecurringCandidates(rows, new Set([detected[0].signature])).length, 0)
+})
+
 test('il backfill copre due anni per intercettare le ricorrenze annuali', () => {
   assert.equal(DETECTION_LOOKBACK_DAYS, 730)
 })

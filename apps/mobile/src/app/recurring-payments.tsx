@@ -1,30 +1,63 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView,
+  StyleSheet, Text, View,
+} from 'react-native';
 
 import {
-  Card, Field, PrimaryButton, Screen, SecondaryButton, font, uiStyles, useFlowndTheme,
+  Card, Field, PageHeader, PrimaryButton, Screen, SecondaryButton,
+  font, uiStyles, useFlowndTheme,
 } from '@/components/flownd-ui';
 import { formatEuro } from '@/lib/onboarding';
 import {
-  frequencyLabels,
-  significantUpcomingPayments,
-  type RecurringFrequency,
-  type RecurringSeries,
-  type RecurringSeriesDraft,
+  frequencyLabels, significantUpcomingPayments, type RecurringFrequency,
+  type RecurringSeries, type RecurringSeriesDraft,
 } from '@/lib/recurring-payments';
-import { categoriesForTransactionKind } from '@/lib/transaction-categories';
+import {
+  expenseTransactionCategories, incomeTransactionCategories, transactionCategories,
+} from '@/lib/transaction-categories';
 import { useApp } from '@/providers/app-provider';
 
 const frequencies = Object.keys(frequencyLabels) as RecurringFrequency[];
+const categoryOptions = [...new Set<string>(transactionCategories)];
+const incomeCategorySet = new Set<string>(incomeTransactionCategories);
+const expenseCategorySet = new Set<string>(expenseTransactionCategories);
 
 function asAmount(value: string) {
   return Number(value.replace(',', '.')) || 0;
 }
 
+function nextRecurringDate(value: string, frequency: RecurringFrequency, anchorDay?: number) {
+  const current = new Date(`${value.slice(0, 10)}T12:00:00`);
+  if (frequency === 'weekly' || frequency === 'biweekly') {
+    current.setDate(current.getDate() + (frequency === 'weekly' ? 7 : 14));
+    return current.toISOString().slice(0, 10);
+  }
+  const months = {
+    monthly: 1, bimonthly: 2, quarterly: 3, semiannual: 6, annual: 12,
+  }[frequency];
+  const wantedDay = anchorDay ?? current.getDate();
+  current.setDate(1);
+  current.setMonth(current.getMonth() + months);
+  const lastDay = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate();
+  current.setDate(Math.min(wantedDay, lastDay));
+  return current.toISOString().slice(0, 10);
+}
+
+function nextFutureRecurringDate(value: string, frequency: RecurringFrequency) {
+  const anchorDay = new Date(`${value.slice(0, 10)}T12:00:00`).getDate();
+  const today = new Date().toISOString().slice(0, 10);
+  let next = nextRecurringDate(value, frequency, anchorDay);
+  while (next <= today) next = nextRecurringDate(next, frequency, anchorDay);
+  return next;
+}
+
 export default function RecurringPaymentsScreen() {
   const { colors } = useFlowndTheme();
-  const params = useLocalSearchParams<{ upcoming?: string; budget?: string; edit?: string; transactionId?: string }>();
+  const params = useLocalSearchParams<{
+    upcoming?: string; budget?: string; edit?: string; transactionId?: string;
+  }>();
   const {
     recurringPayments, financialAccounts, budgetMonthlyIncome, saving, error,
     transactions, createRecurringPayment, createRecurringFromTransaction,
@@ -39,47 +72,20 @@ export default function RecurringPaymentsScreen() {
       : recurringPayments,
     [budgetMonthlyIncome, params.budget, params.upcoming, recurringPayments],
   );
-  const initialEdit = recurringPayments.find((item) => item.id === params.edit) ?? null;
   const seedTransaction = transactions.find((item) => item.id === params.transactionId);
-  const [editor, setEditor] = useState<RecurringSeries | 'new' | null>(
-    initialEdit ?? (seedTransaction ? 'new' : null),
-  );
+  const initialEdit = recurringPayments.find((item) => item.id === params.edit) ?? null;
+  const [editor, setEditor] = useState<RecurringSeries | 'new' | null | undefined>(undefined);
+  const resolvedEditor = editor === undefined
+    ? initialEdit ?? (seedTransaction ? 'new' : null)
+    : editor;
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Pressable accessibilityLabel="Indietro" onPress={() => router.back()} style={styles.headerButton}>
-          <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Ricorrenze</Text>
-        <Pressable accessibilityLabel="Nuova ricorrenza" onPress={() => setEditor('new')} style={styles.headerButton}>
-          <Text style={[styles.materialIcon, { color: colors.accent }]}>add</Text>
-        </Pressable>
-      </View>
-      <Text style={[uiStyles.subtitle, { color: colors.textSecondary }]}>Entrate e uscite previste, riconciliate con la banca quando scegli un conto Open Banking.</Text>
-
-      {editor ? (
-        <RecurringEditor
-          key={editor === 'new' ? 'new' : editor.id}
-          series={editor === 'new' ? null : editor}
-          seed={editor === 'new' ? seedTransaction : undefined}
-          accounts={financialAccounts}
-          saving={saving}
-          error={error}
-          onCancel={() => setEditor(null)}
-          onSave={async (draft) => {
-            const saved = editor === 'new'
-              ? seedTransaction?.id
-                ? Boolean(await createRecurringFromTransaction(
-                    seedTransaction.id,
-                    draft,
-                  ))
-                : Boolean(await createRecurringPayment(draft))
-              : await updateRecurringPayment(editor.id, draft);
-            if (saved) setEditor(null);
-          }}
-        />
-      ) : null}
+      <PageHeader
+        title="Ricorrenze"
+        leading={<BackButton />}
+        action={<AddButton onPress={() => setEditor('new')} />}
+      />
 
       <View style={styles.list}>
         {visible.map((series) => (
@@ -103,20 +109,22 @@ export default function RecurringPaymentsScreen() {
                 <Text style={[styles.status, { color: series.status === 'active' ? colors.positive : colors.textSecondary }]}>
                   {series.settlementMode === 'review' ? 'Scegli il conto' : series.status === 'active' ? 'Attiva' : 'In pausa'}
                 </Text>
-                <Pressable onPress={(event) => { event.stopPropagation(); void setRecurringPaymentStatus(series.id, series.status === 'active' ? 'paused' : 'active'); }}>
+                <Pressable onPress={(event) => {
+                  event.stopPropagation();
+                  void setRecurringPaymentStatus(series.id, series.status === 'active' ? 'paused' : 'active');
+                }}>
                   <Text style={[styles.action, { color: colors.accent }]}>{series.status === 'active' ? 'Pausa' : 'Riattiva'}</Text>
                 </Pressable>
                 <Pressable onPress={(event) => {
                   event.stopPropagation();
                   Alert.alert(
                     'Eliminare la ricorrenza?',
-                    'I movimenti Open Banking saranno solo scollegati e resteranno nella Timeline.',
+                    'I movimenti Open Banking saranno scollegati e resteranno nella Timeline.',
                     [
                       { text: 'Annulla', style: 'cancel' },
                       { text: 'Solo ricorrenza', onPress: () => void deleteRecurringPayment(series.id) },
                       {
-                        text: 'Anche movimenti manuali',
-                        style: 'destructive',
+                        text: 'Anche movimenti manuali', style: 'destructive',
                         onPress: () => void deleteRecurringPayment(series.id, true),
                       },
                     ],
@@ -130,6 +138,26 @@ export default function RecurringPaymentsScreen() {
         ))}
         {!visible.length ? <Text style={[styles.empty, { color: colors.textSecondary }]}>Nessuna ricorrenza da mostrare.</Text> : null}
       </View>
+
+      {resolvedEditor ? (
+        <RecurringEditor
+          key={resolvedEditor === 'new' ? `new-${seedTransaction?.id ?? 'manual'}` : resolvedEditor.id}
+          series={resolvedEditor === 'new' ? null : resolvedEditor}
+          seed={resolvedEditor === 'new' ? seedTransaction : undefined}
+          accounts={financialAccounts}
+          saving={saving}
+          error={error}
+          onCancel={() => setEditor(null)}
+          onSave={async (draft) => {
+            const saved = resolvedEditor === 'new'
+              ? seedTransaction?.id
+                ? Boolean(await createRecurringFromTransaction(seedTransaction.id, draft))
+                : Boolean(await createRecurringPayment(draft))
+              : await updateRecurringPayment(resolvedEditor.id, draft);
+            if (saved) setEditor(null);
+          }}
+        />
+      ) : null}
     </Screen>
   );
 }
@@ -144,85 +172,187 @@ function RecurringEditor({ series, seed, accounts, saving, error, onCancel, onSa
   onSave: (draft: RecurringSeriesDraft) => Promise<void>;
 }) {
   const { colors } = useFlowndTheme();
+  const initialDirection = series?.direction ?? seed?.kind ?? 'expense';
   const [name, setName] = useState(series?.name ?? seed?.description ?? '');
   const [amount, setAmount] = useState(series ? String(series.amount) : seed ? String(seed.amount) : '');
-  const [direction, setDirection] = useState<'expense' | 'income'>(series?.direction ?? seed?.kind ?? 'expense');
+  const [direction, setDirection] = useState<'expense' | 'income'>(initialDirection);
   const [frequency, setFrequency] = useState<RecurringFrequency>(series?.frequency ?? 'monthly');
-  const [category, setCategory] = useState(series?.category ?? seed?.category ?? (direction === 'income' ? 'Altra entrata' : 'Altro'));
-  const [nextDueOn, setNextDueOn] = useState(() => {
-    if (series?.nextDueOn) return series.nextDueOn;
-    const next = new Date(seed?.occurredAt ?? new Date());
-    next.setMonth(next.getMonth() + 1);
-    return next.toISOString().slice(0, 10);
-  });
+  const [category, setCategory] = useState(series?.category ?? seed?.category ?? (initialDirection === 'income' ? 'Altra entrata' : 'Altro'));
   const [accountId, setAccountId] = useState<string | null>(series?.financialAccountId ?? seed?.financialAccountId ?? null);
-  const [step, setStep] = useState(0);
-  const valid = name.trim() && asAmount(amount) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(nextDueOn);
+  const [openDropdown, setOpenDropdown] = useState<'frequency' | 'category' | 'account' | null>(null);
+  const valid = Boolean(name.trim() && asAmount(amount) > 0);
+  const accountLabel = accountId
+    ? accounts.find((account) => account.id === accountId)?.name ?? 'Conto non disponibile'
+    : 'Senza conto';
+
   return (
-    <Card style={styles.editor}>
-      <Text style={[styles.editorTitle, { color: colors.text }]}>{series ? 'Modifica ricorrenza' : 'Nuova ricorrenza'}</Text>
-      <Text style={[styles.stepLabel, { color: colors.textSecondary }]}>PASSAGGIO {step + 1} DI 3</Text>
-      {step === 0 ? <>
-        <Text style={[styles.stepTitle, { color: colors.text }]}>Di quale movimento si tratta?</Text>
-        {seed ? (
-          <Text style={[styles.seedKind, { color: colors.textSecondary }]}>{direction === 'expense' ? 'Uscita' : 'Entrata'} dalla transazione selezionata</Text>
-        ) : (
-          <View style={styles.chips}>
-            {(['expense', 'income'] as const).map((value) => <Choice key={value} selected={direction === value} label={value === 'expense' ? 'Uscita' : 'Entrata'} onPress={() => { setDirection(value); setCategory(value === 'income' ? 'Altra entrata' : 'Altro'); }} />)}
+    <Modal animationType="fade" transparent visible onRequestClose={onCancel}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalRoot}>
+        <Pressable accessibilityLabel="Chiudi popup" onPress={onCancel} style={styles.modalBackdrop} />
+        <View style={[styles.modalCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.editorTitle, { color: colors.text }]}>{series ? 'Modifica ricorrenza' : 'Nuova ricorrenza'}</Text>
+            <Pressable accessibilityLabel="Chiudi" hitSlop={8} onPress={onCancel}>
+              <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>close</Text>
+            </Pressable>
           </View>
-        )}
-        <Field label="Nome" value={name} onChangeText={setName} placeholder="es. Affitto" />
-        <Field label="Importo previsto" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" suffix="€" />
-      </> : null}
-      {step === 1 ? <>
-        <Text style={[styles.stepTitle, { color: colors.text }]}>Quando si ripete?</Text>
-        <Text style={[styles.label, { color: colors.text }]}>Frequenza</Text>
-        <View style={styles.chips}>{frequencies.map((value) => <Choice key={value} selected={frequency === value} label={frequencyLabels[value]} onPress={() => setFrequency(value)} />)}</View>
-        <Field label="Prossima data" value={nextDueOn} onChangeText={setNextDueOn} placeholder="AAAA-MM-GG" />
-      </> : null}
-      {step === 2 ? <>
-        <Text style={[styles.stepTitle, { color: colors.text }]}>Ultimi dettagli</Text>
-        <Text style={[styles.label, { color: colors.text }]}>Categoria</Text>
-        <View style={styles.chips}>{categoriesForTransactionKind(direction).map((value) => <Choice key={value} selected={category === value} label={value} onPress={() => setCategory(value)} />)}</View>
-        <Text style={[styles.label, { color: colors.text }]}>Conto</Text>
-        <View style={styles.chips}>
-          <Choice selected={!accountId} label="Senza conto" onPress={() => setAccountId(null)} />
-          {accounts.map((account) => <Choice key={account.id} selected={accountId === account.id} label={`${account.name}${account.source === 'open_banking' ? ' · Banca' : ''}`} onPress={() => setAccountId(account.id)} />)}
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.editorContent}>
+            <Field autoFocus={!series && !seed} label="Nome" value={name} onChangeText={setName} placeholder="es. Affitto" />
+            <Field label="Importo previsto" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" suffix="€" />
+            <Dropdown
+              label="Frequenza" value={frequencyLabels[frequency]}
+              open={openDropdown === 'frequency'}
+              onToggle={() => setOpenDropdown((current) => current === 'frequency' ? null : 'frequency')}
+              options={frequencies.map((value) => ({
+                label: frequencyLabels[value], selected: value === frequency,
+                onPress: () => { setFrequency(value); setOpenDropdown(null); },
+              }))}
+            />
+            <Dropdown
+              label="Categoria" value={category}
+              open={openDropdown === 'category'}
+              onToggle={() => setOpenDropdown((current) => current === 'category' ? null : 'category')}
+              options={categoryOptions.map((value) => ({
+                label: value, selected: value === category,
+                onPress: () => {
+                  setCategory(value);
+                  const incomeOnly = incomeCategorySet.has(value) && !expenseCategorySet.has(value);
+                  if (incomeOnly) setDirection('income');
+                  else if (value !== 'Giroconto') setDirection('expense');
+                  setOpenDropdown(null);
+                },
+              }))}
+            />
+            <Dropdown
+              label="Conto" value={accountLabel}
+              open={openDropdown === 'account'}
+              onToggle={() => setOpenDropdown((current) => current === 'account' ? null : 'account')}
+              options={[
+                {
+                  label: 'Senza conto', selected: !accountId,
+                  onPress: () => { setAccountId(null); setOpenDropdown(null); },
+                },
+                ...accounts.map((account) => ({
+                  label: `${account.name}${account.source === 'open_banking' ? ' · Banca' : ''}`,
+                  selected: account.id === accountId,
+                  onPress: () => { setAccountId(account.id); setOpenDropdown(null); },
+                })),
+              ]}
+            />
+            {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
+            <View style={styles.editorActions}>
+              <View style={styles.flex}><SecondaryButton onPress={onCancel}>Annulla</SecondaryButton></View>
+              <View style={styles.flex}>
+                <PrimaryButton
+                  disabled={!valid}
+                  loading={saving}
+                  onPress={() => {
+                    const anchor = series && frequency === series.frequency
+                      ? series.nextDueOn
+                      : seed?.occurredAt ?? new Date().toISOString();
+                    const nextDueOn = series && frequency === series.frequency
+                      ? series.nextDueOn
+                      : nextFutureRecurringDate(anchor, frequency);
+                    void onSave({
+                      name: name.trim(), amount: asAmount(amount), direction, frequency,
+                      category, nextDueOn, financialAccountId: accountId,
+                    });
+                  }}>
+                  Salva
+                </PrimaryButton>
+              </View>
+            </View>
+          </ScrollView>
         </View>
-        <View style={[styles.review, { backgroundColor: colors.sunken }]}>
-          <Text style={[styles.reviewText, { color: colors.text }]}>{name || 'Ricorrenza'} · {frequencyLabels[frequency]}</Text>
-          <Text style={[styles.meta, { color: colors.textSecondary }]}>Prossima data {nextDueOn}</Text>
-        </View>
-      </> : null}
-      {error ? <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text> : null}
-      <View style={styles.editorActions}>
-        <View style={styles.flex}><SecondaryButton onPress={step === 0 ? onCancel : () => setStep((current) => current - 1)}>{step === 0 ? 'Annulla' : 'Indietro'}</SecondaryButton></View>
-        <View style={styles.flex}><PrimaryButton disabled={step === 0 ? !(name.trim() && asAmount(amount) > 0) : step === 1 ? !/^\d{4}-\d{2}-\d{2}$/.test(nextDueOn) : !valid} loading={step === 2 && saving} onPress={() => step < 2 ? setStep((current) => current + 1) : void onSave({ name: name.trim(), amount: asAmount(amount), direction, frequency, category, nextDueOn, financialAccountId: accountId })}>{step === 2 ? 'Salva' : 'Continua'}</PrimaryButton></View>
-      </View>
-    </Card>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
-function Choice({ selected, label, onPress }: { selected: boolean; label: string; onPress: () => void }) {
+function Dropdown({ label, value, open, onToggle, options }: {
+  label: string;
+  value: string;
+  open: boolean;
+  onToggle: () => void;
+  options: { label: string; selected: boolean; onPress: () => void }[];
+}) {
   const { colors } = useFlowndTheme();
-  return <Pressable onPress={onPress} style={[styles.choice, { backgroundColor: selected ? colors.accentSoft : colors.surface, borderColor: selected ? colors.accent : colors.border }]}><Text style={[styles.choiceText, { color: selected ? colors.accent : colors.text }]}>{label}</Text></Pressable>;
+  return (
+    <View style={styles.dropdownWrap}>
+      <Text style={[styles.dropdownLabel, { color: colors.text }]}>{label}</Text>
+      <View style={[styles.dropdown, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={styles.dropdownTrigger}>
+          <Text numberOfLines={1} style={[styles.dropdownValue, { color: colors.text }]}>{value}</Text>
+          <Text style={[styles.dropdownIcon, { color: colors.textSecondary }]}>{open ? 'expand_less' : 'expand_more'}</Text>
+        </Pressable>
+        {open ? (
+          <ScrollView nestedScrollEnabled style={[styles.dropdownMenu, { borderTopColor: colors.border }]}>
+            {options.map((option) => (
+              <Pressable key={option.label} onPress={option.onPress} style={[styles.dropdownOption, option.selected && { backgroundColor: colors.accentSoft }]}>
+                <Text style={[styles.dropdownOptionText, { color: option.selected ? colors.accent : colors.text }]}>{option.label}</Text>
+                {option.selected ? <Text style={[styles.dropdownCheck, { color: colors.accent }]}>check</Text> : null}
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function BackButton() {
+  const { colors } = useFlowndTheme();
+  return (
+    <Pressable
+      accessibilityRole="button" accessibilityLabel="Indietro" hitSlop={8}
+      onPress={() => router.back()}
+      style={({ pressed }) => [styles.backButton, { backgroundColor: colors.sunken, borderColor: colors.border }, pressed && styles.pressed]}>
+      <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
+    </Pressable>
+  );
+}
+
+function AddButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel="Nuova ricorrenza" hitSlop={8} onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
+      <View style={styles.addButton}><Text style={styles.addIcon}>add</Text></View>
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontFamily: font.displayBold, fontSize: 22 }, materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22 },
-  list: { gap: 10, marginTop: 18, paddingBottom: 30 }, seriesCard: { gap: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  flex: { flex: 1 }, icon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  name: { fontFamily: font.bodySemiBold, fontSize: 15 }, meta: { fontFamily: font.body, fontSize: 12, marginTop: 2 },
-  amount: { fontFamily: font.dataMedium, fontSize: 14 }, actions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  status: { flex: 1, fontFamily: font.bodySemiBold, fontSize: 11, textTransform: 'uppercase' }, action: { fontFamily: font.bodySemiBold, fontSize: 12 },
-  empty: { textAlign: 'center', marginTop: 30, fontFamily: font.body }, editor: { marginTop: 18, gap: 12 },
-  editorTitle: { fontFamily: font.displayBold, fontSize: 18 }, label: { fontFamily: font.bodySemiBold, fontSize: 13 },
-  stepLabel: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 0.8 },
-  stepTitle: { fontFamily: font.displayBold, fontSize: 16 },
-  seedKind: { fontFamily: font.bodyMedium, fontSize: 12 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
-  choiceText: { fontFamily: font.bodySemiBold, fontSize: 11 }, editorActions: { flexDirection: 'row', gap: 10 },
-  review: { padding: 12, borderRadius: 12, gap: 2 }, reviewText: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  flex: { flex: 1 },
+  materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 25 },
+  backButton: { width: 38, height: 38, borderRadius: 11, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  addButton: { width: 34, height: 34, borderRadius: 11, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
+  addIcon: { color: '#FFFFFF', fontFamily: 'MaterialSymbols_400Regular', fontSize: 21, lineHeight: 24 },
+  pressed: { opacity: 0.68 },
+  list: { gap: 10, paddingBottom: 30 },
+  seriesCard: { gap: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  icon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  name: { fontFamily: font.bodySemiBold, fontSize: 15 },
+  meta: { fontFamily: font.body, fontSize: 12, marginTop: 2 },
+  amount: { fontFamily: font.dataMedium, fontSize: 14 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  status: { flex: 1, fontFamily: font.bodySemiBold, fontSize: 11, textTransform: 'uppercase' },
+  action: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  empty: { textAlign: 'center', marginTop: 30, fontFamily: font.body },
+  modalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: 20 },
+  modalBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(3, 14, 11, 0.55)' },
+  modalCard: { maxWidth: 520, maxHeight: '86%', width: '100%', alignSelf: 'center', borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: 20 },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  editorTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
+  editorContent: { paddingBottom: 2 },
+  editorActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
+  dropdownWrap: { marginTop: 16 },
+  dropdownLabel: { fontFamily: font.bodySemiBold, fontSize: 13, marginBottom: 7 },
+  dropdown: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
+  dropdownTrigger: { minHeight: 48, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center' },
+  dropdownValue: { flex: 1, fontFamily: font.bodyMedium, fontSize: 13 },
+  dropdownIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21, lineHeight: 24 },
+  dropdownMenu: { maxHeight: 190, borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: 5 },
+  dropdownOption: { minHeight: 42, marginHorizontal: 5, paddingHorizontal: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
+  dropdownOptionText: { flex: 1, fontFamily: font.body, fontSize: 12 },
+  dropdownCheck: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 18, lineHeight: 21 },
 });

@@ -277,6 +277,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     useState<BudgetRolloverMode>('savings');
   const [error, setError] = useState<string | null>(null);
   const activeUserId = useRef<string | null>(null);
+  const recurringStartupRefreshUserId = useRef<string | null>(null);
 
   const privacyKey = useCallback(
     (userId: string) => `flownd:amounts-visible:${userId}`,
@@ -574,6 +575,7 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   const readProfile = useCallback(async (nextSession: Session | null) => {
     if (!nextSession) {
+      recurringStartupRefreshUserId.current = null;
       setOnboardingComplete(false);
       setFirstDashboardVisit(false);
       setDraft(initialDraft);
@@ -615,7 +617,19 @@ export function AppProvider({ children }: PropsWithChildren) {
     const completed = Boolean(data?.onboarding_completed);
     setOnboardingComplete(completed);
     await hydratePrivacyPreference(nextSession.user.id);
-    if (completed) await hydrateUserData(nextSession.user.id);
+    if (completed) {
+      await hydrateUserData(nextSession.user.id);
+      if (recurringStartupRefreshUserId.current !== nextSession.user.id) {
+        recurringStartupRefreshUserId.current = nextSession.user.id;
+        try {
+          await refreshRecurringDetection(nextSession.access_token);
+          await hydrateUserData(nextSession.user.id);
+        } catch (recurringError) {
+          recurringStartupRefreshUserId.current = null;
+          if (__DEV__) console.error('Flownd recurring startup detection failed', recurringError);
+        }
+      }
+    }
   }, [hydratePrivacyPreference, hydrateUserData]);
 
   useEffect(() => {
