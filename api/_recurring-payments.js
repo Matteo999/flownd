@@ -113,14 +113,25 @@ export function detectRecurringCandidates(rows, dismissedSignatures = new Set())
   return candidates
 }
 
-export async function refreshDetectedRecurringPayments(service, userId) {
+export async function refreshDetectedRecurringPayments(service, userId, { transactionId = null } = {}) {
   const since = new Date(Date.now() - DETECTION_LOOKBACK_DAYS * DAY_MS).toISOString()
-  const { data, error } = await service
+  let transactionQuery = service
     .from('transactions')
     .select('id,description,amount,category,kind,occurred_at,source,financial_account_id,bank_status,internal_transfer,excluded_from_totals,merchant_name,counterparty_name,recurring_payment_id')
     .eq('user_id', userId)
     .gte('occurred_at', since)
     .order('occurred_at')
+  if (transactionId) {
+    const { data: seed, error: seedError } = await service.from('transactions')
+      .select('id,kind,category,financial_account_id')
+      .eq('id', transactionId).eq('user_id', userId).single()
+    if (seedError) throw seedError
+    transactionQuery = transactionQuery.eq('kind', seed.kind).eq('category', seed.category)
+    transactionQuery = seed.financial_account_id
+      ? transactionQuery.eq('financial_account_id', seed.financial_account_id)
+      : transactionQuery.is('financial_account_id', null)
+  }
+  const { data, error } = await transactionQuery
   if (error) throw error
   const { data: dismissalRows, error: dismissalError } = await service
     .from('recurring_payment_dismissals')
@@ -129,13 +140,20 @@ export async function refreshDetectedRecurringPayments(service, userId) {
   if (dismissalError) throw dismissalError
   const dismissedSignatures = new Set((dismissalRows || []).map((row) => row.detection_signature))
   const candidates = detectRecurringCandidates(data || [], dismissedSignatures)
+    .filter((candidate) => !transactionId || candidate.transactionIds.includes(transactionId))
   for (const candidate of candidates) {
     const { data: account } = candidate.financialAccountId
       ? await service.from('financial_accounts').select('source').eq('id', candidate.financialAccountId).maybeSingle()
       : { data: null }
-    const { data: series, error: seriesError } = await service
+    let { data: series, error: seriesError } = await service
       .from('recurring_payments')
-      .upsert({
+      .select('id,status')
+      .eq('user_id', userId)
+      .eq('detection_signature', candidate.signature)
+      .maybeSingle()
+    if (seriesError) throw seriesError
+    if (!series) {
+      const inserted = await service.from('recurring_payments').insert({
         user_id: userId,
         name: candidate.name,
         amount: candidate.amount,
@@ -152,10 +170,18 @@ export async function refreshDetectedRecurringPayments(service, userId) {
         settlement_mode: account?.source === 'open_banking' ? 'bank_match' : 'manual_post',
         detection_signature: candidate.signature,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,detection_signature', ignoreDuplicates: true })
-      .select('id,status')
-      .maybeSingle()
-    if (seriesError) throw seriesError
+      }).select('id,status').single()
+      series = inserted.data
+      seriesError = inserted.error
+      if (seriesError?.code === '23505') {
+        const concurrent = await service.from('recurring_payments')
+          .select('id,status').eq('user_id', userId)
+          .eq('detection_signature', candidate.signature).single()
+        series = concurrent.data
+        seriesError = concurrent.error
+      }
+      if (seriesError) throw seriesError
+    }
     if (!series || series.status !== 'active') continue
     await service.rpc('ensure_recurring_occurrence', { p_series_id: series.id })
     const { data: linkedRows } = await service
@@ -319,27 +345,7 @@ export async function processDueRecurringPayments(service, today = new Date().to
 
 export async function runRecurringMaintenance(
   service,
-  { maxUsers = 250, timeBudgetMs = Number.POSITIVE_INFINITY } = {},
+  _options = {},
 ) {
-  const startedAt = Date.now()
-  const result = await processDueRecurringPayments(service)
-  const since = new Date(Date.now() - DETECTION_LOOKBACK_DAYS * DAY_MS).toISOString()
-  const { data: activeRows, error } = await service.from('transactions')
-    .select('user_id').gte('occurred_at', since)
-    .order('occurred_at', { ascending: false }).limit(5000)
-  if (error) throw error
-  const eligibleUserIds = [...new Set((activeRows || []).map((row) => row.user_id))]
-  const pageCount = Math.max(1, Math.ceil(eligibleUserIds.length / maxUsers))
-  const dailyPage = Math.floor(Date.now() / DAY_MS) % pageCount
-  const userIds = eligibleUserIds.slice(dailyPage * maxUsers, (dailyPage + 1) * maxUsers)
-  let detected = 0
-  let scannedUsers = 0
-  for (let index = 0; index < userIds.length; index += 4) {
-    if (Date.now() - startedAt >= timeBudgetMs) break
-    const counts = await Promise.all(userIds.slice(index, index + 4)
-      .map((userId) => refreshDetectedRecurringPayments(service, userId)))
-    scannedUsers += counts.length
-    detected += counts.reduce((sum, count) => sum + count, 0)
-  }
-  return { ...result, eligibleUsers: eligibleUserIds.length, scannedUsers, detected }
+  return processDueRecurringPayments(service)
 }
