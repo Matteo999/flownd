@@ -66,7 +66,7 @@ function detectedFrequency(rows) {
   ) || null
 }
 
-export function detectRecurringCandidates(rows) {
+export function detectRecurringCandidates(rows, dismissedSignatures = new Set()) {
   const clusters = new Map()
   for (const row of rows) {
     if (
@@ -95,8 +95,10 @@ export function detectRecurringCandidates(rows) {
     while (nextDueOn < new Date().toISOString().slice(0, 10)) {
       nextDueOn = nextRecurringDate(nextDueOn, frequency.id, new Date(dateAtNoon(amountRows[0].occurred_at)).getUTCDate())
     }
+    const signature = createHash('sha256').update(`${key}:${frequency.id}:${Math.round(amount * 4)}`).digest('hex')
+    if (dismissedSignatures.has(signature)) continue
     candidates.push({
-      signature: createHash('sha256').update(`${key}:${frequency.id}:${Math.round(amount * 4)}`).digest('hex'),
+      signature,
       name: last.merchant_name || last.counterparty_name || last.description,
       amount: Math.round(amount * 100) / 100,
       direction: last.kind || 'expense',
@@ -120,7 +122,13 @@ export async function refreshDetectedRecurringPayments(service, userId) {
     .gte('occurred_at', since)
     .order('occurred_at')
   if (error) throw error
-  const candidates = detectRecurringCandidates(data || [])
+  const { data: dismissalRows, error: dismissalError } = await service
+    .from('recurring_payment_dismissals')
+    .select('detection_signature')
+    .eq('user_id', userId)
+  if (dismissalError) throw dismissalError
+  const dismissedSignatures = new Set((dismissalRows || []).map((row) => row.detection_signature))
+  const candidates = detectRecurringCandidates(data || [], dismissedSignatures)
   for (const candidate of candidates) {
     const { data: account } = candidate.financialAccountId
       ? await service.from('financial_accounts').select('source').eq('id', candidate.financialAccountId).maybeSingle()
