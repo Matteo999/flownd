@@ -5,11 +5,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Pressable,
@@ -21,6 +23,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import { useIsFocused } from 'expo-router';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -44,6 +47,7 @@ type ScrollHeaderContextValue = {
 };
 
 const ScrollHeaderContext = createContext<ScrollHeaderContextValue | null>(null);
+const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
 
 // Alias mantenuto per i componenti ancora in migrazione.
 export const palette = {
@@ -71,6 +75,7 @@ export function Screen({
   scroll = true,
   scrollEnabled = true,
   scrollHeaderWithContent = false,
+  animateFirstFocus = false,
   style,
   floatingAction,
   floatingActionPosition = 'right',
@@ -78,15 +83,21 @@ export function Screen({
   scroll?: boolean;
   scrollEnabled?: boolean;
   scrollHeaderWithContent?: boolean;
+  animateFirstFocus?: boolean;
   style?: StyleProp<ViewStyle>;
   floatingAction?: ReactNode;
   floatingActionPosition?: 'right' | 'center' | 'free';
 }>) {
   const { colors, isDark } = useFlowndTheme();
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const [scrollY] = useState(() => new Animated.Value(0));
   const [headerProgress] = useState(() => new Animated.Value(0));
+  const [firstFocusProgress] = useState(
+    () => new Animated.Value(animateFirstFocus ? 0 : 1),
+  );
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const firstFocusRevealed = useRef(!animateFirstFocus);
   const onScroll = useMemo(
     () =>
       Animated.event(
@@ -114,6 +125,18 @@ export function Screen({
     animation.start();
     return () => animation.stop();
   }, [headerCollapsed, headerProgress]);
+  useEffect(() => {
+    if (!animateFirstFocus || !isFocused || firstFocusRevealed.current) return;
+    firstFocusRevealed.current = true;
+    const animation = Animated.timing(firstFocusProgress, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [animateFirstFocus, firstFocusProgress, isFocused]);
   const headerContext = useMemo(
     () => ({
       scrollY,
@@ -125,9 +148,13 @@ export function Screen({
   );
   const content = <View style={[styles.screenContent, style]}>{children}</View>;
   return (
-    <SafeAreaView
+    <AnimatedSafeAreaView
       edges={['top', 'left', 'right']}
-      style={[styles.safe, { backgroundColor: colors.background }]}>
+      style={[
+        styles.safe,
+        { backgroundColor: colors.background },
+        animateFirstFocus && { opacity: firstFocusProgress },
+      ]}>
       <LinearGradient
         colors={
           isDark
@@ -179,7 +206,7 @@ export function Screen({
           {floatingAction}
         </View>
       ) : null}
-    </SafeAreaView>
+    </AnimatedSafeAreaView>
   );
 }
 

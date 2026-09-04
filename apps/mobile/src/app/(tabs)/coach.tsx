@@ -160,7 +160,7 @@ export default function CoachScreen() {
   }
 
   return (
-    <Screen scroll={false} style={styles.screen}>
+    <Screen animateFirstFocus scroll={false} style={styles.screen}>
       <PageHeader
         title="Coach"
         action={<AppHeaderActions />}

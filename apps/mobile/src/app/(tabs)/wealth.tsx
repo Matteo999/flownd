@@ -121,7 +121,7 @@ export default function WealthScreen() {
   }
 
   return (
-    <Screen>
+    <Screen animateFirstFocus>
       <PageHeader title="Patrimonio" action={<AppHeaderActions />} />
 
       <Card

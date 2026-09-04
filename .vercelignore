@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+apps/mobile/ios
+apps/mobile/android
+.expo
+.git
+.env
+.env.*
+!.env.example

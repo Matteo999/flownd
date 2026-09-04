@@ -28,6 +28,11 @@ function shiftDate(value, days) {
   return dateOnly(new Date(new Date(`${value}T12:00:00Z`).getTime() + days * DAY_MS))
 }
 
+export function syncDateFrom({ dateTo, lastSyncedAt, automatic = false }) {
+  if (lastSyncedAt) return shiftDate(dateOnly(lastSyncedAt), -14)
+  return shiftDate(dateTo, automatic ? -14 : -730)
+}
+
 function occurredAt(value) {
   return `${value}T12:00:00.000Z`
 }
@@ -339,6 +344,16 @@ async function syncAccount({ service, userId, connection, savedAccount, dateFrom
   const rawTransactions = transactionsResult.status === 'fulfilled'
     ? transactionsResult.value
     : []
+  const warningCodes = [
+    ['details', detailsResult],
+    ['balances', balancesResult],
+    ['transactions', transactionsResult],
+  ]
+    .filter(([, result]) => result.status === 'rejected')
+    .map(([resource, result]) => `${resource}:${result.reason?.providerStatus || 'unknown'}`)
+  if (rawTransactions.partial) {
+    warningCodes.push(`transactions:${rawTransactions.partialProviderStatus || 'partial'}`)
+  }
   const normalizedAccount = normalizeAccount(
     {
       name: savedAccount.name,
@@ -451,9 +466,7 @@ async function syncAccount({ service, userId, connection, savedAccount, dateFrom
     warnings:
       3 - successfulResources
       + (rawTransactions.partial ? 1 : 0),
-    warningCodes: rawTransactions.partial
-      ? [`transactions:${rawTransactions.partialProviderStatus || 'unknown'}`]
-      : [],
+    warningCodes,
   }
 }
 
@@ -504,27 +517,11 @@ export async function syncConnection({
       .eq('active', true)
     if (accountError) throw accountError
     const dateTo = dateOnly()
-    const accountIds = (accounts || []).map((account) => account.id)
-    const { count: existingImportCount, error: importCountError } = accountIds.length
-      ? await service
-          .from('open_banking_transaction_imports')
-          .select('id', { count: 'exact', head: true })
-          .in('bank_account_id', accountIds)
-      : { count: 0, error: null }
-    if (importCountError) throw importCountError
-    const n26SinglePageImport =
-      /n26/i.test(connection.aspsp_name)
-      && (existingImportCount || 0) <= 10
-    const incrementalSync =
-      connection.last_synced_at
-      && !connection.last_error
-      && (existingImportCount || 0) > 0
-      && !n26SinglePageImport
-    const dateFrom = automatic && !connection.last_synced_at
-      ? shiftDate(dateTo, -14)
-      : incrementalSync
-        ? shiftDate(dateOnly(connection.last_synced_at), -14)
-        : shiftDate(dateTo, -730)
+    const dateFrom = syncDateFrom({
+      dateTo,
+      lastSyncedAt: connection.last_synced_at,
+      automatic,
+    })
     const totals = { imported: 0, linked: 0, pending: 0 }
     let syncedAccounts = 0
     let skippedAccounts = 0
