@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import BankConnect from './pages/BankConnect.jsx'
+import BankDebug from './pages/BankDebug.jsx'
 import Callback from './pages/Callback.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import ComingSoonPage from './pages/ComingSoonPage.jsx'
@@ -12,11 +13,13 @@ import './index.css'
 // In locale le schermate di lavoro restano raggiungibili. Nei deployment pubblici
 // vanno abilitate esplicitamente solo per un ambiente privato/protetto.
 const internalRoutesEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_INTERNAL_ROUTES === 'true'
+const bankDebugRouteEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_BANK_DEBUG_ROUTE === 'true'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
+        {bankDebugRouteEnabled ? <Route path="/bank-debug" element={<BankDebug />} /> : null}
         {internalRoutesEnabled ? (
           <>
             <Route path="/" element={<LandingPage />} />

@@ -317,6 +317,7 @@ export default function GoalsScreen() {
 
   return (
     <Screen
+      animateFirstFocus
       scrollEnabled={!dragActive}
       floatingActionPosition="free"
       floatingAction={dragActive ? (

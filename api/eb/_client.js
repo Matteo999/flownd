@@ -252,10 +252,21 @@ export async function fetchAllTransactions(
     return combined
   } catch (error) {
     if (![400, 404, 409, 422].includes(Number(error?.providerStatus))) throw error
-    return fetchTransactionsWithStrategy(accountUid, {
-      dateFrom,
-      dateTo,
-      strategy: fallbackStrategy,
-    })
+    try {
+      return await fetchTransactionsWithStrategy(accountUid, {
+        dateFrom,
+        dateTo,
+        strategy: fallbackStrategy,
+      })
+    } catch (fallbackError) {
+      if (
+        !dateFrom
+        || !dateTo
+        || ![400, 404, 409, 422].includes(Number(fallbackError?.providerStatus))
+      ) {
+        throw fallbackError
+      }
+      return fetchTransactionsByDateWindows(accountUid, { dateFrom, dateTo })
+    }
   }
 }

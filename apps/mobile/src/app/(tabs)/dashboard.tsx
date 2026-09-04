@@ -230,6 +230,7 @@ export default function DashboardScreen() {
 
   return (
     <Screen
+      animateFirstFocus
       scrollEnabled={dashboardScrollEnabled}
       floatingActionPosition="free"
       floatingAction={

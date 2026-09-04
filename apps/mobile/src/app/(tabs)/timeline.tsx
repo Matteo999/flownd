@@ -1,4 +1,7 @@
 import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
+import { DateTimePicker } from '@expo/ui/community/datetime-picker';
+import { MenuView, type MenuAction } from '@expo/ui/community/menu';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import {
   memo,
   useCallback,
@@ -10,9 +13,11 @@ import {
 import {
   Animated,
   Alert,
+  Dimensions,
   Easing,
   Keyboard,
   KeyboardAvoidingView,
+  type LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
@@ -32,7 +37,6 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import {
   Card,
-  Field,
   PageHeader,
   PrimaryButton,
   Screen,
@@ -86,6 +90,61 @@ function transactionTimeLabel(transaction: ExpenseDraft, occurredAt: Date) {
     return null;
   }
   return transactionTimeFormatter.format(occurredAt);
+}
+
+function formatEditTransactionDate(date: Date) {
+  const today = new Date();
+  if (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  ) {
+    return 'Oggi';
+  }
+  return new Intl.DateTimeFormat('it-IT', {
+    day: 'numeric',
+    month: 'short',
+    year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric',
+  }).format(date);
+}
+
+function preserveEditTransactionTime(date: Date, current: Date) {
+  const next = new Date(date);
+  next.setHours(
+    current.getHours(),
+    current.getMinutes(),
+    current.getSeconds(),
+    current.getMilliseconds(),
+  );
+  return next;
+}
+
+function categorySFSymbol(category: string): NonNullable<MenuAction['image']> {
+  const symbols: Record<string, NonNullable<MenuAction['image']>> = {
+    'ATM (prelievo contante)': 'banknote',
+    'Bar e ristoranti': 'fork.knife',
+    'Spese aziendali': 'briefcase',
+    Educazione: 'book.closed',
+    'Famiglia e Amici': 'person.2',
+    'Cibo e Spesa': 'cart',
+    'Cure sanitarie e Farmacia': 'cross.case',
+    'Casa e utenze': 'house',
+    'Assicurazioni e Finanza': 'building.columns',
+    'Tempo libero e intrattenimento': 'gamecontroller',
+    'Multimedia e Elettronica': 'desktopcomputer',
+    Altro: 'ellipsis.circle',
+    Shopping: 'bag',
+    'Sottoscrizioni e donazioni': 'repeat.circle',
+    'Tasse e Multe': 'doc.text',
+    'Trasporti e Auto': 'car',
+    'Viaggi e Vacanze': 'airplane',
+    Giroconto: 'arrow.left.arrow.right',
+    Stipendio: 'banknote',
+    Tredicesima: 'gift',
+    'Altra entrata': 'plus.circle',
+    'Rimborso spese': 'arrow.uturn.backward.circle',
+  };
+  return symbols[category] ?? 'tag';
 }
 
 type TimelineSection = TimelineGroup & { data: ExpenseDraft[] };
@@ -515,6 +574,7 @@ export default function TimelineScreen() {
 
   return (
     <Screen
+      animateFirstFocus
       scroll={false}
       style={styles.virtualizedScreen}
       floatingActionPosition={selectionMode ? 'center' : 'free'}
@@ -944,6 +1004,11 @@ export default function TimelineScreen() {
           saving={saving}
           error={error}
           allowRemember={planTier !== 'free'}
+          accountName={
+            financialAccounts.find(
+              (account) => account.id === editingTransaction.financialAccountId,
+            )?.name ?? 'Automatico'
+          }
           onClose={() => {
             clearError();
             setEditingTransaction(null);
@@ -1770,11 +1835,99 @@ function BulkCategoryModal({
   );
 }
 
+function EditGlassAction({
+  accessibilityLabel,
+  disabled = false,
+  icon,
+  label,
+  onPress,
+  prominent = false,
+}: {
+  accessibilityLabel: string;
+  disabled?: boolean;
+  icon?: string;
+  label?: string;
+  onPress: () => void;
+  prominent?: boolean;
+}) {
+  const { colors, isDark } = useFlowndTheme();
+  const supportsNativeGlass =
+    Platform.OS === 'ios' && isGlassEffectAPIAvailable();
+  const surfaceStyle = [
+    styles.editGlassSurface,
+    icon ? styles.editGlassCircle : styles.editGlassPill,
+  ];
+  const content = (
+    <>
+      {icon ? (
+        <Text
+          style={[
+            styles.editGlassIcon,
+            { color: disabled ? colors.textSecondary : colors.text },
+          ]}>
+          {icon}
+        </Text>
+      ) : (
+        <Text
+          style={[
+            styles.editGlassLabel,
+            {
+              color: disabled
+                ? colors.textSecondary
+                : prominent
+                  ? colors.onAccent
+                  : colors.accent,
+            },
+          ]}>
+          {label}
+        </Text>
+      )}
+    </>
+  );
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      hitSlop={6}
+      onPress={onPress}
+      style={({ pressed }) =>
+        !supportsNativeGlass && pressed ? styles.editGlassPressed : undefined
+      }>
+      {supportsNativeGlass ? (
+        <GlassView
+          colorScheme={isDark ? 'dark' : 'light'}
+          glassEffectStyle="regular"
+          isInteractive={!disabled}
+          tintColor={prominent ? colors.accent : undefined}
+          style={surfaceStyle}>
+          {content}
+        </GlassView>
+      ) : (
+        <View
+          style={[
+            surfaceStyle,
+            styles.editGlassFallback,
+            {
+              backgroundColor: prominent ? colors.accent : colors.sunken,
+              borderColor: prominent ? colors.accent : colors.border,
+            },
+          ]}>
+          {content}
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
 function EditTransactionModal({
   transaction,
   saving,
   error,
   allowRemember,
+  accountName,
   onClose,
   onSave,
   onRecurring,
@@ -1785,13 +1938,14 @@ function EditTransactionModal({
   saving: boolean;
   error: string | null;
   allowRemember: boolean;
+  accountName: string;
   onClose: () => void;
   onSave: (transactionId: string, changes: TransactionUpdate) => Promise<boolean>;
   onRecurring: () => void;
   onUnlinkRecurring?: (transactionId: string) => void;
   onDelete?: (transactionId: string) => void;
 }) {
-  const { colors } = useFlowndTheme();
+  const { colors, isDark } = useFlowndTheme();
   const insets = useSafeAreaInsets();
   const initialKind = transaction.kind === 'income' ? 'income' : 'expense';
   const initialCategory = ['Entrata', 'Entrate'].includes(transaction.category)
@@ -1817,27 +1971,52 @@ function EditTransactionModal({
         : 'Altro',
   );
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [keyboardExpanded, setKeyboardExpanded] = useState(false);
   const [rememberSimilar, setRememberSimilar] = useState(false);
   const categoryOptions = categoriesForTransactionKind(kind);
+  const categoryMenuActions = useMemo<MenuAction[]>(
+    () => categoryOptions.map((option) => ({
+      id: option,
+      title: option,
+      image: categorySFSymbol(option),
+      state: option === category ? 'on' : 'off',
+    })),
+    [category, categoryOptions],
+  );
   const numericAmount = Number(amount.replace(',', '.')) || 0;
   const [sheetTranslateY] = useState(() => new Animated.Value(480));
+  const [sheetHeight] = useState(() => new Animated.Value(0));
   const [backdropOpacity] = useState(() => new Animated.Value(0));
+  const [sheetHeightReady, setSheetHeightReady] = useState(false);
+  const [closingSheet, setClosingSheet] = useState(false);
+  const sheetHeightReadyRef = useRef(false);
+  const restingSheetHeightRef = useRef<number | null>(null);
+  const keyboardExpandedRef = useRef(false);
+  const editScrollGesture = useMemo(() => Gesture.Native(), []);
   const closeSheet = useCallback(() => {
-    Keyboard.dismiss();
-    Animated.parallel([
-      Animated.timing(sheetTranslateY, {
-        toValue: 720,
-        duration: 190,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-    ]).start(onClose);
-  }, [backdropOpacity, onClose, sheetTranslateY]);
+    if (closingSheet) return;
+    setClosingSheet(true);
+    sheetHeight.stopAnimation();
+    Animated.timing(backdropOpacity, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+    Animated.timing(sheetTranslateY, {
+      toValue: Dimensions.get('window').height + 80,
+      duration: 280,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (!finished) {
+        setClosingSheet(false);
+        return;
+      }
+      Keyboard.dismiss();
+      onClose();
+    });
+  }, [backdropOpacity, closingSheet, onClose, sheetHeight, sheetTranslateY]);
 
   useEffect(() => {
     Animated.parallel([
@@ -1846,7 +2025,7 @@ function EditTransactionModal({
         damping: 24,
         stiffness: 240,
         mass: 0.85,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }),
       Animated.timing(backdropOpacity, {
         toValue: 1,
@@ -1856,21 +2035,86 @@ function EditTransactionModal({
     ]).start();
   }, [backdropOpacity, sheetTranslateY]);
 
+  const captureRestingSheetHeight = useCallback((event: LayoutChangeEvent) => {
+    if (sheetHeightReadyRef.current || keyboardExpandedRef.current) return;
+    const measuredHeight = event.nativeEvent.layout.height;
+    if (measuredHeight <= 0) return;
+    restingSheetHeightRef.current = measuredHeight;
+    sheetHeight.setValue(measuredHeight);
+    sheetHeightReadyRef.current = true;
+    setSheetHeightReady(true);
+  }, [sheetHeight]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      keyboardExpandedRef.current = true;
+      setKeyboardExpanded(true);
+      if (!sheetHeightReadyRef.current) return;
+      sheetHeight.stopAnimation();
+      Animated.timing(sheetHeight, {
+        toValue: Dimensions.get('window').height * 0.9,
+        duration: Math.max(event.duration ?? 250, 180),
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
+      const restingHeight = restingSheetHeightRef.current;
+      if (!sheetHeightReadyRef.current || restingHeight === null) {
+        keyboardExpandedRef.current = false;
+        setKeyboardExpanded(false);
+        return;
+      }
+      sheetHeight.stopAnimation();
+      Animated.timing(sheetHeight, {
+        toValue: restingHeight,
+        duration: Math.max(event.duration ?? 250, 180),
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start(({ finished }) => {
+        if (!finished) return;
+        keyboardExpandedRef.current = false;
+        setKeyboardExpanded(false);
+      });
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [sheetHeight]);
+
   const sheetPanGesture = useMemo(
     () => Gesture.Pan()
-      .activeOffsetY(4)
+      .activeOffsetY(8)
+      .failOffsetY(-8)
       .failOffsetX([-24, 24])
       .shouldCancelWhenOutside(false)
+      .blocksExternalGesture(editScrollGesture)
       .runOnJS(true)
-      .onBegin(() => {
+      .onStart(() => {
         sheetTranslateY.stopAnimation();
-        Keyboard.dismiss();
+        if (keyboardExpanded) Keyboard.dismiss();
       })
       .onUpdate((event) => {
+        if (keyboardExpanded) return;
         sheetTranslateY.setValue(Math.max(0, event.translationY));
       })
       .onEnd((event) => {
-        if (event.translationY > 110 || event.velocityY > 1050) {
+        if (keyboardExpanded) {
+          Animated.spring(sheetTranslateY, {
+            toValue: 0,
+            damping: 22,
+            stiffness: 260,
+            useNativeDriver: false,
+          }).start();
+          return;
+        }
+        const continuesDownward =
+          event.translationY > 90 ||
+          (event.translationY > 24 && event.velocityY > 900);
+        if (continuesDownward) {
           closeSheet();
           return;
         }
@@ -1878,18 +2122,27 @@ function EditTransactionModal({
           toValue: 0,
           damping: 22,
           stiffness: 260,
-          useNativeDriver: true,
-        }).start();
-      })
-      .onFinalize((_event, succeeded) => {
-        if (succeeded) return;
-        Animated.spring(sheetTranslateY, {
-          toValue: 0,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }).start();
       }),
-    [closeSheet, sheetTranslateY],
+    [closeSheet, editScrollGesture, keyboardExpanded, sheetTranslateY],
   );
+
+  const canSave = Boolean(
+    transaction.id && description.trim() && numericAmount > 0 && !saving && !closingSheet,
+  );
+  const saveChanges = async () => {
+    if (!transaction.id || !canSave) return;
+    const updated = await onSave(transaction.id, {
+      description: description.trim(),
+      amount: numericAmount,
+      category,
+      kind,
+      occurredAt: occurredAt.toISOString(),
+      rememberSimilar,
+    });
+    if (updated) closeSheet();
+  };
 
   return (
     <Modal
@@ -1906,47 +2159,55 @@ function EditTransactionModal({
             style={StyleSheet.absoluteFill}
           />
         </Animated.View>
-        <Animated.View
-          style={[
-            styles.editSheet,
-            {
-              backgroundColor: colors.background,
-              borderColor: colors.border,
-              transform: [{ translateY: sheetTranslateY }],
-            },
-          ]}>
-          <GestureDetector gesture={sheetPanGesture}>
-            <View>
-              <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
-              <View style={styles.sheetHeader}>
-                <View>
-                  <Text style={[styles.sheetTitle, { color: colors.text }]}>Modifica movimento</Text>
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Chiudi"
-                  onPress={closeSheet}
-                  style={({ pressed }) => [
-                    styles.sheetClose,
-                    { backgroundColor: colors.sunken },
-                    pressed && styles.pressed,
-                  ]}>
-                  <Text style={[styles.sheetCloseIcon, { color: colors.text }]}>close</Text>
-                </Pressable>
-              </View>
+        <GestureDetector gesture={sheetPanGesture}>
+          <Animated.View
+            onLayout={captureRestingSheetHeight}
+            style={[
+              styles.editSheet,
+              sheetHeightReady && { height: sheetHeight, maxHeight: '90%' },
+              {
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                transform: [{ translateY: sheetTranslateY }],
+              },
+            ]}>
+            <View pointerEvents="box-none" style={styles.editFloatingActions}>
+              <EditGlassAction
+                accessibilityLabel="Chiudi"
+                disabled={saving || closingSheet}
+                icon="close"
+                onPress={closeSheet}
+              />
+              <EditGlassAction
+                accessibilityLabel="Salva modifiche"
+                disabled={!canSave}
+                label={saving ? '…' : 'Salva'}
+                onPress={() => void saveChanges()}
+                prominent
+              />
             </View>
-          </GestureDetector>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.editKeyboardBody}>
-            <ScrollView
-              keyboardDismissMode="none"
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              style={styles.editFormScroll}
-              contentContainerStyle={styles.sheetContent}>
+            style={[
+              styles.editKeyboardBody,
+              keyboardExpanded && styles.editKeyboardBodyExpanded,
+            ]}>
+            <GestureDetector gesture={editScrollGesture}>
+              <ScrollView
+                bounces={false}
+                keyboardDismissMode="none"
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                style={styles.editFormScroll}
+                contentContainerStyle={[
+                  styles.editSheetContent,
+                  { paddingBottom: Math.max(insets.bottom, 24) },
+                ]}>
+            <Text style={[styles.editScrollTitle, { color: colors.text }]}>Modifica</Text>
             <TransactionKindSelector
               value={kind}
+              showLabel={false}
+              compact={true}
               onChange={(nextKind) => {
                 setKind(nextKind);
                 if (nextKind === 'income') setRememberSimilar(false);
@@ -1954,81 +2215,142 @@ function EditTransactionModal({
                 setCategoriesOpen(false);
               }}
             />
-            <Field
-              label="Descrizione"
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Descrizione della transazione"
-            />
-            <Field
-              label="Importo"
-              value={amount}
-              onChangeText={setAmount}
-              placeholder="0,00"
-              keyboardType="decimal-pad"
-              inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
-              suffix="€"
-            />
-            <TransactionDateField value={occurredAt} onChange={setOccurredAt} />
-            <Text style={[styles.editorCategoryTitle, { color: colors.text }]}>Categoria</Text>
-            <View
-              style={[
-                styles.editorDropdown,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Categoria selezionata: ${category}`}
-                accessibilityState={{ expanded: categoriesOpen }}
-                onPress={() => setCategoriesOpen((current) => !current)}
-                style={({ pressed }) => [
-                  styles.editorDropdownTrigger,
-                  pressed && styles.pressed,
+            <View style={styles.editComposerWorkspace}>
+              <View style={styles.editAmountRow}>
+                <TextInput
+                  accessibilityLabel="Importo della transazione"
+                  inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
+                  keyboardAppearance={isDark ? 'dark' : 'light'}
+                  keyboardType="decimal-pad"
+                  onChangeText={setAmount}
+                  placeholder="0,00"
+                  placeholderTextColor={colors.textSecondary}
+                  selectionColor={colors.accent}
+                  style={[styles.editAmountInput, { color: colors.text }]}
+                  value={amount}
+                />
+                <Text style={[styles.editAmountCurrency, { color: colors.text }]}>€</Text>
+              </View>
+              <View
+                style={[
+                  styles.editMessageComposer,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
                 ]}>
-                <Text style={[styles.editorDropdownValue, { color: colors.text }]}> 
-                  {category}
-                </Text>
-                <Text style={[styles.editorDropdownIcon, { color: colors.textSecondary }]}> 
-                  {categoriesOpen ? 'expand_less' : 'expand_more'}
-                </Text>
-              </Pressable>
+                <TextInput
+                  accessibilityLabel="Descrizione della transazione"
+                  keyboardAppearance={isDark ? 'dark' : 'light'}
+                  multiline
+                  onChangeText={setDescription}
+                  placeholder={kind === 'income' ? 'Descrivi questa entrata…' : 'Cosa hai pagato?'}
+                  placeholderTextColor={colors.textSecondary}
+                  selectionColor={colors.accent}
+                  style={[styles.editDescriptionInput, { color: colors.text }]}
+                  value={description}
+                />
+                <View style={[styles.editComposerMeta, { borderTopColor: colors.border }]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Data della transazione: ${formatEditTransactionDate(occurredAt)}`}
+                    onPress={() => setDatePickerOpen(true)}
+                    style={({ pressed }) => [styles.editMetaButton, pressed && styles.pressed]}>
+                    <Text style={[styles.editMetaIcon, { color: colors.accent }]}>calendar_today</Text>
+                    <Text style={[styles.editMetaText, { color: colors.text }]}>
+                      {formatEditTransactionDate(occurredAt)}
+                    </Text>
+                  </Pressable>
+                  <View
+                    accessibilityLabel={`Conto: ${accountName}`}
+                    style={styles.editMetaButton}>
+                    <Text style={[styles.editMetaIcon, { color: colors.accent }]}>account_balance_wallet</Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.editMetaText, styles.editAccountText, { color: colors.text }]}>
+                      {accountName}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+            <View style={styles.editCategoryRow}>
+              {Platform.OS === 'ios' ? (
+                <MenuView
+                  actions={categoryMenuActions}
+                  onPressAction={(event) => {
+                    const selectedCategory = categoryOptions.find(
+                      (option) => option === event.nativeEvent.event,
+                    );
+                    if (selectedCategory) setCategory(selectedCategory);
+                  }}
+                  style={styles.editCompactDropdown}>
+                  <View
+                    accessible
+                    accessibilityRole="button"
+                    accessibilityLabel={`Categoria selezionata: ${category}`}
+                    style={[
+                      styles.editorDropdown,
+                      styles.editorDropdownTrigger,
+                      { backgroundColor: colors.surface, borderColor: colors.border },
+                    ]}>
+                    <Text style={[styles.editorDropdownValue, { color: colors.text }]}>
+                      {category}
+                    </Text>
+                    <Text style={[styles.editorDropdownIcon, { color: colors.textSecondary }]}>
+                      expand_more
+                    </Text>
+                  </View>
+                </MenuView>
+              ) : (
+                <View
+                  style={[
+                    styles.editorDropdown,
+                    styles.editCompactDropdown,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Categoria selezionata: ${category}`}
+                    accessibilityState={{ expanded: categoriesOpen }}
+                    onPress={() => setCategoriesOpen((current) => !current)}
+                    style={({ pressed }) => [
+                      styles.editorDropdownTrigger,
+                      pressed && styles.pressed,
+                    ]}>
+                    <Text style={[styles.editorDropdownValue, { color: colors.text }]}>
+                      {category}
+                    </Text>
+                    <Text style={[styles.editorDropdownIcon, { color: colors.textSecondary }]}>
+                      {categoriesOpen ? 'expand_less' : 'expand_more'}
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+              {kind === 'expense' && allowRemember ? (
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: rememberSimilar }}
+                  onPress={() => setRememberSimilar((current) => !current)}
+                  style={styles.editCompactRemember}>
+                  <View
+                    style={[
+                      styles.rememberCheckbox,
+                      {
+                        backgroundColor: rememberSimilar ? colors.accent : colors.surface,
+                        borderColor: rememberSimilar ? colors.accent : colors.border,
+                      },
+                    ]}>
+                    {rememberSimilar ? (
+                      <Text style={[styles.selectionCheck, { color: colors.onAccent }]}>check</Text>
+                    ) : null}
+                  </View>
+                  <Text style={[styles.editRememberText, { color: colors.text }]}>Ricorda</Text>
+                </Pressable>
+              ) : null}
             </View>
             {kind === 'income' ? (
               <Text style={[styles.incomeHint, { color: colors.textSecondary }]}>
                 Tredicesima, rimborsi e giroconti non aumentano il budget
                 mensile.
               </Text>
-            ) : null}
-            {kind === 'expense' && allowRemember ? (
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: rememberSimilar }}
-                onPress={() => setRememberSimilar((current) => !current)}
-                style={[styles.rememberRule, styles.editRememberRule]}>
-                <View
-                  style={[
-                    styles.rememberCheckbox,
-                    {
-                      backgroundColor: rememberSimilar
-                        ? colors.accent
-                        : colors.surface,
-                      borderColor: rememberSimilar ? colors.accent : colors.border,
-                    },
-                  ]}>
-                  {rememberSimilar ? (
-                    <Text style={[styles.selectionCheck, { color: colors.onAccent }]}>check</Text>
-                  ) : null}
-                </View>
-                <View style={styles.flex}>
-                  <Text style={[styles.rememberTitle, { color: colors.text }]}>
-                    Ricorda per il futuro
-                  </Text>
-                  <Text style={[styles.rememberCopy, { color: colors.textSecondary }]}>
-                    Applica questa categoria ai prossimi movimenti Open Banking
-                    con una descrizione simile.
-                  </Text>
-                </View>
-              </Pressable>
             ) : null}
             {error ? <Text style={[styles.sheetError, { color: colors.negative }]}>{error}</Text> : null}
             {transaction.id ? (
@@ -2072,35 +2394,10 @@ function EditTransactionModal({
                 </Text>
               </Pressable>
             ) : null}
-            </ScrollView>
-            <View
-              style={[
-                styles.editFooter,
-                {
-                  backgroundColor: colors.background,
-                  paddingBottom: Math.max(insets.bottom, 18),
-                },
-              ]}>
-              <PrimaryButton
-                disabled={!transaction?.id || !description.trim() || numericAmount <= 0}
-                loading={saving}
-                onPress={async () => {
-                  if (!transaction?.id) return;
-                  const updated = await onSave(transaction.id, {
-                    description: description.trim(),
-                    amount: numericAmount,
-                    category,
-                    kind,
-                    occurredAt: occurredAt.toISOString(),
-                    rememberSimilar,
-                  });
-                  if (updated) closeSheet();
-                }}>
-                Salva modifiche
-              </PrimaryButton>
-            </View>
+              </ScrollView>
+            </GestureDetector>
           </KeyboardAvoidingView>
-          {categoriesOpen ? (
+          {categoriesOpen && Platform.OS !== 'ios' ? (
             <View style={styles.categoryPopoverLayer}>
               <Pressable
                 accessibilityRole="button"
@@ -2162,8 +2459,66 @@ function EditTransactionModal({
               </View>
             </View>
           ) : null}
+          {datePickerOpen && Platform.OS === 'android' ? (
+            <DateTimePicker
+              value={occurredAt}
+              mode="date"
+              display="default"
+              presentation="dialog"
+              maximumDate={new Date()}
+              accentColor={colors.accent}
+              positiveButton={{ label: 'Conferma' }}
+              negativeButton={{ label: 'Annulla' }}
+              onValueChange={(_event, date) => {
+                setOccurredAt(preserveEditTransactionTime(date, occurredAt));
+                setDatePickerOpen(false);
+              }}
+              onDismiss={() => setDatePickerOpen(false)}
+            />
+          ) : null}
+          {Platform.OS === 'ios' ? (
+            <Modal
+              visible={datePickerOpen}
+              transparent
+              animationType="fade"
+              presentationStyle="overFullScreen"
+              onRequestClose={() => setDatePickerOpen(false)}>
+              <View style={styles.editDateOverlay}>
+                <Pressable
+                  style={StyleSheet.absoluteFill}
+                  onPress={() => setDatePickerOpen(false)}
+                />
+                <View
+                  style={[
+                    styles.editDateCard,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ]}>
+                  <View style={styles.editDateHeader}>
+                    <Text style={[styles.editDateTitle, { color: colors.text }]}>Scegli la data</Text>
+                    <Pressable onPress={() => setDatePickerOpen(false)}>
+                      <Text style={[styles.editDateDone, { color: colors.accent }]}>Fatto</Text>
+                    </Pressable>
+                  </View>
+                  <DateTimePicker
+                    value={occurredAt}
+                    mode="date"
+                    display="inline"
+                    locale="it_IT"
+                    maximumDate={new Date()}
+                    accentColor={colors.accent}
+                    themeVariant={isDark ? 'dark' : 'light'}
+                    onValueChange={(_event, date) =>
+                      setOccurredAt(preserveEditTransactionTime(date, occurredAt))
+                    }
+                    style={styles.editDatePicker}
+                  />
+                </View>
+              </View>
+            </Modal>
+          ) : null}
           <NumericKeyboardAccessory />
         </Animated.View>
+        </GestureDetector>
       </View>
     </Modal>
   );
@@ -2587,15 +2942,158 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(4, 12, 9, 0.42)',
   },
   editSheet: {
-    height: '90%',
+    maxHeight: '82%',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingTop: 9,
+    overflow: 'hidden',
+    paddingTop: 10,
     paddingHorizontal: 20,
   },
-  editKeyboardBody: { flex: 1 },
-  editFormScroll: { flex: 1 },
+  editKeyboardBody: { flexShrink: 1 },
+  editKeyboardBodyExpanded: { flex: 1 },
+  editFormScroll: { flexGrow: 0 },
+  editFloatingActions: {
+    position: 'absolute',
+    top: 10,
+    right: 0,
+    left: 0,
+    zIndex: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+  },
+  editScrollTitle: {
+    minHeight: 48,
+    paddingTop: 8,
+    textAlign: 'center',
+    fontFamily: font.displaySemiBold,
+    fontSize: 17,
+    lineHeight: 22,
+  },
+  editGlassSurface: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editGlassFallback: {
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  editGlassCircle: { width: 38, height: 38, borderRadius: 19 },
+  editGlassPill: {
+    minWidth: 66,
+    height: 38,
+    borderRadius: 19,
+    paddingHorizontal: 14,
+  },
+  editGlassPressed: { transform: [{ scale: 0.96 }] },
+  editGlassIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 20,
+    lineHeight: 23,
+  },
+  editGlassLabel: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  editSheetContent: { paddingBottom: 24 },
+  editComposerWorkspace: { marginTop: 8, marginBottom: 14 },
+  editAmountRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  editAmountInput: {
+    minWidth: 80,
+    maxWidth: '82%',
+    padding: 0,
+    fontFamily: font.dataMedium,
+    fontSize: 28,
+    lineHeight: 36,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+  },
+  editAmountCurrency: {
+    marginLeft: 6,
+    fontFamily: font.dataMedium,
+    fontSize: 20,
+    lineHeight: 28,
+  },
+  editMessageComposer: {
+    minHeight: 126,
+    borderWidth: 1,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  editDescriptionInput: {
+    minHeight: 78,
+    maxHeight: 110,
+    paddingTop: 15,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    fontFamily: font.body,
+    fontSize: 16,
+    lineHeight: 22,
+    textAlignVertical: 'top',
+  },
+  editComposerMeta: {
+    minHeight: 44,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editMetaButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 34,
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  editMetaIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 18,
+    lineHeight: 21,
+  },
+  editMetaText: {
+    fontFamily: font.bodyMedium,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  editAccountText: { flexShrink: 1 },
+  editCategoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  editCompactDropdown: { flex: 1, minWidth: 0 },
+  editCompactRemember: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  editRememberText: { fontFamily: font.bodyMedium, fontSize: 12 },
+  editDateOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(4, 12, 9, 0.4)',
+  },
+  editDateCard: { borderRadius: 22, borderWidth: 1, padding: 16 },
+  editDateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  editDateTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
+  editDateDone: { fontFamily: font.bodySemiBold, fontSize: 14, padding: 6 },
+  editDatePicker: { minHeight: 330 },
   bulkSheet: {
     maxHeight: '86%',
     borderTopLeftRadius: 26,
@@ -2623,7 +3121,6 @@ const styles = StyleSheet.create({
     marginTop: 18,
     paddingVertical: 5,
   },
-  editRememberRule: { marginTop: 12 },
   recurringAction: {
     marginTop: 12,
     minHeight: 44,
