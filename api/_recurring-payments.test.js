@@ -192,6 +192,21 @@ test('conserva due campioni mensili come possibile ricorrenza senza promuoverli'
   assert.equal(result.possible[0].frequencyGuess, 'monthly')
 })
 
+test('mantiene prima e ultima evidenza in ordine cronologico dopo il clustering importi', () => {
+  const common = {
+    description: 'Imposta di bollo', category: 'Tasse e Multe', kind: 'expense',
+    financial_account_id: null, source: 'open_banking', bank_status: 'booked',
+    internal_transfer: false, excluded_from_totals: false,
+  }
+  const result = analyzeRecurringPatterns([
+    { ...common, id: 'newer', amount: 8.43, occurred_at: '2026-04-01T12:00:00Z' },
+    { ...common, id: 'older', amount: 8.62, occurred_at: '2026-01-01T12:00:00Z' },
+  ], new Set(), new Set(), DETECTION_TODAY)
+  assert.equal(result.possible[0]?.firstSeenOn, '2026-01-01')
+  assert.equal(result.possible[0]?.lastSeenOn, '2026-04-01')
+  assert.equal(result.possible[0]?.frequencyGuess, 'quarterly')
+})
+
 test('ignora gruppi con importi prevalentemente incompatibili', () => {
   const common = {
     description: 'Fornitore variabile', category: 'Casa e utenze', kind: 'expense',
