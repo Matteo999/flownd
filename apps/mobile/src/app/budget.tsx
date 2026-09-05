@@ -23,7 +23,7 @@ import { useApp } from '@/providers/app-provider';
 
 export default function BudgetScreen() {
   const { colors } = useFlowndTheme();
-  const { draft, transactions, budgetCycleStartDay, budgetMonthlyIncome } =
+  const { draft, transactions, recurringPayments, budgetCycleStartDay, budgetMonthlyIncome } =
     useApp();
   const cycle = useMemo(
     () => financialCycleForDate(new Date(), budgetCycleStartDay, transactions),
@@ -94,6 +94,15 @@ export default function BudgetScreen() {
           caption="Necessità · Desideri · Risparmi"
           value={allocation}
           route="/budget-allocation"
+        />
+        <BudgetMenuCard
+          icon="event_repeat"
+          title="Ricorrenze"
+          caption="Pagamenti ed entrate programmate"
+          value={recurringPayments.length
+            ? `${recurringPayments.length} ${recurringPayments.length === 1 ? 'ricorrenza' : 'ricorrenze'}`
+            : 'Nessuna ricorrenza'}
+          route="/recurring-payments"
         />
       </View>
     </Screen>

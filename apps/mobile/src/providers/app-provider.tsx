@@ -600,7 +600,7 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     const { data, error: profileError } = await supabase
       .from('profiles')
-      .select('onboarding_completed,recurring_detection_version')
+      .select('onboarding_completed,recurring_detection_version,recurring_detection_next_scan_at')
       .eq('id', nextSession.user.id)
       .maybeSingle();
 
@@ -621,7 +621,11 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (completed) {
       await hydrateUserData(nextSession.user.id);
       if (
-        Number(data?.recurring_detection_version ?? 0) < RECURRING_DETECTION_VERSION
+        (
+          Number(data?.recurring_detection_version ?? 0) < RECURRING_DETECTION_VERSION
+          || !data?.recurring_detection_next_scan_at
+          || new Date(data.recurring_detection_next_scan_at).getTime() <= Date.now()
+        )
         && recurringStartupRefreshUserId.current !== nextSession.user.id
       ) {
         recurringStartupRefreshUserId.current = nextSession.user.id;
