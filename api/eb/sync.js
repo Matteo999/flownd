@@ -148,6 +148,9 @@ async function reconcileTransaction({
         .in('description', [...new Set([
           rawStoredDescription,
           damagedStoredDescription,
+          'Pagamento Carta',
+          'Pagamento carta',
+          'Movimento bancario',
         ])])
       if (descriptionError) throw descriptionError
     }

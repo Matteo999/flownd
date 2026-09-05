@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { DETECTION_LOOKBACK_DAYS, detectRecurringCandidates, nextRecurringDate } from './_recurring-payments.js'
+import {
+  DETECTION_LOOKBACK_DAYS,
+  RECURRING_DETECTOR_VERSION,
+  analyzeRecurringPatterns,
+  detectRecurringCandidates,
+  nextRecurringDate,
+} from './_recurring-payments.js'
 
 const DETECTION_TODAY = new Date('2026-09-01T12:00:00Z')
 
@@ -63,6 +70,16 @@ test('non ricrea una serie rilevata che l’utente ha eliminato', () => {
 
 test('il backfill copre due anni per intercettare le ricorrenze annuali', () => {
   assert.equal(DETECTION_LOOKBACK_DAYS, 730)
+  assert.equal(RECURRING_DETECTOR_VERSION, 3)
+})
+
+test('client e API condividono la stessa versione del detector', async () => {
+  const clientSource = await readFile(
+    new URL('../apps/mobile/src/lib/recurring-payments.ts', import.meta.url),
+    'utf8',
+  )
+  const match = clientSource.match(/RECURRING_DETECTION_VERSION\s*=\s*(\d+)/)
+  assert.equal(Number(match?.[1]), RECURRING_DETECTOR_VERSION)
 })
 
 test('ignora trasferimenti e movimenti generati dal motore', () => {
@@ -84,6 +101,21 @@ test('ignora acquisti discrezionali anche quando cadono a intervalli regolari', 
     ...common, id: String(index), amount: 80 + index, occurred_at: `${date}T12:00:00Z`,
   }))
   assert.deepEqual(detect(rows), [])
+})
+
+test('ignora supermercati e distributori anche se la categoria è errata', () => {
+  const common = {
+    category: 'Altro', kind: 'expense', financial_account_id: 'account-a',
+    source: 'open_banking', bank_status: 'booked', internal_transfer: false,
+    excluded_from_totals: false,
+  }
+  for (const description of ['ESSELUNGA 0421', 'Q8 DISTRIBUTORE ROMA']) {
+    const rows = ['2026-06-01', '2026-07-01', '2026-08-01'].map((date, index) => ({
+      ...common, id: `${description}-${index}`, description, amount: 60,
+      occurred_at: `${date}T12:00:00Z`,
+    }))
+    assert.deepEqual(detect(rows), [])
+  }
 })
 
 test('non proietta una serie mensile terminata da diversi mesi', () => {
@@ -109,6 +141,55 @@ test('rileva assicurazioni mensili con riferimenti numerici variabili', () => {
     amount: 118.5, occurred_at: `${date}T12:00:00Z`,
   }))
   assert.equal(detect(rows)[0]?.frequency, 'monthly')
+})
+
+test('separa due polizze dello stesso assicuratore per fascia di importo', () => {
+  const common = {
+    category: 'Assicurazioni e Finanza', kind: 'expense',
+    source: 'open_banking', bank_status: 'booked', internal_transfer: false,
+    excluded_from_totals: false, counterparty_name: null,
+  }
+  const rows = ['2026-06-01', '2026-07-01', '2026-08-01'].flatMap((date, index) => [
+    { ...common, id: `large-${index}`, description: 'PAYPAL *BEREBEL', merchant_name: index ? null : 'BEREBEL',
+      financial_account_id: index ? 'account-a' : null, amount: 46.39, occurred_at: `${date}T12:00:00Z` },
+    { ...common, id: `small-${index}`, description: 'BEREBEL', merchant_name: 'PAYPAL *BEREBEL',
+      financial_account_id: 'account-a', amount: 24.43, occurred_at: `${date}T12:00:00Z` },
+  ])
+  rows.push({ ...common, id: 'outlier', description: 'PAYPAL *BEREBEL', merchant_name: null,
+    financial_account_id: 'account-a', amount: 12.41, occurred_at: '2026-08-01T12:00:00Z' })
+  const candidates = detect(rows).sort((a, b) => a.amount - b.amount)
+  assert.deepEqual(candidates.map((candidate) => candidate.amount), [24.43, 46.39])
+})
+
+test('rileva utenze con giorni e importi molto variabili usando il calendario', () => {
+  const common = {
+    description: 'Energia Variabile', category: 'Casa e utenze', kind: 'expense',
+    financial_account_id: 'account-a', source: 'open_banking', bank_status: 'booked',
+    internal_transfer: false, excluded_from_totals: false,
+  }
+  const candidates = detect([
+    { ...common, id: '1', amount: 42, occurred_at: '2026-05-02T12:00:00Z' },
+    { ...common, id: '2', amount: 115, occurred_at: '2026-06-27T12:00:00Z' },
+    { ...common, id: '3', amount: 68, occurred_at: '2026-07-09T12:00:00Z' },
+    { ...common, id: '4', amount: 134, occurred_at: '2026-08-29T12:00:00Z' },
+  ])
+  assert.equal(candidates[0]?.frequency, 'monthly')
+  assert.equal(candidates[0]?.amountTolerance, 0.75)
+})
+
+test('conserva due campioni mensili come possibile ricorrenza senza promuoverli', () => {
+  const common = {
+    description: 'Palestra Aurora', category: 'Cure sanitarie e Farmacia', kind: 'expense',
+    financial_account_id: 'account-a', source: 'open_banking', bank_status: 'booked',
+    internal_transfer: false, excluded_from_totals: false,
+  }
+  const result = analyzeRecurringPatterns([
+    { ...common, id: '1', amount: 39, occurred_at: '2026-07-05T12:00:00Z' },
+    { ...common, id: '2', amount: 39, occurred_at: '2026-08-05T12:00:00Z' },
+  ], new Set(), new Set(), DETECTION_TODAY)
+  assert.equal(result.confirmed.length, 0)
+  assert.equal(result.possible.length, 1)
+  assert.equal(result.possible[0].frequencyGuess, 'monthly')
 })
 
 test('ignora gruppi con importi prevalentemente incompatibili', () => {

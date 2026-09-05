@@ -63,20 +63,31 @@ function narrativeEntity(value) {
   // Questo fallback è linguistico, non specifico per banca. I campi PSD2
   // strutturati hanno sempre la precedenza quando il provider li valorizza.
   const patterns = [
-    /\b(?:presso|at|chez|bei)\s+(.+?)(?=\s+(?:tessera|card|carte|karte|causale|reason|date|datum|via\b|[-–]\s*transa(?:zione|ction))|$)/i,
-    /\b(?:merchant|eserc(?:ente|izio)?\.?|comercio|establecimiento|estabelecimento|beneficiario|beneficiário|beneficiary|payee|b[ée]n[ée]ficiaire|begünstigter)\s*[:\-]\s*(.+?)(?=\s+(?:iban|causale|reason|date|datum|ref(?:erence)?\.?|id\.?|$))/i,
-    /\bc\/o\s+(.+?)(?=\s+(?:tessera|card|causale|date)|$)/i,
-    /\banagrafica\s+ordinante\s*[:\-]?\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i,
-    /\bordinante\s*[:\-]\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i,
-    /\b(?:originator|ordering\s+party|debtor|payer|donneur\s+d['’]ordre|auftraggeber)\s*[:\-]?\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i,
+    {
+      pattern: /\b(?:presso|at|chez|bei)\s+(.+?)(?=\s+(?:tessera|card|carte|karte|causale|reason|date|datum|via\b|[-–]\s*transa(?:zione|ction))|$)/i,
+      allowsStoreCode: true,
+    },
+    {
+      pattern: /\b(?:merchant|eserc(?:ente|izio)?\.?|comercio|establecimiento|estabelecimento|beneficiario|beneficiário|beneficiary|payee|b[ée]n[ée]ficiaire|begünstigter)\s*[:\-]\s*(.+?)(?=\s+(?:iban|causale|reason|date|datum|ref(?:erence)?\.?|id\.?|$))/i,
+    },
+    { pattern: /\bc\/o\s+(.+?)(?=\s+(?:tessera|card|causale|date)|$)/i },
+    { pattern: /\banagrafica\s+ordinante\s*[:\-]?\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i },
+    { pattern: /\bordinante\s*[:\-]\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i },
+    { pattern: /\b(?:originator|ordering\s+party|debtor|payer|donneur\s+d['’]ordre|auftraggeber)\s*[:\-]?\s*(.+?)(?=\s+(?:note|causale|reason|motif|ref(?:erence)?\.?|id\.?|mandato|mand\.?|$))/i },
   ]
-  for (const pattern of patterns) {
+  for (const { pattern, allowsStoreCode = false } of patterns) {
     const match = text.match(pattern)
     const entity = clean(match?.[1])
       .replace(/\s+IBAN(?:\s+beneficiario)?\s+.*$/i, '')
       .replace(/[.,;:\-–]+$/g, '')
       .trim()
     if (!entity || entity.length > 100) continue
+    const letters = (entity.match(/[a-z]/gi) || []).length
+    const sensitiveIdentifier = /\b[A-Z]{2}\d{2}[A-Z0-9]{10,}\b/i.test(entity)
+      || /[x*•]{4,}\d{2,}/i.test(entity)
+      || /\b\d{12,}\b/.test(entity)
+    if (letters < 2 || sensitiveIdentifier) continue
+    if (allowsStoreCode) return entity
     const digits = (entity.match(/\d/g) || []).length
     if (digits / entity.length < 0.25) return entity
   }
@@ -96,6 +107,7 @@ function narrativeBeneficiary(value) {
 }
 
 export function isTechnicalBankDescription(value) {
+  if (/[x*•]{4,}\d{2,}/i.test(clean(value))) return true
   const text = normalized(value)
   if (!text || text.length < 45) return false
   const markers = [

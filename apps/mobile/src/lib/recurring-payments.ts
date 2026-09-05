@@ -2,7 +2,9 @@ import Constants from 'expo-constants';
 
 export * from './recurring-payments-core';
 
-export const RECURRING_DETECTION_VERSION = 2;
+// Incrementare insieme a RECURRING_DETECTOR_VERSION lato API quando una modifica
+// dell'algoritmo richiede un nuovo backfill dello storico.
+export const RECURRING_DETECTION_VERSION = 3;
 
 function apiUrl(path: string) {
   const configured = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');

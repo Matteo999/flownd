@@ -70,6 +70,55 @@ test('mantiene anche gli entry_reference brevi restituiti da ING', () => {
   assert.equal(transaction.category, 'Bar e ristoranti')
 })
 
+test('mantiene i codici numerici che fanno parte del nome esercente', () => {
+  const base = {
+    transaction_amount: { amount: '30', currency: 'EUR' },
+    credit_debit_indicator: 'DBIT',
+    status: 'BOOK',
+    value_date: '2026-09-01',
+  }
+  const tamoil = normalizeBankTransaction(
+    {
+      ...base,
+      remittance_information: [
+        'Operazione Mastercard del 01/09/2026 alle ore 17:49 con Carta xxxxxxxxxxxx0593 Div=EUR Importo in divisa=30 / Importo in Euro=30 presso TAMOIL 6964 - Transazione C-less',
+      ],
+    },
+    'conto-ing',
+  )
+  const numberedStore = normalizeBankTransaction(
+    {
+      ...base,
+      remittance_information: [
+        'Operazione Mastercard del 01/09/2026 alle ore 18:38 con Carta xxxxxxxxxxxx0593 Div=EUR Importo in divisa=19.99 / Importo in Euro=19.99 presso PV 2250 2 - Transazione C-less',
+      ],
+    },
+    'conto-ing',
+  )
+
+  assert.equal(tamoil.description, 'TAMOIL 6964')
+  assert.equal(tamoil.merchantName, 'TAMOIL 6964')
+  assert.equal(numberedStore.description, 'PV 2250 2')
+  assert.equal(numberedStore.merchantName, 'PV 2250 2')
+})
+
+test('non tratta un numero carta mascherato come nome esercente', () => {
+  const transaction = normalizeBankTransaction(
+    {
+      transaction_amount: { amount: '12', currency: 'EUR' },
+      credit_debit_indicator: 'DBIT',
+      status: 'BOOK',
+      value_date: '2026-09-01',
+      remittance_information: ['Pagamento carta presso xxxxxxxxxxxx0593'],
+      bank_transaction_code: { description: 'Pagamento Carta' },
+    },
+    'conto-ing',
+  )
+
+  assert.equal(transaction.description, 'Pagamento Carta')
+  assert.equal(transaction.merchantName, null)
+})
+
 test('estrae la controparte da una causale carta senza salvarla integralmente', () => {
   const transaction = normalizeBankTransaction(
     {
