@@ -114,7 +114,9 @@ function amountClusters(rows, flexibleAmounts) {
     if (matching) matching.push(row)
     else clusters.push([row])
   }
-  return clusters
+  return clusters.map((cluster) => cluster.sort((first, second) => (
+    dateOnly(first.occurred_at).localeCompare(dateOnly(second.occurred_at))
+  )))
 }
 
 function groupedByAccount(rows) {
