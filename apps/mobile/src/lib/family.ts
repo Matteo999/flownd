@@ -99,6 +99,7 @@ export type FamilyDashboardSummary = {
   goalTarget: number;
   transactionCount: number;
   categoryCount: number;
+  budgets: FamilyBudgetSummary[];
 };
 
 type AccessDraft = {
@@ -517,10 +518,17 @@ export async function deleteFamilyGroup(groupId: string) {
 }
 
 export async function fetchFamilyDashboardSummary(groupId: string) {
-  const { data, error } = await supabase.rpc('family_dashboard_summary', {
-    p_group_id: groupId,
-  });
+  const [summaryResult, budgetsResult] = await Promise.all([
+    supabase.rpc('family_dashboard_summary', { p_group_id: groupId }),
+    supabase
+      .from('group_budgets')
+      .select('id,category,monthly_limit')
+      .eq('group_id', groupId)
+      .order('category'),
+  ]);
+  const { data, error } = summaryResult;
   if (error) throw error;
+  if (budgetsResult.error) throw budgetsResult.error;
   const summary = data as Record<string, unknown>;
   const members = Array.isArray(summary.members)
     ? summary.members.map((member) => {
@@ -546,6 +554,11 @@ export async function fetchFamilyDashboardSummary(groupId: string) {
     goalTarget: Number(summary.goalTarget),
     transactionCount: Number(summary.transactionCount),
     categoryCount: Number(summary.categoryCount),
+    budgets: (budgetsResult.data ?? []).map((budget) => ({
+      id: budget.id,
+      category: budget.category,
+      monthlyLimit: Number(budget.monthly_limit),
+    })),
   } satisfies FamilyDashboardSummary;
 }
 
