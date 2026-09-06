@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { significantUpcomingPayments } from './recurring-payments-core.ts';
+import { nextRecurringDate, significantUpcomingPayments } from './recurring-payments-core.ts';
 
 function series(overrides = {}) {
   return {
@@ -14,6 +14,13 @@ function series(overrides = {}) {
 }
 
 const now = new Date('2026-09-01T09:00:00+02:00');
+
+test('calcola le frequenze manuali giornaliere e ogni quattro settimane', () => {
+  assert.equal(nextRecurringDate('2026-09-01', 'daily'), '2026-09-02');
+  assert.equal(nextRecurringDate('2026-09-04', 'weekdays'), '2026-09-07');
+  assert.equal(nextRecurringDate('2026-01-31', 'fourweekly'), '2026-02-28');
+  assert.equal(nextRecurringDate('2026-01-31', 'monthly', 31), '2026-02-28');
+});
 
 test('le entrate imminenti sono sempre significative', () => {
   const result = significantUpcomingPayments([

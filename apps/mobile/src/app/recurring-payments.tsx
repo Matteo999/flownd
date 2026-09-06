@@ -11,7 +11,7 @@ import {
 } from '@/components/flownd-ui';
 import { formatEuro } from '@/lib/onboarding';
 import {
-  frequencyLabels, significantUpcomingPayments, type RecurringFrequency,
+  frequencyLabels, nextFutureRecurringDate, significantUpcomingPayments, type RecurringFrequency,
   type RecurringSeries, type RecurringSeriesDraft,
 } from '@/lib/recurring-payments';
 import {
@@ -26,31 +26,6 @@ const expenseCategorySet = new Set<string>(expenseTransactionCategories);
 
 function asAmount(value: string) {
   return Number(value.replace(',', '.')) || 0;
-}
-
-function nextRecurringDate(value: string, frequency: RecurringFrequency, anchorDay?: number) {
-  const current = new Date(`${value.slice(0, 10)}T12:00:00`);
-  if (frequency === 'weekly' || frequency === 'biweekly') {
-    current.setDate(current.getDate() + (frequency === 'weekly' ? 7 : 14));
-    return current.toISOString().slice(0, 10);
-  }
-  const months = {
-    monthly: 1, bimonthly: 2, quarterly: 3, semiannual: 6, annual: 12,
-  }[frequency];
-  const wantedDay = anchorDay ?? current.getDate();
-  current.setDate(1);
-  current.setMonth(current.getMonth() + months);
-  const lastDay = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate();
-  current.setDate(Math.min(wantedDay, lastDay));
-  return current.toISOString().slice(0, 10);
-}
-
-function nextFutureRecurringDate(value: string, frequency: RecurringFrequency) {
-  const anchorDay = new Date(`${value.slice(0, 10)}T12:00:00`).getDate();
-  const today = new Date().toISOString().slice(0, 10);
-  let next = nextRecurringDate(value, frequency, anchorDay);
-  while (next <= today) next = nextRecurringDate(next, frequency, anchorDay);
-  return next;
 }
 
 export default function RecurringPaymentsScreen() {

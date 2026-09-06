@@ -595,11 +595,8 @@ export default function DashboardScreen() {
           style={({ pressed }) => pressed && styles.iconPressed}>
           <Card style={styles.recurrencesCard}>
             <View style={styles.recurrencesHeader}>
-              <View style={[styles.recurrencesIcon, { backgroundColor: colors.accentSoft }]}>
-                <Text style={[styles.materialIcon, { color: colors.accent }]}>event_repeat</Text>
-              </View>
               <View style={styles.flex}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>Ricorrenze</Text>
+                <Text style={[styles.recurrencesTitle, { color: colors.text }]}>Ricorrenze</Text>
               </View>
               <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>chevron_right</Text>
             </View>
@@ -609,7 +606,7 @@ export default function DashboardScreen() {
                   <View style={styles.flex}>
                     <Text numberOfLines={1} style={[styles.recurrenceName, { color: colors.text }]}>{series.name}</Text>
                     <Text style={[styles.recurrenceMeta, { color: colors.textSecondary }]}> 
-                      {series.status === 'paused' ? 'In pausa' : frequencyLabels[series.frequency]} · {series.nextDueOn}
+                      {series.status === 'paused' ? 'In pausa' : frequencyLabels[series.frequency]}
                     </Text>
                   </View>
                   <Text style={[styles.recurrenceAmount, { color: series.direction === 'income' ? colors.positive : colors.text }]}> 
@@ -1154,8 +1151,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   recurrencesCard: { gap: 14 },
-  recurrencesHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  recurrencesIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  recurrencesHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  recurrencesTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   recurrencesList: { gap: 11 },
   recurrenceRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   recurrenceName: { fontFamily: font.bodySemiBold, fontSize: 14 },
