@@ -2022,8 +2022,8 @@ function EditTransactionModal({
       state: option.value === repeatFrequency ? 'on' : 'off',
     });
     return [
-      { title: '', displayInline: true, subactions: primaryRepeatOptions.map(action) },
-      { title: '', displayInline: true, subactions: additionalRepeatOptions.map(action) },
+      { id: 'repeat-primary', title: '', displayInline: true, subactions: primaryRepeatOptions.map(action) },
+      { id: 'repeat-additional', title: '', displayInline: true, subactions: additionalRepeatOptions.map(action) },
     ];
   }, [repeatFrequency]);
   const numericAmount = Number(amount.replace(',', '.')) || 0;

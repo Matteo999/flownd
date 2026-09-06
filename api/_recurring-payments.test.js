@@ -85,6 +85,15 @@ test('client e API condividono la stessa versione del detector', async () => {
   assert.equal(Number(match?.[1]), RECURRING_DETECTOR_VERSION)
 })
 
+test('le occorrenze qualificano la relazione ricorrenza per evitare join PostgREST ambigue', async () => {
+  const apiSource = await readFile(new URL('./_recurring-payments.js', import.meta.url), 'utf8')
+  assert.match(
+    apiSource,
+    /recurring_payment:recurring_payments!recurring_payment_occurrences_recurring_payment_id_fkey!inner/,
+  )
+  assert.doesNotMatch(apiSource, /recurring_payments!inner/)
+})
+
 test('ignora trasferimenti e movimenti generati dal motore', () => {
   const rows = ['2026-05-01', '2026-06-01', '2026-07-01'].map((date, index) => ({
     id: String(index), description: 'Ricorrenza falsa', amount: 50,

@@ -457,7 +457,7 @@ export async function reconcileRecurringTransaction(service, userId, transaction
   const from = new Date(`${occurredOn}T12:00:00Z`); from.setUTCDate(from.getUTCDate() - 10)
   const through = new Date(`${occurredOn}T12:00:00Z`); through.setUTCDate(through.getUTCDate() + 10)
   let query = service.from('recurring_payment_occurrences')
-    .select('id,status,expected_due_on,expected_amount,recurring_payment_id,recurring_payments!inner(direction,status,settlement_mode,financial_account_id,amount_tolerance,date_tolerance_days,name)')
+    .select('id,status,expected_due_on,expected_amount,recurring_payment_id,recurring_payment:recurring_payments!recurring_payment_occurrences_recurring_payment_id_fkey!inner(direction,status,settlement_mode,financial_account_id,amount_tolerance,date_tolerance_days,name)')
     .eq('user_id', userId).in('status', ['projected', 'missed'])
     .gte('expected_due_on', from.toISOString().slice(0, 10))
     .lte('expected_due_on', through.toISOString().slice(0, 10))
@@ -465,7 +465,7 @@ export async function reconcileRecurringTransaction(service, userId, transaction
   if (occurrenceError) throw occurrenceError
   const identity = normalizedIdentity(transaction)
   const candidates = (occurrences || []).flatMap((occurrence) => {
-    const series = occurrence.recurring_payments
+    const series = occurrence.recurring_payment
     if (series.status !== 'active' || series.settlement_mode !== 'bank_match') return []
     if (series.direction !== transaction.kind) return []
     if (series.financial_account_id && series.financial_account_id !== transaction.financial_account_id) return []
@@ -515,12 +515,12 @@ async function findExistingManualOccurrence(service, occurrence, series) {
 
 export async function processDueRecurringPayments(service, today = new Date().toISOString().slice(0, 10)) {
   const { data, error } = await service.from('recurring_payment_occurrences')
-    .select('id,user_id,expected_due_on,expected_amount,recurring_payment_id,recurring_payments!inner(name,direction,category,status,settlement_mode,financial_account_id,amount_tolerance,date_tolerance_days)')
+    .select('id,user_id,expected_due_on,expected_amount,recurring_payment_id,recurring_payment:recurring_payments!recurring_payment_occurrences_recurring_payment_id_fkey!inner(name,direction,category,status,settlement_mode,financial_account_id,amount_tolerance,date_tolerance_days)')
     .eq('status', 'projected').lte('expected_due_on', today).limit(500)
   if (error) throw error
   const results = { materialized: 0, matched: 0, missed: 0 }
   for (const occurrence of data || []) {
-    const series = occurrence.recurring_payments
+    const series = occurrence.recurring_payment
     if (series.status !== 'active' || series.settlement_mode === 'review') continue
     const lateDays = dayDistance(today, occurrence.expected_due_on)
     if (series.settlement_mode === 'bank_match') {
