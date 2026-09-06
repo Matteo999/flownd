@@ -60,6 +60,12 @@ import {
 import type { ExpenseDraft } from '@/lib/onboarding';
 import { formatEuro } from '@/lib/onboarding';
 import {
+  frequencyLabels,
+  nextFutureRecurringDate,
+  type RecurringFrequency,
+  type RecurringSeries,
+} from '@/lib/recurring-payments';
+import {
   categoriesForTransactionKind,
   normalizeTransactionDescription,
 } from '@/lib/transaction-categories';
@@ -76,6 +82,22 @@ const periods: { id: DashboardPeriod; label: string }[] = [
   { id: 'week', label: 'Settimana' },
   { id: 'month', label: 'Mese' },
   { id: 'year', label: 'Anno' },
+];
+
+const primaryRepeatOptions: { value: RecurringFrequency | null; label: string }[] = [
+  { value: null, label: 'Non ripetere' },
+  { value: 'weekly', label: 'Ogni settimana' },
+  { value: 'monthly', label: 'Ogni mese' },
+  { value: 'annual', label: 'Ogni anno' },
+];
+const additionalRepeatOptions: { value: RecurringFrequency; label: string }[] = [
+  { value: 'daily', label: 'Ogni giorno' },
+  { value: 'weekdays', label: 'Ogni giorno lavorativo' },
+  { value: 'biweekly', label: 'Ogni 2 settimane' },
+  { value: 'fourweekly', label: 'Ogni 4 settimane' },
+  { value: 'bimonthly', label: 'Ogni 2 mesi' },
+  { value: 'quarterly', label: 'Ogni 3 mesi' },
+  { value: 'semiannual', label: 'Ogni 6 mesi' },
 ];
 
 const transactionTimeFormatter = new Intl.DateTimeFormat('it-IT', {
@@ -271,10 +293,13 @@ export default function TimelineScreen() {
   const {
     transactions,
     financialAccounts,
+    recurringPayments,
     amountsVisible,
     planTier,
     categorizeTransactions,
     updateTransaction,
+    createRecurringFromTransaction,
+    updateRecurringPayment,
     deleteTransaction,
     unlinkTransactionFromRecurring,
     saving,
@@ -1009,43 +1034,43 @@ export default function TimelineScreen() {
               (account) => account.id === editingTransaction.financialAccountId,
             )?.name ?? 'Automatico'
           }
+          recurringSeries={recurringPayments.find(
+            (series) => series.id === editingTransaction.recurringPaymentId,
+          )}
           onClose={() => {
             clearError();
             setEditingTransaction(null);
           }}
-          onSave={async (transactionId, changes) => {
-            return updateTransaction(transactionId, changes);
-          }}
-          onRecurring={() => {
-            const transactionId = editingTransaction.id;
-            const recurringPaymentId = editingTransaction.recurringPaymentId;
-            setEditingTransaction(null);
-            router.push(
-              recurringPaymentId
-                ? `/recurring-payments?edit=${recurringPaymentId}` as Href
-                : `/recurring-payments?transactionId=${transactionId}` as Href,
+          onSave={async (transactionId, changes, repeatFrequency) => {
+            const updated = await updateTransaction(transactionId, changes);
+            if (!updated) return false;
+            const currentSeries = recurringPayments.find(
+              (series) => series.id === editingTransaction.recurringPaymentId,
             );
+            if (!repeatFrequency) {
+              return editingTransaction.isRecurring
+                ? unlinkTransactionFromRecurring(transactionId)
+                : true;
+            }
+            const nextDueOn = currentSeries?.frequency === repeatFrequency
+              ? currentSeries.nextDueOn
+              : nextFutureRecurringDate(changes.occurredAt, repeatFrequency);
+            const recurringDraft = {
+              name: changes.description,
+              amount: changes.amount,
+              direction: changes.kind,
+              frequency: repeatFrequency,
+              category: changes.category,
+              nextDueOn,
+              financialAccountId:
+                editingTransaction.financialAccountId
+                ?? currentSeries?.financialAccountId
+                ?? null,
+            };
+            return currentSeries
+              ? updateRecurringPayment(currentSeries.id, recurringDraft)
+              : Boolean(await createRecurringFromTransaction(transactionId, recurringDraft));
           }}
-          onUnlinkRecurring={editingTransaction.isRecurring && editingTransaction.id
-            ? (transactionId) => {
-                Alert.alert(
-                  'Rimuovere dalla ricorrenza?',
-                  'Il movimento resta nella Timeline, ma non sarà più collegato alla serie.',
-                  [
-                    { text: 'Annulla', style: 'cancel' },
-                    {
-                      text: 'Rimuovi collegamento',
-                      style: 'destructive',
-                      onPress: () => {
-                        void unlinkTransactionFromRecurring(transactionId).then((unlinked) => {
-                          if (unlinked) setEditingTransaction(null);
-                        });
-                      },
-                    },
-                  ],
-                );
-              }
-            : undefined}
           onDelete={
             (
               ['manual', 'onboarding', 'ai_scan', 'file_import', 'recurring_generated'].includes(
@@ -1343,9 +1368,9 @@ const TransactionRow = memo(function TransactionRow({
               {transaction.internalTransfer ? 'Trasferimento interno' : transaction.category}
             </Text>
             {transaction.isRecurring ? (
-              <View style={[styles.recurringTag, { backgroundColor: colors.accentSoft }]}>
-                <Text style={[styles.recurringTagText, { color: colors.accent }]}>Ricorrente</Text>
-              </View>
+              <Text
+                accessibilityLabel="Ricorrente"
+                style={[styles.recurringIcon, { color: colors.accent }]}>event_repeat</Text>
             ) : null}
             {timeLabel ? (
               <Text style={[styles.transactionDate, { color: colors.textSecondary }]}>
@@ -1928,10 +1953,9 @@ function EditTransactionModal({
   error,
   allowRemember,
   accountName,
+  recurringSeries,
   onClose,
   onSave,
-  onRecurring,
-  onUnlinkRecurring,
   onDelete,
 }: {
   transaction: ExpenseDraft;
@@ -1939,10 +1963,13 @@ function EditTransactionModal({
   error: string | null;
   allowRemember: boolean;
   accountName: string;
+  recurringSeries?: RecurringSeries;
   onClose: () => void;
-  onSave: (transactionId: string, changes: TransactionUpdate) => Promise<boolean>;
-  onRecurring: () => void;
-  onUnlinkRecurring?: (transactionId: string) => void;
+  onSave: (
+    transactionId: string,
+    changes: TransactionUpdate,
+    repeatFrequency: RecurringFrequency | null,
+  ) => Promise<boolean>;
   onDelete?: (transactionId: string) => void;
 }) {
   const { colors, isDark } = useFlowndTheme();
@@ -1954,6 +1981,9 @@ function EditTransactionModal({
   const initialOptions = categoriesForTransactionKind(initialKind);
   const [kind, setKind] = useState<'expense' | 'income'>(initialKind);
   const [description, setDescription] = useState(transaction.description);
+  const [repeatFrequency, setRepeatFrequency] = useState<RecurringFrequency | null>(
+    recurringSeries?.frequency ?? null,
+  );
   const [amount, setAmount] = useState(
     String(transaction.amount).replace('.', ','),
   );
@@ -1984,6 +2014,18 @@ function EditTransactionModal({
     })),
     [category, categoryOptions],
   );
+  const repeatMenuActions = useMemo<MenuAction[]>(() => {
+    const action = (option: { value: RecurringFrequency | null; label: string }): MenuAction => ({
+      id: option.value ?? 'none',
+      title: option.label,
+      image: option.value ? 'repeat' : 'xmark',
+      state: option.value === repeatFrequency ? 'on' : 'off',
+    });
+    return [
+      { title: '', displayInline: true, subactions: primaryRepeatOptions.map(action) },
+      { title: '', displayInline: true, subactions: additionalRepeatOptions.map(action) },
+    ];
+  }, [repeatFrequency]);
   const numericAmount = Number(amount.replace(',', '.')) || 0;
   const [sheetTranslateY] = useState(() => new Animated.Value(480));
   const [sheetHeight] = useState(() => new Animated.Value(0));
@@ -2133,14 +2175,18 @@ function EditTransactionModal({
   );
   const saveChanges = async () => {
     if (!transaction.id || !canSave) return;
-    const updated = await onSave(transaction.id, {
-      description: description.trim(),
-      amount: numericAmount,
-      category,
-      kind,
-      occurredAt: occurredAt.toISOString(),
-      rememberSimilar,
-    });
+    const updated = await onSave(
+      transaction.id,
+      {
+        description: description.trim(),
+        amount: numericAmount,
+        category,
+        kind,
+        occurredAt: occurredAt.toISOString(),
+        rememberSimilar,
+      },
+      repeatFrequency,
+    );
     if (updated) closeSheet();
   };
 
@@ -2247,6 +2293,31 @@ function EditTransactionModal({
                   style={[styles.editDescriptionInput, { color: colors.text }]}
                   value={description}
                 />
+                <MenuView
+                  actions={repeatMenuActions}
+                  onPressAction={(event) => {
+                    const value = event.nativeEvent.event;
+                    if (value === 'none') setRepeatFrequency(null);
+                    else if (
+                      [...primaryRepeatOptions, ...additionalRepeatOptions]
+                        .some((option) => option.value === value)
+                    ) {
+                      setRepeatFrequency(value as RecurringFrequency);
+                    }
+                  }}
+                  style={styles.editRepeatMenu}>
+                  <View
+                    accessible
+                    accessibilityRole="button"
+                    accessibilityLabel={`Ripetizione: ${repeatFrequency ? frequencyLabels[repeatFrequency] : 'Non ripetere'}`}
+                    style={[styles.editRepeatTrigger, { borderTopColor: colors.border }]}>
+                    <Text style={[styles.editRepeatIcon, { color: colors.accent }]}>event_repeat</Text>
+                    <Text style={[styles.editRepeatText, { color: colors.text }]}>
+                      {repeatFrequency ? frequencyLabels[repeatFrequency] : 'Non ripetere'}
+                    </Text>
+                    <Text style={[styles.editorDropdownIcon, { color: colors.textSecondary }]}>expand_more</Text>
+                  </View>
+                </MenuView>
                 <View style={[styles.editComposerMeta, { borderTopColor: colors.border }]}>
                   <Pressable
                     accessibilityRole="button"
@@ -2353,27 +2424,6 @@ function EditTransactionModal({
               </Text>
             ) : null}
             {error ? <Text style={[styles.sheetError, { color: colors.negative }]}>{error}</Text> : null}
-            {transaction.id ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={onRecurring}
-                style={[styles.recurringAction, { borderColor: colors.accent }]}>
-                <Text style={[styles.materialIcon, { color: colors.accent }]}>event_repeat</Text>
-                <Text style={[styles.recurringActionText, { color: colors.accent }]}>
-                  {transaction.isRecurring ? 'Gestisci ricorrenza' : 'Rendi ricorrente'}
-                </Text>
-              </Pressable>
-            ) : null}
-            {onUnlinkRecurring && transaction.id ? (
-              <Pressable
-                accessibilityRole="button"
-                disabled={saving}
-                onPress={() => onUnlinkRecurring(transaction.id!)}
-                style={[styles.recurringAction, { borderColor: colors.textSecondary }]}>
-                <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>link_off</Text>
-                <Text style={[styles.recurringActionText, { color: colors.textSecondary }]}>Rimuovi dalla ricorrenza</Text>
-              </Pressable>
-            ) : null}
             {onDelete && transaction.id ? (
               <Pressable
                 accessibilityRole="button"
@@ -2874,8 +2924,11 @@ const styles = StyleSheet.create({
     gap: 7,
     marginTop: 3,
   },
-  recurringTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 7 },
-  recurringTagText: { fontFamily: font.bodySemiBold, fontSize: 9 },
+  recurringIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 13,
+    lineHeight: 14,
+  },
   category: { fontFamily: font.bodyMedium, fontSize: 10 },
   transactionDate: { fontFamily: font.data, fontSize: 9 },
   amount: { fontFamily: font.dataMedium, fontSize: 11 },
@@ -3006,6 +3059,7 @@ const styles = StyleSheet.create({
   editAmountInput: {
     minWidth: 80,
     maxWidth: '82%',
+    marginTop: 6,
     padding: 0,
     fontFamily: font.dataMedium,
     fontSize: 28,
@@ -3035,6 +3089,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
     textAlignVertical: 'top',
+  },
+  editRepeatMenu: { alignSelf: 'stretch' },
+  editRepeatTrigger: {
+    minHeight: 44,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  editRepeatIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 17,
+    lineHeight: 20,
+  },
+  editRepeatText: {
+    flex: 1,
+    fontFamily: font.bodyMedium,
+    fontSize: 13,
   },
   editComposerMeta: {
     minHeight: 44,
@@ -3121,17 +3194,6 @@ const styles = StyleSheet.create({
     marginTop: 18,
     paddingVertical: 5,
   },
-  recurringAction: {
-    marginTop: 12,
-    minHeight: 44,
-    borderWidth: 1,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  recurringActionText: { fontFamily: font.bodySemiBold, fontSize: 13 },
   rememberCheckbox: {
     width: 24,
     height: 24,

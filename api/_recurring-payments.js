@@ -64,8 +64,18 @@ function median(values) {
 
 export function nextRecurringDate(value, frequency, anchorDay = null) {
   const current = new Date(`${dateOnly(value)}T12:00:00Z`)
-  if (frequency === 'weekly' || frequency === 'biweekly') {
-    current.setUTCDate(current.getUTCDate() + (frequency === 'weekly' ? 7 : 14))
+  if (frequency === 'daily') {
+    current.setUTCDate(current.getUTCDate() + 1)
+    return current.toISOString().slice(0, 10)
+  }
+  if (frequency === 'weekdays') {
+    do current.setUTCDate(current.getUTCDate() + 1)
+    while (current.getUTCDay() === 0 || current.getUTCDay() === 6)
+    return current.toISOString().slice(0, 10)
+  }
+  if (frequency === 'weekly' || frequency === 'biweekly' || frequency === 'fourweekly') {
+    const days = { weekly: 7, biweekly: 14, fourweekly: 28 }[frequency]
+    current.setUTCDate(current.getUTCDate() + days)
     return current.toISOString().slice(0, 10)
   }
   const months = { monthly: 1, bimonthly: 2, quarterly: 3, semiannual: 6, annual: 12 }[frequency]

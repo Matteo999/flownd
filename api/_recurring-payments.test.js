@@ -22,6 +22,9 @@ test('le frequenze preservano il giorno e limitano la fine del mese', () => {
   assert.equal(nextRecurringDate('2028-02-29', 'annual', 29), '2029-02-28')
   assert.equal(nextRecurringDate('2026-09-01', 'weekly'), '2026-09-08')
   assert.equal(nextRecurringDate('2026-09-01', 'biweekly'), '2026-09-15')
+  assert.equal(nextRecurringDate('2026-09-01', 'daily'), '2026-09-02')
+  assert.equal(nextRecurringDate('2026-09-04', 'weekdays'), '2026-09-07')
+  assert.equal(nextRecurringDate('2026-01-31', 'fourweekly'), '2026-02-28')
 })
 
 test('rileva tre bollette mensili con importo variabile entro il 25%', () => {
