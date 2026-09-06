@@ -1,11 +1,27 @@
-import PagerView, {
-  type PagerViewRef,
-} from '@expo/ui/community/pager-view';
 import { Image } from 'expo-image';
 import { router, type Href, useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState, useTransition } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from 'react';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import {
   Card,
@@ -13,6 +29,7 @@ import {
   PrimaryButton,
   ProgressBar,
   Screen,
+  StickyScrollHeader,
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
@@ -40,7 +57,6 @@ import {
   fetchFamilyDashboardSummary,
   fetchFamilyGroups,
   getActiveFamilyGroupId,
-  setActiveFamilyGroupId,
 } from '@/lib/family';
 import { useApp } from '@/providers/app-provider';
 import { frequencyLabels } from '@/lib/recurring-payments';
@@ -53,6 +69,7 @@ const periodLabels: { id: DashboardPeriod; label: string }[] = [
 
 export default function DashboardScreen() {
   const { colors, isDark } = useFlowndTheme();
+  const { width: windowWidth } = useWindowDimensions();
   const {
     draft,
     session,
@@ -71,12 +88,11 @@ export default function DashboardScreen() {
     dismissFirstVisit,
     toggleAmountsVisible,
   } = useApp();
-  const overviewPager = useRef<PagerViewRef>(null);
-  const [overviewPage, setOverviewPage] = useState(0);
+  const [dashboardScope, setDashboardScope] =
+    useState<'personal' | 'groups'>('personal');
   const [familySummaries, setFamilySummaries] =
     useState<FamilyDashboardSummary[]>([]);
   const [familyGroupIndex, setFamilyGroupIndex] = useState(0);
-  const [dashboardScrollEnabled, setDashboardScrollEnabled] = useState(true);
   const [selectedPeriod, setSelectedPeriod] =
     useState<DashboardPeriod>('month');
   const [chartPeriod, setChartPeriod] = useState<DashboardPeriod>('month');
@@ -227,11 +243,81 @@ export default function DashboardScreen() {
     financialAccounts.map((account) => account.lastSyncedAt),
   );
   const hasChartTransactions = chartTransactions.length > 0;
+  const activeFamilySummary =
+    familySummaries[familyGroupIndex] ?? familySummaries[0] ?? null;
+  const [dashboardPageWidth, setDashboardPageWidth] = useState(
+    Math.max(1, windowWidth),
+  );
+  const pageTranslateX = useSharedValue(0);
+  const gestureStartX = useSharedValue(0);
+  const pageWidth = useSharedValue(dashboardPageWidth);
+  const activePage = useSharedValue(0);
+
+  /* Reanimated SharedValues are intentionally mutable on the UI thread. */
+  /* eslint-disable react-hooks/immutability */
+  useEffect(() => {
+    pageWidth.value = dashboardPageWidth;
+    pageTranslateX.value = -activePage.value * dashboardPageWidth;
+  }, [activePage, dashboardPageWidth, pageTranslateX, pageWidth]);
+
+  const selectDashboardScope = useCallback(
+    (nextScope: 'personal' | 'groups') => {
+      if (nextScope === dashboardScope) return;
+      const nextPage = nextScope === 'groups' ? 1 : 0;
+      setDashboardScope(nextScope);
+      activePage.value = nextPage;
+      pageTranslateX.value = withTiming(-nextPage * pageWidth.value, {
+        duration: 260,
+      });
+    },
+    [activePage, dashboardScope, pageTranslateX, pageWidth],
+  );
+  const dashboardSwipe = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-12, 12])
+        .failOffsetY([-16, 16])
+        .onStart(() => {
+          gestureStartX.value = pageTranslateX.value;
+        })
+        .onUpdate((event) => {
+          const nextPosition = gestureStartX.value + event.translationX;
+          pageTranslateX.value = Math.min(
+            0,
+            Math.max(-pageWidth.value, nextPosition),
+          );
+        })
+        .onEnd((event) => {
+          const projectedPosition = pageTranslateX.value + event.velocityX * 0.16;
+          const nextPage = projectedPosition <= -pageWidth.value / 2 ? 1 : 0;
+          activePage.value = nextPage;
+          pageTranslateX.value = withSpring(-nextPage * pageWidth.value, {
+            damping: 24,
+            stiffness: 240,
+            mass: 0.82,
+          });
+          runOnJS(setDashboardScope)(nextPage === 1 ? 'groups' : 'personal');
+        }),
+    [activePage, gestureStartX, pageTranslateX, pageWidth],
+  );
+  /* eslint-enable react-hooks/immutability */
+  const dashboardTrackStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: pageTranslateX.value }],
+  }));
+  const dashboardTabIndicatorStyle = useAnimatedStyle(() => {
+    const progress = pageWidth.value > 0
+      ? -pageTranslateX.value / pageWidth.value
+      : 0;
+    const tabWidth = pageWidth.value / 2;
+    return {
+      width: tabWidth,
+      transform: [{ translateX: progress * tabWidth }],
+    };
+  });
 
   return (
     <Screen
       animateFirstFocus
-      scrollEnabled={dashboardScrollEnabled}
       floatingActionPosition="free"
       floatingAction={
         <DraggableTransactionFab
@@ -239,6 +325,7 @@ export default function DashboardScreen() {
         />
       }>
       <PageHeader
+        collapseInPlace
         title="Dashboard"
         action={
           <AppHeaderActions
@@ -264,6 +351,72 @@ export default function DashboardScreen() {
           />
         }
       />
+      <StickyScrollHeader
+        accessibilityRole="tablist"
+        matchCompactHeaderBackground
+        style={[
+          styles.dashboardTabs,
+          {
+            borderBottomColor: isDark
+              ? 'rgba(255,255,255,0.28)'
+              : 'rgba(11,36,27,0.22)',
+          },
+        ]}>
+        {([
+          { id: 'personal', label: 'Personale' },
+          { id: 'groups', label: 'Gruppi' },
+        ] as const).map((tab) => {
+          const selected = dashboardScope === tab.id;
+          return (
+            <Pressable
+              key={tab.id}
+              accessibilityRole="tab"
+              accessibilityState={{ selected }}
+              onPress={() => selectDashboardScope(tab.id)}
+              style={({ pressed }) => [
+                styles.dashboardTab,
+                pressed && styles.dashboardTabPressed,
+              ]}>
+              <Text
+                style={[
+                  styles.dashboardTabLabel,
+                  { color: selected ? colors.text : colors.textSecondary },
+                  selected && styles.dashboardTabLabelSelected,
+                ]}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.dashboardTabIndicator,
+            { backgroundColor: colors.accent },
+            dashboardTabIndicatorStyle,
+          ]}
+        />
+      </StickyScrollHeader>
+
+      <GestureDetector gesture={dashboardSwipe}>
+        <View
+          onLayout={(event) => {
+            const measuredWidth = event.nativeEvent.layout.width;
+            if (Math.abs(measuredWidth - dashboardPageWidth) > 0.5) {
+              setDashboardPageWidth(measuredWidth);
+            }
+          }}
+          style={styles.dashboardPagesViewport}>
+          <Animated.View
+            style={[
+              styles.dashboardPagesTrack,
+              { width: dashboardPageWidth * 2 },
+              dashboardTrackStyle,
+            ]}>
+            {(['personal', 'groups'] as const).map((renderedScope) => (
+              <View
+                key={renderedScope}
+                style={[styles.dashboardMainView, { width: dashboardPageWidth }]}>
 
       <Card
         style={[
@@ -273,139 +426,220 @@ export default function DashboardScreen() {
             borderColor: colors.accent,
           },
         ]}>
-        <PagerView
-          ref={overviewPager}
-          initialPage={0}
-          onPageSelected={(event) =>
-            setOverviewPage(event.nativeEvent.position)
-          }
-          style={styles.overviewPager}>
-          <View key="budget" style={styles.overviewPage}>
-            <Pressable
-              accessibilityHint="Apre la distribuzione tra macro-categorie e categorie"
-              accessibilityLabel="Modifica l’allocazione del budget"
-              accessibilityRole="button"
-              onPress={() => router.push('/budget' as Href)}
-              style={({ pressed }) => [
-                styles.budgetPageButton,
-                pressed && styles.iconPressed,
-              ]}>
-              <View style={styles.overviewLabelRow}>
-                <Text
-                  style={[
-                    styles.overviewLabel,
-                    { color: overviewSecondaryForeground, opacity: 0.82 },
-                  ]}>
-                  BUDGET · {formatFinancialCycle(financialCycle).toLocaleUpperCase('it-IT')}
-                </Text>
-                <Text
-                  accessibilityElementsHidden
-                  style={[
-                    styles.budgetSettingsIcon,
-                    { color: overviewSecondaryForeground, opacity: 0.82 },
-                  ]}>
-                  tune
-                </Text>
-              </View>
-              <View style={styles.budgetOverviewContent}>
-                <View style={styles.budgetOverviewCopy}>
+        <View style={styles.overviewContent}>
+          {renderedScope === 'personal' ? (
+            <View style={styles.overviewPage}>
+              <Pressable
+                accessibilityHint="Apre la distribuzione tra macro-categorie e categorie"
+                accessibilityLabel="Modifica l’allocazione del budget"
+                accessibilityRole="button"
+                onPress={() => router.push('/budget' as Href)}
+                style={({ pressed }) => [
+                  styles.budgetPageButton,
+                  pressed && styles.iconPressed,
+                ]}>
+                <View style={styles.overviewLabelRow}>
                   <Text
-                    accessibilityLabel={
-                      amountsVisible
-                        ? `${formatEuro(monthlyBudgetRemaining)} disponibili su ${formatEuro(monthlyBudget)}`
-                        : 'Importi nascosti'
-                    }
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.72}
-                    numberOfLines={1}
-                    style={[styles.budgetAmount, { color: overviewForeground }]}>
-                    {amountsVisible ? (
-                      <>
-                        {formatEuro(monthlyBudgetRemaining)}
-                        <Text
-                          style={[
-                            styles.budgetAmountTotal,
-                            { color: overviewSecondaryForeground, opacity: 0.82 },
-                          ]}>
-                          {' / '}{formatEuro(monthlyBudget)}
-                        </Text>
-                      </>
-                    ) : (
-                      <>
-                        {HIDDEN_AMOUNT}
-                        <Text
-                          style={[
-                            styles.budgetAmountTotal,
-                            { color: overviewSecondaryForeground, opacity: 0.82 },
-                          ]}>
-                          {' / '}{HIDDEN_AMOUNT}
-                        </Text>
-                      </>
-                    )}
+                    style={[
+                      styles.overviewLabel,
+                      { color: overviewSecondaryForeground, opacity: 0.82 },
+                    ]}>
+                    BUDGET · {formatFinancialCycle(financialCycle).toLocaleUpperCase('it-IT')}
+                  </Text>
+                  <Text
+                    accessibilityElementsHidden
+                    style={[
+                      styles.budgetSettingsIcon,
+                      { color: overviewSecondaryForeground, opacity: 0.82 },
+                    ]}>
+                    tune
                   </Text>
                 </View>
-                <BudgetRadialChart
-                  amountsVisible={amountsVisible}
-                  spent={monthlyBudgetUsed}
-                  total={monthlyBudget}
-                />
-              </View>
-            </Pressable>
-          </View>
-
-          <View key="family" style={styles.overviewPage}>
-            <View style={styles.budgetPageButton}>
-              <FamilyOverviewSlider
-                amountsVisible={amountsVisible}
-                foreground={overviewForeground}
-                index={familyGroupIndex}
-                onIndexChange={(index) => {
-                  setFamilyGroupIndex(index);
-                  const groupId = familySummaries[index]?.groupId;
-                  if (session?.user.id && groupId) {
-                    void setActiveFamilyGroupId(session.user.id, groupId);
-                  }
-                }}
-                onOpen={() => router.push('/family' as Href)}
-                onSwipeEnd={() => setDashboardScrollEnabled(true)}
-                onSwipeStart={() => setDashboardScrollEnabled(false)}
-                secondaryForeground={overviewSecondaryForeground}
-                summaries={familySummaries}
-              />
-            </View>
-          </View>
-        </PagerView>
-
-        <View accessibilityRole="tablist" style={styles.pageDots}>
-          {[0, 1].map((index) => {
-            const selected = overviewPage === index;
-            return (
-              <Pressable
-                key={index}
-                accessibilityRole="tab"
-                accessibilityLabel={index === 0 ? 'Budget mensile' : 'Riepilogo famiglia'}
-                accessibilityState={{ selected }}
-                hitSlop={8}
-                onPress={() => overviewPager.current?.setPage(index)}
-                style={[
-                  styles.pageDotHit,
-                  selected && {
-                    backgroundColor: 'rgba(255, 255, 255, 0.18)',
-                  },
-                ]}>
-                <View
-                  style={[
-                    styles.pageDot,
-                    {
-                      backgroundColor: selected
-                        ? colors.onAccent
-                        : 'rgba(255, 255, 255, 0.45)',
-                    },
-                  ]}
-                />
+                <View style={styles.budgetOverviewContent}>
+                  <View style={styles.budgetOverviewCopy}>
+                    <Text
+                      accessibilityLabel={
+                        amountsVisible
+                          ? `${formatEuro(monthlyBudgetRemaining)} disponibili su ${formatEuro(monthlyBudget)}`
+                          : 'Importi nascosti'
+                      }
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.72}
+                      numberOfLines={1}
+                      style={[styles.budgetAmount, { color: overviewForeground }]}>
+                      {amountsVisible ? (
+                        <>
+                          {formatEuro(monthlyBudgetRemaining)}
+                          <Text
+                            style={[
+                              styles.budgetAmountTotal,
+                              { color: overviewSecondaryForeground, opacity: 0.82 },
+                            ]}>
+                            {' / '}{formatEuro(monthlyBudget)}
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          {HIDDEN_AMOUNT}
+                          <Text
+                            style={[
+                              styles.budgetAmountTotal,
+                              { color: overviewSecondaryForeground, opacity: 0.82 },
+                            ]}>
+                            {' / '}{HIDDEN_AMOUNT}
+                          </Text>
+                        </>
+                      )}
+                    </Text>
+                  </View>
+                  <BudgetRadialChart
+                    amountsVisible={amountsVisible}
+                    spent={monthlyBudgetUsed}
+                    total={monthlyBudget}
+                  />
+                </View>
               </Pressable>
-            );
-          })}
+            </View>
+          ) : (
+            <View style={styles.overviewPage}>
+              <Pressable
+                accessibilityHint="Apre la sezione Famiglia e condivisione"
+                accessibilityLabel={
+                  activeFamilySummary
+                    ? `Apri il gruppo ${activeFamilySummary.groupName}`
+                    : 'Apri Famiglia e condivisione'
+                }
+                accessibilityRole="button"
+                onPress={() => router.push('/family' as Href)}
+                style={({ pressed }) => [
+                  styles.budgetPageButton,
+                  pressed && styles.iconPressed,
+                ]}>
+                {activeFamilySummary && activeFamilySummary.budgetTotal > 0 ? (
+                  <>
+                    <View style={styles.overviewLabelRow}>
+                      <View style={styles.familyOverviewLabel}>
+                        <Text
+                          style={[
+                            styles.overviewLabel,
+                            { color: overviewSecondaryForeground, opacity: 0.82 },
+                          ]}>
+                          BUDGET CONDIVISO
+                        </Text>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.groupBudgetName,
+                            { color: overviewForeground },
+                          ]}>
+                          {activeFamilySummary.groupName}
+                        </Text>
+                      </View>
+                      <DashboardFamilyAvatars
+                        foreground={overviewForeground}
+                        members={activeFamilySummary.members}
+                      />
+                    </View>
+                    <View style={styles.budgetOverviewContent}>
+                      <View style={styles.budgetOverviewCopy}>
+                        <Text
+                          accessibilityLabel={
+                            amountsVisible
+                              ? `${formatFamilyCurrency(Math.max(0, activeFamilySummary.budgetTotal - activeFamilySummary.budgetSpent), activeFamilySummary.currency)} disponibili su ${formatFamilyCurrency(activeFamilySummary.budgetTotal, activeFamilySummary.currency)}`
+                              : 'Importi nascosti'
+                          }
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.72}
+                          numberOfLines={1}
+                          style={[
+                            styles.budgetAmount,
+                            styles.groupBudgetAmount,
+                            { color: overviewForeground },
+                          ]}>
+                          {amountsVisible ? (
+                            <>
+                              {formatFamilyCurrency(
+                                Math.max(
+                                  0,
+                                  activeFamilySummary.budgetTotal -
+                                    activeFamilySummary.budgetSpent,
+                                ),
+                                activeFamilySummary.currency,
+                              )}
+                              <Text
+                                style={[
+                                  styles.budgetAmountTotal,
+                                  {
+                                    color: overviewSecondaryForeground,
+                                    opacity: 0.82,
+                                  },
+                                ]}>
+                                {' / '}
+                                {formatFamilyCurrency(
+                                  activeFamilySummary.budgetTotal,
+                                  activeFamilySummary.currency,
+                                )}
+                              </Text>
+                            </>
+                          ) : (
+                            <>
+                              {HIDDEN_AMOUNT}
+                              <Text
+                                style={[
+                                  styles.budgetAmountTotal,
+                                  {
+                                    color: overviewSecondaryForeground,
+                                    opacity: 0.82,
+                                  },
+                                ]}>
+                                {' / '}{HIDDEN_AMOUNT}
+                              </Text>
+                            </>
+                          )}
+                        </Text>
+                      </View>
+                      <BudgetRadialChart
+                        amountsVisible={amountsVisible}
+                        spent={activeFamilySummary.budgetSpent}
+                        total={activeFamilySummary.budgetTotal}
+                      />
+                    </View>
+                  </>
+                ) : activeFamilySummary ? (
+                  <View style={styles.familyMembersOverview}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.overviewLabel,
+                        { color: overviewSecondaryForeground, opacity: 0.82 },
+                      ]}>
+                      {activeFamilySummary.groupName.toLocaleUpperCase('it-IT')}
+                    </Text>
+                    <DashboardFamilyAvatars
+                      foreground={overviewForeground}
+                      large
+                      members={activeFamilySummary.members}
+                    />
+                    <Text
+                      style={[
+                        styles.familyMembersCaption,
+                        { color: overviewSecondaryForeground, opacity: 0.86 },
+                      ]}>
+                      Nessun budget condiviso · {activeFamilySummary.memberCount}{' '}
+                      {activeFamilySummary.memberCount === 1 ? 'partecipante' : 'partecipanti'}
+                    </Text>
+                  </View>
+                ) : (
+                  <FamilyOverviewPage
+                    amountsVisible={amountsVisible}
+                    foreground={overviewForeground}
+                    secondaryForeground={overviewSecondaryForeground}
+                    summary={null}
+                  />
+                )}
+              </Pressable>
+            </View>
+          )}
         </View>
       </Card>
 
@@ -447,10 +681,16 @@ export default function DashboardScreen() {
             </Text>
           </View>
           <Pressable
-            accessibilityLabel="Modifica il budget per categoria"
+            accessibilityLabel={
+              renderedScope === 'personal'
+                ? 'Modifica il budget per categoria'
+                : 'Apri il budget del gruppo'
+            }
             accessibilityRole="button"
             hitSlop={8}
-            onPress={() => router.push('/budget' as Href)}
+            onPress={() =>
+              router.push((renderedScope === 'personal' ? '/budget' : '/family') as Href)
+            }
             style={({ pressed }) => [
               styles.budgetEditButton,
               { backgroundColor: colors.accentSoft },
@@ -463,7 +703,90 @@ export default function DashboardScreen() {
         </View>
 
         <View style={styles.budgetCategoryList}>
-          {budgetRows.map((budget) => {
+          {renderedScope === 'groups' ? (
+            activeFamilySummary?.budgets.length ? (
+              activeFamilySummary.budgets.map((budget, index) => {
+                const groupBudgetColors = ['#3D8BFF', '#FF8A3D', '#27D69A'];
+                const groupBudgetSoftColors = isDark
+                  ? ['#173A63', '#57331F', '#164D3B']
+                  : ['#EAF3FF', '#FFF0E7', '#E5FBF3'];
+                const visualIndex = index % groupBudgetColors.length;
+                const allocation = activeFamilySummary.budgetTotal > 0
+                  ? budget.monthlyLimit / activeFamilySummary.budgetTotal
+                  : 0;
+                return (
+                  <View
+                    key={budget.id}
+                    accessible
+                    accessibilityLabel={
+                      amountsVisible
+                        ? `${budget.category}: ${formatFamilyCurrency(budget.monthlyLimit, activeFamilySummary.currency)}, ${Math.round(allocation * 100)} per cento del budget del gruppo`
+                        : `${budget.category}: importo nascosto`
+                    }
+                    style={styles.budgetCategoryRow}>
+                    <View style={styles.budgetCategoryTop}>
+                      <View
+                        style={[
+                          styles.budgetCategoryIconBox,
+                          { backgroundColor: groupBudgetSoftColors[visualIndex] },
+                        ]}>
+                        <Text
+                          style={[
+                            styles.budgetCategoryIcon,
+                            { color: groupBudgetColors[visualIndex] },
+                          ]}>
+                          category
+                        </Text>
+                      </View>
+                      <View style={styles.budgetCategoryDetails}>
+                        <View style={styles.budgetCategoryNameRow}>
+                          <Text
+                            style={[styles.budgetCategoryName, { color: colors.text }]}>
+                            {budget.category}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.budgetCategoryPercentage,
+                              { color: groupBudgetColors[visualIndex] },
+                            ]}>
+                            {amountsVisible ? `${Math.round(allocation * 100)}%` : '••%'}
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.budgetCategoryAmount,
+                            { color: colors.textSecondary },
+                          ]}>
+                          {amountsVisible
+                            ? `${formatFamilyCurrency(budget.monthlyLimit, activeFamilySummary.currency)} al mese`
+                            : `${HIDDEN_AMOUNT} al mese`}
+                        </Text>
+                      </View>
+                    </View>
+                    <View
+                      style={[
+                        styles.budgetCategoryTrack,
+                        { backgroundColor: groupBudgetSoftColors[visualIndex] },
+                      ]}>
+                      <View
+                        style={[
+                          styles.budgetCategoryFill,
+                          {
+                            backgroundColor: groupBudgetColors[visualIndex],
+                            width: `${Math.min(100, Math.max(0, allocation * 100))}%`,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                );
+              })
+            ) : (
+              <Text style={[styles.emptyBudgetCopy, { color: colors.textSecondary }]}>
+                Nessun budget per categoria impostato per questo gruppo.
+              </Text>
+            )
+          ) : budgetRows.map((budget) => {
             const visual = budget.id === 'wants'
               ? { color: '#FF8A3D', soft: isDark ? '#57331F' : '#FFF0E7' }
               : budget.id === 'savings'
@@ -733,6 +1056,11 @@ export default function DashboardScreen() {
           </PrimaryButton>
         </Card>
       ) : null}
+              </View>
+            ))}
+          </Animated.View>
+        </View>
+      </GestureDetector>
     </Screen>
   );
 }
@@ -814,154 +1142,6 @@ function BudgetRadialChart({
         </Text>
       </View>
     </View>
-  );
-}
-
-const FAMILY_SLIDE_HEIGHT = 132;
-
-function FamilyOverviewSlider({
-  summaries,
-  index,
-  onIndexChange,
-  onOpen,
-  onSwipeEnd,
-  onSwipeStart,
-  amountsVisible,
-  foreground,
-  secondaryForeground,
-}: {
-  summaries: FamilyDashboardSummary[];
-  index: number;
-  onIndexChange: (index: number) => void;
-  onOpen: () => void;
-  onSwipeEnd: () => void;
-  onSwipeStart: () => void;
-  amountsVisible: boolean;
-  foreground: string;
-  secondaryForeground: string;
-}) {
-  const [progress] = useState(() => new Animated.Value(0));
-  const [transition, setTransition] = useState<{
-    from: number;
-    to: number;
-    direction: 1 | -1;
-  } | null>(null);
-  const selectedIndex = summaries.length ? Math.min(index, summaries.length - 1) : 0;
-
-  function move(direction: 1 | -1) {
-    if (summaries.length < 2 || transition) return;
-    const to = (selectedIndex + direction + summaries.length) % summaries.length;
-    const nextTransition = { from: selectedIndex, to, direction };
-    progress.setValue(0);
-    setTransition(nextTransition);
-    Animated.timing(progress, {
-      toValue: 1,
-      duration: 260,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (!finished) return;
-      onIndexChange(to);
-      setTransition(null);
-      progress.setValue(0);
-    });
-  }
-
-  const verticalSwipe = Gesture.Pan()
-    .enabled(summaries.length > 1)
-    .activeOffsetY([-9, 9])
-    .failOffsetX([-18, 18])
-    .runOnJS(true)
-    .onBegin(onSwipeStart)
-    .onEnd((event) => {
-      if (event.translationY < -28 || event.velocityY < -450) move(1);
-      else if (event.translationY > 28 || event.velocityY > 450) move(-1);
-    })
-    .onFinalize(onSwipeEnd);
-
-  if (!summaries.length) {
-    return (
-      <Pressable
-        accessibilityLabel="Apri Famiglia e condivisione"
-        accessibilityRole="button"
-        onPress={onOpen}
-        style={styles.familySlider}>
-        <FamilyOverviewPage
-          amountsVisible={amountsVisible}
-          foreground={foreground}
-          secondaryForeground={secondaryForeground}
-          summary={null}
-        />
-      </Pressable>
-    );
-  }
-
-  const currentSummary = summaries[transition?.from ?? selectedIndex] ?? null;
-  const incomingSummary = transition ? summaries[transition.to] : null;
-  const direction = transition?.direction ?? 1;
-  return (
-    <GestureDetector gesture={verticalSwipe}>
-      <Pressable
-        accessibilityActions={[
-          { name: 'increment', label: 'Gruppo successivo' },
-          { name: 'decrement', label: 'Gruppo precedente' },
-        ]}
-        accessibilityHint="Scorri verticalmente per cambiare gruppo"
-        accessibilityLabel={`${currentSummary?.groupName ?? 'Famiglia'}, gruppo ${selectedIndex + 1} di ${summaries.length}`}
-        accessibilityRole="adjustable"
-        onAccessibilityAction={(event) => move(event.nativeEvent.actionName === 'decrement' ? -1 : 1)}
-        onPress={onOpen}
-        style={styles.familySlider}>
-      <Animated.View
-        style={[
-          styles.familySlide,
-          transition && {
-            transform: [{
-              translateY: progress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, -direction * FAMILY_SLIDE_HEIGHT],
-              }),
-            }],
-          },
-        ]}>
-        <FamilyOverviewPage
-          amountsVisible={amountsVisible}
-          foreground={foreground}
-          secondaryForeground={secondaryForeground}
-          summary={currentSummary}
-        />
-      </Animated.View>
-      {incomingSummary ? (
-        <Animated.View
-          style={[
-            styles.familySlide,
-            styles.familyIncomingSlide,
-            {
-              transform: [{
-                translateY: progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [direction * FAMILY_SLIDE_HEIGHT, 0],
-                }),
-              }],
-            },
-          ]}>
-          <FamilyOverviewPage
-            amountsVisible={amountsVisible}
-            foreground={foreground}
-            secondaryForeground={secondaryForeground}
-            summary={incomingSummary}
-          />
-        </Animated.View>
-      ) : null}
-      {summaries.length > 1 ? (
-        <View pointerEvents="none" style={styles.familyGroupPosition}>
-          <Text style={[styles.familyGroupPositionText, { color: secondaryForeground }]}>
-            {selectedIndex + 1}/{summaries.length} · scorri
-          </Text>
-        </View>
-      ) : null}
-      </Pressable>
-    </GestureDetector>
   );
 }
 
@@ -1055,20 +1235,42 @@ function FamilyOverviewPage({
 function DashboardFamilyAvatars({
   members,
   foreground,
+  large = false,
 }: {
   members: FamilyDashboardSummary['members'];
   foreground: string;
+  large?: boolean;
 }) {
-  const visibleMembers = members.slice(0, 3);
+  const visibleMembers = members.slice(0, large ? 4 : 3);
   const overflow = members.length - visibleMembers.length;
   return (
-    <View style={styles.dashboardAvatars}>
+    <View style={[styles.dashboardAvatars, large && styles.dashboardAvatarsLarge]}>
       {visibleMembers.map((member, index) => (
-        <DashboardFamilyAvatar key={member.userId} member={member} index={index} foreground={foreground} />
+        <DashboardFamilyAvatar
+          key={member.userId}
+          foreground={foreground}
+          index={index}
+          large={large}
+          member={member}
+        />
       ))}
       {overflow > 0 ? (
-        <View style={[styles.dashboardAvatar, styles.dashboardAvatarOverflow, { borderColor: foreground }]}>
-          <Text style={[styles.dashboardAvatarOverflowText, { color: foreground }]}>+{overflow}</Text>
+        <View
+          style={[
+            styles.dashboardAvatar,
+            styles.dashboardAvatarOverflow,
+            large && styles.dashboardAvatarLarge,
+            large && styles.dashboardAvatarOverlapLarge,
+            { borderColor: foreground },
+          ]}>
+          <Text
+            style={[
+              styles.dashboardAvatarOverflowText,
+              large && styles.dashboardAvatarOverflowTextLarge,
+              { color: foreground },
+            ]}>
+            +{overflow}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -1079,10 +1281,12 @@ function DashboardFamilyAvatar({
   member,
   index,
   foreground,
+  large,
 }: {
   member: FamilyDashboardSummary['members'][number];
   index: number;
   foreground: string;
+  large: boolean;
 }) {
   const [failed, setFailed] = useState(false);
   const initial = member.displayName.trim()[0]?.toUpperCase() || 'F';
@@ -1093,13 +1297,32 @@ function DashboardFamilyAvatar({
         contentFit="cover"
         onError={() => setFailed(true)}
         source={{ uri: member.avatarUrl }}
-        style={[styles.dashboardAvatar, index > 0 && styles.dashboardAvatarOverlap, { borderColor: foreground }]}
+        style={[
+          styles.dashboardAvatar,
+          large && styles.dashboardAvatarLarge,
+          index > 0 && (large ? styles.dashboardAvatarOverlapLarge : styles.dashboardAvatarOverlap),
+          { borderColor: foreground },
+        ]}
       />
     );
   }
   return (
-    <View style={[styles.dashboardAvatar, styles.dashboardAvatarFallback, index > 0 && styles.dashboardAvatarOverlap, { borderColor: foreground }]}>
-      <Text style={[styles.dashboardAvatarInitial, { color: foreground }]}>{initial}</Text>
+    <View
+      style={[
+        styles.dashboardAvatar,
+        styles.dashboardAvatarFallback,
+        large && styles.dashboardAvatarLarge,
+        index > 0 && (large ? styles.dashboardAvatarOverlapLarge : styles.dashboardAvatarOverlap),
+        { borderColor: foreground },
+      ]}>
+      <Text
+        style={[
+          styles.dashboardAvatarInitial,
+          large && styles.dashboardAvatarInitialLarge,
+          { color: foreground },
+        ]}>
+        {initial}
+      </Text>
     </View>
   );
 }
@@ -1120,8 +1343,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  dashboardTabs: {
+    minHeight: 40,
+    flexDirection: 'row',
+    borderBottomWidth: 1.5,
+    marginHorizontal: -20,
+    marginTop: 2,
+    marginBottom: 14,
+    zIndex: 25,
+    elevation: 7,
+  },
+  dashboardTab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  dashboardTabPressed: { opacity: 0.62 },
+  dashboardTabLabel: {
+    fontFamily: font.bodyMedium,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  dashboardTabLabelSelected: { fontFamily: font.bodySemiBold },
+  dashboardTabIndicator: {
+    position: 'absolute',
+    bottom: -1,
+    left: 0,
+    height: 4,
+  },
+  dashboardPagesViewport: {
+    marginHorizontal: -20,
+    overflow: 'hidden',
+  },
+  dashboardPagesTrack: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  dashboardMainView: { flexShrink: 0, paddingHorizontal: 20 },
   overviewCard: { marginBottom: 12, padding: 11, overflow: 'hidden' },
-  overviewPager: { height: 138 },
+  overviewContent: { height: 138 },
   overviewPage: {
     flex: 1,
     paddingHorizontal: 5,
@@ -1146,6 +1407,7 @@ const styles = StyleSheet.create({
     fontSize: 29,
     lineHeight: 38,
   },
+  groupBudgetAmount: { fontSize: 31, lineHeight: 40 },
   budgetAmountTotal: {
     fontFamily: font.bodyMedium,
     fontSize: 12,
@@ -1195,6 +1457,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   familyOverviewLabel: { flex: 1, marginRight: 8 },
+  groupBudgetName: {
+    fontFamily: font.displaySemiBold,
+    fontSize: 15,
+    lineHeight: 20,
+    marginTop: 1,
+  },
   budgetSettingsIcon: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 18,
@@ -1214,35 +1482,31 @@ const styles = StyleSheet.create({
   totalAmount: { fontFamily: font.body, fontSize: 12 },
   familyEmptyTitle: { fontFamily: font.displayBold, fontSize: 25, lineHeight: 33, marginTop: 10 },
   familyImpactCaption: { fontFamily: font.bodyMedium, fontSize: 11, lineHeight: 16, marginTop: 13 },
-  familySlider: { height: FAMILY_SLIDE_HEIGHT, overflow: 'hidden' },
-  familySlide: { height: FAMILY_SLIDE_HEIGHT },
-  familyIncomingSlide: { position: 'absolute', top: 0, right: 0, left: 0 },
-  familyGroupPosition: { position: 'absolute', right: 0, bottom: 0 },
-  familyGroupPositionText: { fontFamily: font.bodyMedium, fontSize: 9, opacity: 0.7 },
+  familyMembersOverview: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  familyMembersCaption: {
+    fontFamily: font.bodyMedium,
+    fontSize: 11,
+    lineHeight: 16,
+  },
   dashboardAvatars: { flexDirection: 'row', alignItems: 'center', paddingRight: 1 },
+  dashboardAvatarsLarge: { flex: 1, justifyContent: 'center', paddingRight: 0 },
   dashboardAvatar: { width: 27, height: 27, borderRadius: 14, borderWidth: 1.5 },
+  dashboardAvatarLarge: { width: 48, height: 48, borderRadius: 24, borderWidth: 2 },
   dashboardAvatarOverlap: { marginLeft: -7 },
+  dashboardAvatarOverlapLarge: { marginLeft: -12 },
   dashboardAvatarFallback: { backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' },
   dashboardAvatarInitial: { fontFamily: font.displayBold, fontSize: 10 },
+  dashboardAvatarInitialLarge: { fontSize: 16 },
   dashboardAvatarOverflow: { marginLeft: -7, backgroundColor: 'rgba(0,0,0,0.12)', alignItems: 'center', justifyContent: 'center' },
   dashboardAvatarOverflowText: { fontFamily: font.dataMedium, fontSize: 8 },
+  dashboardAvatarOverflowTextLarge: { fontSize: 12 },
   overviewHint: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 18 },
   delta: { fontFamily: font.dataMedium, fontSize: 11, lineHeight: 16, marginTop: 18 },
-  pageDots: {
-    minHeight: 22,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-  },
-  pageDotHit: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pageDot: { width: 7, height: 7, borderRadius: 4 },
   iconPressed: { opacity: 0.6 },
   fab: {
     width: 60,
@@ -1347,6 +1611,7 @@ const styles = StyleSheet.create({
   budgetCategoryName: { fontFamily: font.bodySemiBold, fontSize: 13 },
   budgetCategoryPercentage: { fontFamily: font.dataMedium, fontSize: 12 },
   budgetCategoryAmount: { fontFamily: font.data, fontSize: 10, marginTop: 2 },
+  emptyBudgetCopy: { fontFamily: font.body, fontSize: 13, lineHeight: 19 },
   budgetCategoryTrack: { height: 8, borderRadius: 8, overflow: 'hidden' },
   budgetCategoryFill: { height: '100%', borderRadius: 8 },
   sectionHeader: { marginTop: 5, marginBottom: 10, gap: 9 },

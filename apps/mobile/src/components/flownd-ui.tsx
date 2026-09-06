@@ -11,6 +11,7 @@ import {
 import {
   ActivityIndicator,
   Animated,
+  type AccessibilityRole,
   Easing,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -222,6 +223,55 @@ export function ScreenScrollBridge({
   ) => ReactNode;
 }) {
   return children(useScreenScrollHandler());
+}
+
+export function StickyScrollHeader({
+  accessibilityRole,
+  children,
+  matchCompactHeaderBackground = false,
+  offset = 14,
+  style,
+}: PropsWithChildren<{
+  accessibilityRole?: AccessibilityRole;
+  matchCompactHeaderBackground?: boolean;
+  offset?: number;
+  style?: StyleProp<ViewStyle>;
+}>) {
+  const { isDark } = useFlowndTheme();
+  const scrollContext = useContext(ScrollHeaderContext);
+  const translateY = scrollContext
+    ? scrollContext.scrollY.interpolate({
+        inputRange: [0, offset, offset + 1],
+        outputRange: [0, 0, 1],
+        extrapolateLeft: 'clamp',
+        extrapolateRight: 'extend',
+      })
+    : 0;
+
+  return (
+    <Animated.View
+      accessibilityRole={accessibilityRole}
+      style={[
+        style,
+        scrollContext && { transform: [{ translateY }] },
+      ]}>
+      {matchCompactHeaderBackground && scrollContext ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: isDark
+                ? darkCompactHeaderBackground
+                : lightCompactHeaderBackground,
+              opacity: scrollContext.headerProgress,
+            },
+          ]}
+        />
+      ) : null}
+      {children}
+    </Animated.View>
+  );
 }
 
 export function LoadingScreen({ label }: { label: string }) {
