@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
 import { Image } from 'expo-image';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import {
@@ -28,14 +29,19 @@ import {
   getActiveFamilyGroupId,
   type GroupInvite,
   type GroupMember,
+  type NetWorthVisibility,
   type SharingAccess,
+  type TransactionVisibility,
   leaveFamilyGroup,
   setActiveFamilyGroupId,
   setGoalSharedWithGroup,
+  setMyGroupContribution,
+  setMyGroupCycleDisposition,
+  setMyGroupPrivacy,
   updateGroupMemberAccess,
-  updateMyGroupSharing,
 } from '@/lib/family';
 import { useApp } from '@/providers/app-provider';
+import { contributionAmounts } from '@/lib/group-finance';
 
 const accessLabels: Record<SharingAccess, string> = {
   none: 'Nessuno',
@@ -59,7 +65,7 @@ const initialInviteAccess: InviteAccess = {
 
 export default function FamilyScreen() {
   const { colors } = useFlowndTheme();
-  const { session } = useApp();
+  const { session, financialAccounts, grossBudgetMonthlyIncome, refreshData } = useApp();
   const [groups, setGroups] = useState<FamilyGroup[]>([]);
   const [receivedInvites, setReceivedInvites] = useState<GroupInvite[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -80,7 +86,13 @@ export default function FamilyScreen() {
     shareNetWorth: boolean;
     shareTransactions: boolean;
     shareTransactionCategories: boolean;
+    contributionPercentage: number;
+    scheduledContributionPercentage: number | null;
+    scheduledContributionDate: string | null;
+    transactionVisibility: TransactionVisibility;
+    netWorthVisibility: NetWorthVisibility;
   } | null>(null);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const sharingMutationVersion = useRef(0);
   const sharingSaveQueue = useRef<Promise<void>>(Promise.resolve());
 
@@ -122,7 +134,7 @@ export default function FamilyScreen() {
       void loadGroups()
         .catch((loadError) => {
           if (__DEV__) console.error('Flownd family hub load failed', loadError);
-          if (active) setError('La sezione Famiglia richiede la nuova migrazione Supabase.');
+          if (active) setError('La sezione Gruppi richiede la nuova migrazione Supabase.');
         })
         .finally(() => {
           if (active) setLoading(false);
@@ -152,7 +164,13 @@ export default function FamilyScreen() {
           shareNetWorth: member.shareNetWorth,
           shareTransactions: member.shareTransactions,
           shareTransactionCategories: member.shareTransactions,
+          contributionPercentage: member.contributionPercentage,
+          scheduledContributionPercentage: member.scheduledContributionPercentage,
+          scheduledContributionDate: member.scheduledContributionDate,
+          transactionVisibility: member.transactionVisibility,
+          netWorthVisibility: member.netWorthVisibility,
         } : null);
+        setSelectedAccountIds(nextDetail.selectedAccountIds);
       })
       .catch((loadError) => {
         if (__DEV__) console.error('Flownd group detail load failed', loadError);
@@ -186,16 +204,26 @@ export default function FamilyScreen() {
       shareNetWorth: member.shareNetWorth,
       shareTransactions: member.shareTransactions,
       shareTransactionCategories: member.shareTransactions,
+      contributionPercentage: member.contributionPercentage,
+      scheduledContributionPercentage: member.scheduledContributionPercentage,
+      scheduledContributionDate: member.scheduledContributionDate,
+      transactionVisibility: member.transactionVisibility,
+      netWorthVisibility: member.netWorthVisibility,
     } : null);
+    setSelectedAccountIds(nextDetail.selectedAccountIds);
   }
 
-  function saveSharingPreference(
-    patch: Partial<NonNullable<typeof sharingDraft>>,
+  function savePrivacyPreference(
+    patch: Partial<Pick<NonNullable<typeof sharingDraft>,
+      'transactionVisibility' | 'netWorthVisibility'>>,
+    accountIds = selectedAccountIds,
   ) {
     if (!selectedGroup || !sharingDraft) return;
     const previous = sharingDraft;
     const next = { ...sharingDraft, ...patch };
+    next.shareTransactions = next.transactionVisibility !== 'none';
     next.shareTransactionCategories = next.shareTransactions;
+    next.shareNetWorth = next.netWorthVisibility !== 'none';
     const mutationVersion = sharingMutationVersion.current + 1;
     sharingMutationVersion.current = mutationVersion;
     setSharingDraft(next);
@@ -208,7 +236,12 @@ export default function FamilyScreen() {
     setError(null);
     const request = sharingSaveQueue.current
       .catch(() => undefined)
-      .then(() => updateMyGroupSharing(selectedGroup.id, next));
+      .then(() => setMyGroupPrivacy(
+        selectedGroup.id,
+        next.transactionVisibility,
+        next.netWorthVisibility,
+        accountIds,
+      ));
     sharingSaveQueue.current = request;
     void request
       .catch((actionError) => {
@@ -226,26 +259,79 @@ export default function FamilyScreen() {
       });
   }
 
+  function saveContribution(percentage: number) {
+    if (!selectedGroup || !sharingDraft) return;
+    const previous = sharingDraft;
+    const next = {
+      ...sharingDraft,
+      contributionPercentage: percentage,
+      scheduledContributionPercentage: null,
+      scheduledContributionDate: null,
+    };
+    setSharingDraft(next);
+    void setMyGroupContribution(selectedGroup.id, percentage)
+      .then(async (effectiveDate) => {
+        const today = new Date();
+        const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+        const appliesNow = effectiveDate.startsWith(currentMonth);
+        const nextGroup: FamilyGroup = {
+          ...selectedGroup,
+          contributionPercentage: appliesNow
+            ? percentage
+            : selectedGroup.contributionPercentage,
+          scheduledContributionPercentage: appliesNow ? null : percentage,
+          scheduledContributionDate: effectiveDate,
+          shareMonthlyBudget: appliesNow
+            ? percentage > 0
+            : selectedGroup.shareMonthlyBudget,
+        };
+        setGroups((current) => current.map((group) => (
+          group.id === nextGroup.id ? nextGroup : group
+        )));
+        setSharingDraft((current) => current ? {
+          ...current,
+          contributionPercentage: appliesNow
+            ? percentage
+            : current.contributionPercentage,
+          scheduledContributionPercentage: appliesNow ? null : percentage,
+          scheduledContributionDate: effectiveDate,
+        } : current);
+        await Promise.all([refreshDetail(nextGroup), refreshData()]);
+      })
+      .catch((actionError) => {
+        if (__DEV__) console.error('Flownd group contribution update failed', actionError);
+        setSharingDraft(previous);
+        setError('La somma delle quote ai gruppi non può superare il 100%.');
+      });
+  }
+
+  const navigateBack = useCallback(() => {
+    if (scope === 'group') {
+      setDetail(null);
+      setScope('personal');
+      return;
+    }
+    router.back();
+  }, [scope]);
+  const swipeBackGesture = useMemo(
+    () => Gesture.Pan()
+      .activeOffsetX(-55)
+      .failOffsetY([-16, 16])
+      .runOnJS(true)
+      .onEnd((event) => {
+        if (event.translationX < -90 || event.velocityX < -900) navigateBack();
+      }),
+    [navigateBack],
+  );
+
   return (
+    <GestureDetector gesture={swipeBackGesture}>
     <Screen>
       <PageHeader
-        title={scope === 'group' && selectedGroup ? selectedGroup.name : 'Famiglia e condivisione'}
+        title={scope === 'group' && selectedGroup ? selectedGroup.name : 'Gruppi'}
+        titleStyle={styles.pageTitle}
         leading={
-          <Pressable
-            accessibilityLabel="Indietro"
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => {
-              if (scope === 'group') {
-                setDetail(null);
-                setScope('personal');
-              } else {
-                router.back();
-              }
-            }}
-            style={styles.backButton}>
-            <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-          </Pressable>
+          <GroupBackButton onPress={navigateBack} />
         }
         action={scope === 'group' && selectedGroup ? (
           <Pressable
@@ -286,6 +372,17 @@ export default function FamilyScreen() {
         <GroupView
           group={selectedGroup}
           detail={detail}
+          onChooseDisposition={(action, goalId) => void runAction(async () => {
+            const previous = detail?.summary.myPreviousCycle;
+            if (!previous) return;
+            await setMyGroupCycleDisposition(
+              selectedGroup.id,
+              previous.cycleStart,
+              action,
+              goalId,
+            );
+            await refreshDetail();
+          })}
         />
       ) : null}
 
@@ -294,7 +391,7 @@ export default function FamilyScreen() {
 
       <Popup visible={createModalOpen} title="Nuovo gruppo" onClose={() => setCreateModalOpen(false)}>
         <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
-          Crea uno spazio per famiglia, coppia o coinquilini.
+          Crea uno spazio condiviso per coppie, coinquilini, amici o altri membri.
         </Text>
         <Field
           label="Nome del gruppo"
@@ -381,24 +478,62 @@ export default function FamilyScreen() {
           {currentMember && selectedGroup && sharingDraft ? (
             <View style={styles.settingsBlock}>
               <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>COSA CONDIVIDI</Text>
-              <SharingRow
-                label="Budget mensile"
-                caption="Contribuisce al budget del gruppo"
-                value={sharingDraft.shareMonthlyBudget}
-                onChange={(shareMonthlyBudget) => saveSharingPreference({ shareMonthlyBudget })}
+              <ContributionPicker
+                currency={selectedGroup.currency}
+                monthlyIncome={grossBudgetMonthlyIncome}
+                scheduledPercentage={sharingDraft.scheduledContributionPercentage}
+                value={sharingDraft.contributionPercentage}
+                onChange={saveContribution}
               />
-              <SharingRow
-                label="Patrimonio totale"
-                caption="Condivide soltanto il totale aggregato"
-                value={sharingDraft.shareNetWorth}
-                onChange={(shareNetWorth) => saveSharingPreference({ shareNetWorth })}
+              <PrivacyChoice
+                label="Patrimonio"
+                caption="Il patrimonio non finanzia il budget del gruppo"
+                options={[
+                  { value: 'none', label: 'Nessuno' },
+                  { value: 'selected', label: 'Alcuni conti' },
+                  { value: 'all', label: 'Tutto' },
+                ]}
+                value={sharingDraft.netWorthVisibility}
+                onChange={(netWorthVisibility) => savePrivacyPreference({ netWorthVisibility })}
               />
-              <SharingRow
+              {sharingDraft.netWorthVisibility === 'selected' ? (
+                <View style={styles.accountChoices}>
+                  {financialAccounts.map((account) => {
+                    const selected = selectedAccountIds.includes(account.id);
+                    return (
+                      <Pressable
+                        key={account.id}
+                        onPress={() => {
+                          const nextIds = selected
+                            ? selectedAccountIds.filter((id) => id !== account.id)
+                            : [...selectedAccountIds, account.id];
+                          setSelectedAccountIds(nextIds);
+                          savePrivacyPreference({}, nextIds);
+                        }}
+                        style={[styles.accountChoice, { backgroundColor: colors.sunken }]}>
+                        <Text style={[styles.materialIcon, { color: selected ? colors.accent : colors.textSecondary }]}>
+                          {selected ? 'check_circle' : 'circle'}
+                        </Text>
+                        <Text style={[styles.permissionLabel, { color: colors.text }]}>{account.name}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+              <PrivacyChoice
                 label="Transazioni"
-                caption="Include movimenti e relative categorie"
-                value={sharingDraft.shareTransactions}
-                onChange={(shareTransactions) => saveSharingPreference({ shareTransactions })}
+                caption="Solo i movimenti associati esplicitamente al gruppo"
+                options={[
+                  { value: 'none', label: 'Nessuna' },
+                  { value: 'summary', label: 'Solo importi' },
+                  { value: 'full', label: 'Dettagli' },
+                ]}
+                value={sharingDraft.transactionVisibility}
+                onChange={(transactionVisibility) => savePrivacyPreference({ transactionVisibility })}
               />
+              <Text style={[styles.virtualNote, { color: colors.textSecondary }]}>
+                Le quote sono virtuali: nessun denaro viene spostato.
+              </Text>
             </View>
           ) : null}
 
@@ -484,6 +619,41 @@ export default function FamilyScreen() {
         )}
       </Popup>
     </Screen>
+    </GestureDetector>
+  );
+}
+
+function GroupBackButton({ onPress }: { onPress: () => void }) {
+  const { colors, isDark } = useFlowndTheme();
+  const content = (
+    <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
+  );
+  return (
+    <Pressable
+      accessibilityLabel="Indietro"
+      accessibilityRole="button"
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => pressed && styles.backButtonPressed}>
+      {Platform.OS === 'ios' && isGlassEffectAPIAvailable() ? (
+        <GlassView
+          colorScheme={isDark ? 'dark' : 'light'}
+          glassEffectStyle="regular"
+          isInteractive
+          style={styles.backButton}>
+          {content}
+        </GlassView>
+      ) : (
+        <View
+          style={[
+            styles.backButton,
+            styles.backButtonFallback,
+            { backgroundColor: colors.sunken, borderColor: colors.border },
+          ]}>
+          {content}
+        </View>
+      )}
+    </Pressable>
   );
 }
 
@@ -568,18 +738,20 @@ function PersonalView({
 function GroupView({
   group,
   detail,
+  onChooseDisposition,
 }: {
   group: FamilyGroup;
   detail: FamilyGroupDetail | null;
+  onChooseDisposition: (
+    action: 'carry_group' | 'shared_goal' | 'personal_next_cycle',
+    goalId?: string,
+  ) => void;
 }) {
   const { colors } = useFlowndTheme();
   if (!detail) return <ActivityIndicator color={colors.accent} style={styles.loader} />;
   const memberNames = new Map(detail.members.map((member) => [member.userId, member.displayName]));
   const openBalances = detail.balances.filter((balance) => Math.abs(balance.balance) >= 0.01);
-  const familyBudgetRemaining = Math.max(
-    0,
-    detail.summary.budgetTotal - detail.summary.budgetSpent,
-  );
+  const familyBudgetRemaining = detail.summary.budgetRemaining;
 
   return (
     <>
@@ -605,8 +777,12 @@ function GroupView({
               {formatAmount(familyBudgetRemaining, group.currency)}
             </Text>
             <Text style={[styles.itemCaption, { color: colors.textSecondary }]}>
-              disponibili su {formatAmount(detail.summary.budgetTotal, group.currency)} · {formatAmount(detail.summary.budgetSpent, group.currency)} spesi questo mese
+              residui su {formatAmount(detail.summary.budgetTotal, group.currency)} pianificati
             </Text>
+            <View style={styles.budgetMetricRow}>
+              <BudgetMetric label="Coperto" value={detail.summary.budgetCovered} currency={group.currency} />
+              <BudgetMetric label="Speso" value={detail.summary.budgetSpent} currency={group.currency} />
+            </View>
             <View style={[styles.progressTrack, styles.groupBudgetProgress, { backgroundColor: colors.sunken }]}>
               <View style={[
                 styles.progressFill,
@@ -622,6 +798,63 @@ function GroupView({
                 <Text style={[styles.amount, { color: colors.text }]}>{formatAmount(budget.monthlyLimit, group.currency)}</Text>
               </View>
             ))}
+          </Card>
+        </Section>
+      ) : null}
+
+      {detail.summary.contributions.length ? (
+        <Section title="CONTRIBUTI">
+          <Card>
+            {detail.members.filter((member) => member.plannedContribution > 0).map((member) => (
+              <View key={member.userId} style={styles.contributionBlock}>
+                <View style={styles.dataRow}>
+                  <Text style={[styles.dataLabel, { color: colors.text }]}>
+                    {member.displayName} · {member.contributionPercentage}%
+                  </Text>
+                  <Text style={[styles.amount, { color: colors.text }]}>
+                    {formatAmount(member.remainingContribution, group.currency)} residui
+                  </Text>
+                </View>
+                <Text style={[styles.itemCaption, { color: colors.textSecondary }]}>
+                  {formatAmount(member.plannedContribution, group.currency)} pianificati · {formatAmount(member.coveredContribution, group.currency)} coperti · {formatAmount(member.consumedContribution, group.currency)} consumati
+                </Text>
+              </View>
+            ))}
+            <Text style={[styles.virtualNote, { color: colors.textSecondary }]}>
+              Le quote sono virtuali: nessun denaro viene spostato.
+            </Text>
+          </Card>
+        </Section>
+      ) : null}
+
+      {detail.summary.myPreviousCycle
+        && detail.summary.myPreviousCycle.amount > 0
+        && !detail.summary.myPreviousCycle.action ? (
+        <Section title="CHIUSURA DEL MESE">
+          <Card>
+            <Text style={[styles.itemTitle, { color: colors.text }]}>Il tuo avanzo attribuito</Text>
+            <Text style={[styles.groupImpactAmount, { color: colors.text }]}>
+              {formatAmount(detail.summary.myPreviousCycle.amount, group.currency)}
+            </Text>
+            <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
+              Scegli come allocarlo nel nuovo ciclo. Nessun saldo bancario verrà modificato.
+            </Text>
+            <View style={styles.dispositionActions}>
+              <SecondaryButton compact onPress={() => onChooseDisposition('carry_group')}>
+                Riporta nel gruppo
+              </SecondaryButton>
+              {detail.goals.map((goal) => (
+                <SecondaryButton
+                  key={goal.id}
+                  compact
+                  onPress={() => onChooseDisposition('shared_goal', goal.id)}>
+                  {goal.name}
+                </SecondaryButton>
+              ))}
+              <SecondaryButton compact onPress={() => onChooseDisposition('personal_next_cycle')}>
+                Budget personale
+              </SecondaryButton>
+            </View>
           </Card>
         </Section>
       ) : null}
@@ -745,6 +978,138 @@ function MemberAvatar({ member }: { member: GroupMember }) {
       { backgroundColor: colors.accentSoft, borderColor: colors.accent },
     ]}>
       <Text style={[styles.memberAvatarInitials, { color: colors.accent }]}>{initials}</Text>
+    </View>
+  );
+}
+
+function BudgetMetric({
+  label,
+  value,
+  currency,
+}: {
+  label: string;
+  value: number;
+  currency: string;
+}) {
+  const { colors } = useFlowndTheme();
+  return (
+    <View style={styles.budgetMetric}>
+      <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[styles.amount, { color: colors.text }]}>{formatAmount(value, currency)}</Text>
+    </View>
+  );
+}
+
+function ContributionPicker({
+  value,
+  scheduledPercentage,
+  monthlyIncome,
+  currency,
+  onChange,
+}: {
+  value: number;
+  scheduledPercentage: number | null;
+  monthlyIncome: number;
+  currency: string;
+  onChange: (value: number) => void;
+}) {
+  const { colors } = useFlowndTheme();
+  const displayedValue = scheduledPercentage ?? value;
+  const preview = contributionAmounts(monthlyIncome, displayedValue);
+  const [customValue, setCustomValue] = useState(String(displayedValue));
+  const parsedCustomValue = Number(customValue.replace(',', '.'));
+  return (
+    <View style={styles.privacyBlock}>
+      <View style={styles.dataRow}>
+        <View style={styles.flex}>
+          <Text style={[styles.permissionLabel, { color: colors.text }]}>Budget mensile</Text>
+          <Text style={[styles.sharingCaption, { color: colors.textSecondary }]}>
+            {formatAmount(preview.group, currency)} al gruppo · {formatAmount(preview.personal, currency)} personali
+          </Text>
+        </View>
+        <Text style={[styles.contributionValue, { color: colors.accent }]}>{displayedValue}%</Text>
+      </View>
+      <View style={styles.choiceRow}>
+        {[0, 25, 40, 50, 75, 100].map((percentage) => (
+          <Pressable
+            key={percentage}
+            onPress={() => {
+              setCustomValue(String(percentage));
+              onChange(percentage);
+            }}
+            style={[
+              styles.percentageChoice,
+              { backgroundColor: displayedValue === percentage ? colors.accent : colors.sunken },
+            ]}>
+            <Text style={[
+              styles.choiceLabel,
+              { color: displayedValue === percentage ? colors.onAccent : colors.textSecondary },
+            ]}>{percentage}%</Text>
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.customPercentageRow}>
+        <View style={styles.flex}>
+          <Field
+            label="Percentuale personalizzata"
+            keyboardType="decimal-pad"
+            value={customValue}
+            onChangeText={setCustomValue}
+          />
+        </View>
+        <SecondaryButton
+          compact
+          disabled={!Number.isFinite(parsedCustomValue) || parsedCustomValue < 0 || parsedCustomValue > 100}
+          onPress={() => onChange(parsedCustomValue)}>
+          Applica
+        </SecondaryButton>
+      </View>
+      {scheduledPercentage != null ? (
+        <Text style={[styles.sharingCaption, { color: colors.textSecondary }]}>
+          La nuova quota sarà applicata dal ciclo successivo.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function PrivacyChoice<T extends string>({
+  label,
+  caption,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  caption: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  const { colors } = useFlowndTheme();
+  return (
+    <View style={styles.privacyBlock}>
+      <Text style={[styles.permissionLabel, { color: colors.text }]}>{label}</Text>
+      <Text style={[styles.sharingCaption, { color: colors.textSecondary }]}>{caption}</Text>
+      <View style={styles.choiceRow}>
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => onChange(option.value)}
+              style={[
+                styles.privacyChoice,
+                { backgroundColor: selected ? colors.accent : colors.sunken },
+              ]}>
+              <Text style={[
+                styles.choiceLabel,
+                { color: selected ? colors.onAccent : colors.textSecondary },
+              ]}>{option.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -953,7 +1318,10 @@ function formatAmount(amount: number, currency: string) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  pageTitle: { fontSize: 20, lineHeight: 27 },
+  backButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  backButtonFallback: { borderWidth: StyleSheet.hairlineWidth },
+  backButtonPressed: { opacity: 0.68 },
   materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
   scopeControl: { flexDirection: 'row', borderRadius: 13, padding: 3, marginBottom: 15 },
   scopeButton: { flex: 1, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: 'transparent', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 10 },
@@ -991,6 +1359,10 @@ const styles = StyleSheet.create({
   amount: { fontFamily: font.dataMedium, fontSize: 12 },
   groupImpactAmount: { fontFamily: font.displayBold, fontSize: 28, lineHeight: 36 },
   groupBudgetProgress: { marginTop: 14, marginBottom: 10 },
+  budgetMetricRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  budgetMetric: { flex: 1 },
+  contributionBlock: { paddingVertical: 7 },
+  dispositionActions: { gap: 8, marginTop: 14 },
   smallAmount: { fontFamily: font.dataMedium, fontSize: 10 },
   goalBlock: { marginBottom: 10 },
   progressTrack: { height: 6, borderRadius: 6, overflow: 'hidden', marginTop: 5 },
@@ -999,6 +1371,16 @@ const styles = StyleSheet.create({
   permissionRow: { minHeight: 39, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
   sharingRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12 },
   sharingCaption: { fontFamily: font.body, fontSize: 10, lineHeight: 14, marginTop: 2 },
+  privacyBlock: { marginTop: 17 },
+  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
+  privacyChoice: { minHeight: 34, borderRadius: 10, paddingHorizontal: 11, alignItems: 'center', justifyContent: 'center' },
+  percentageChoice: { minWidth: 46, minHeight: 32, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  customPercentageRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 4 },
+  choiceLabel: { fontFamily: font.bodySemiBold, fontSize: 10 },
+  contributionValue: { fontFamily: font.dataMedium, fontSize: 19 },
+  accountChoices: { gap: 6, marginTop: 8 },
+  accountChoice: { minHeight: 42, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10 },
+  virtualNote: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 13 },
   switchTrack: { width: 42, height: 24, borderRadius: 12, padding: 3 },
   switchThumb: { width: 18, height: 18, borderRadius: 9 },
   permissionLabel: { fontFamily: font.bodyMedium, fontSize: 12 },
