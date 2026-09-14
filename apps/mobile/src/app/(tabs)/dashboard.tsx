@@ -1279,7 +1279,7 @@ function FamilyOverviewPage({
             : HIDDEN_AMOUNT
           : 'Inizia a condividere';
   const impactLabel = hasFamilyBudget
-    ? 'BUDGET FAMILIARE'
+    ? 'BUDGET DEL GRUPPO'
     : hasSharedGoals
       ? 'OBIETTIVI CONDIVISI'
       : hasSharedTransactions

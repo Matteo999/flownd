@@ -7,6 +7,7 @@ export type SharingAccess = 'none' | 'view' | 'edit';
 export type GroupRole = 'owner' | 'member' | 'readonly';
 export type TransactionVisibility = 'none' | 'summary' | 'full';
 export type NetWorthVisibility = 'none' | 'all' | 'selected';
+export type GroupContributionMode = 'percentage' | 'fixed';
 
 export type SharingPreferences = {
   shareMonthlyBudget: boolean;
@@ -14,6 +15,8 @@ export type SharingPreferences = {
   shareTransactions: boolean;
   shareTransactionCategories: boolean;
   contributionPercentage: number;
+  contributionMode: GroupContributionMode;
+  contributionFixedAmount: number | null;
   scheduledContributionPercentage: number | null;
   scheduledContributionDate: string | null;
   transactionVisibility: TransactionVisibility;
@@ -71,6 +74,7 @@ export type FamilyBudgetSummary = {
   id: string;
   category: string;
   monthlyLimit: number;
+  percentage: number;
   spent: number;
 };
 
@@ -150,6 +154,19 @@ type AccessDraft = {
   goalsAccess: SharingAccess;
 };
 
+const groupsMemoryCache = new Map<string, FamilyGroup[]>();
+const groupDetailMemoryCache = new Map<string, FamilyGroupDetail>();
+
+export function peekFamilyGroups(userId?: string) {
+  if (!userId) return null;
+  return groupsMemoryCache.get(userId) ?? null;
+}
+
+export function peekFamilyGroupDetail(groupId?: string) {
+  if (!groupId) return null;
+  return groupDetailMemoryCache.get(groupId) ?? null;
+}
+
 export async function fetchFamilyGroups(userId: string) {
   const [membershipsResult, rulesResult] = await Promise.all([
     supabase
@@ -159,20 +176,25 @@ export async function fetchFamilyGroups(userId: string) {
       .order('joined_at'),
     supabase
       .from('group_contribution_rules')
-      .select('group_id,percentage,effective_from')
+      .select('group_id,percentage,contribution_mode,fixed_amount,effective_from')
       .eq('user_id', userId)
       .order('effective_from', { ascending: false }),
   ]);
   const { data: memberships, error: membershipsError } = membershipsResult;
   if (membershipsError) throw membershipsError;
   if (rulesResult.error) throw rulesResult.error;
-  if (!memberships?.length) return [];
+  if (!memberships?.length) {
+    groupsMemoryCache.set(userId, []);
+    return [];
+  }
 
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
   const rulesByGroup = new Map<string, {
     current: number;
+    mode: GroupContributionMode;
+    fixedAmount: number | null;
     scheduled: number | null;
     date: string | null;
   }>();
@@ -181,12 +203,16 @@ export async function fetchFamilyGroups(userId: string) {
   for (const rule of rulesResult.data ?? []) {
     const current = rulesByGroup.get(rule.group_id) ?? {
       current: 0,
+      mode: 'percentage',
+      fixedAmount: null,
       scheduled: null,
       date: null,
     };
     const effective = new Date(`${rule.effective_from}T00:00:00`);
     if (effective <= monthStart && !currentRuleGroups.has(rule.group_id)) {
       current.current = Number(rule.percentage);
+      current.mode = (rule.contribution_mode ?? 'percentage') as GroupContributionMode;
+      current.fixedAmount = rule.fixed_amount == null ? null : Number(rule.fixed_amount);
       currentRuleGroups.add(rule.group_id);
     } else if (effective > monthStart && !scheduledRuleGroups.has(rule.group_id)) {
       current.scheduled = Number(rule.percentage);
@@ -203,11 +229,13 @@ export async function fetchFamilyGroups(userId: string) {
   if (groupsError) throw groupsError;
 
   const groupById = new Map((groups ?? []).map((group) => [group.id, group]));
-  return memberships.flatMap((membership): FamilyGroup[] => {
+  const result = memberships.flatMap((membership): FamilyGroup[] => {
     const group = groupById.get(membership.group_id);
     if (!group) return [];
     const contribution = rulesByGroup.get(group.id) ?? {
       current: 0,
+      mode: 'percentage',
+      fixedAmount: null,
       scheduled: null,
       date: null,
     };
@@ -225,6 +253,8 @@ export async function fetchFamilyGroups(userId: string) {
       shareTransactions: Boolean(membership.share_transactions),
       shareTransactionCategories: Boolean(membership.share_transactions),
       contributionPercentage: contribution.current,
+      contributionMode: contribution.mode,
+      contributionFixedAmount: contribution.fixedAmount,
       scheduledContributionPercentage: contribution.scheduled,
       scheduledContributionDate: contribution.date,
       transactionVisibility: (membership.transaction_visibility ?? (
@@ -235,6 +265,8 @@ export async function fetchFamilyGroups(userId: string) {
       )) as NetWorthVisibility,
     }];
   });
+  groupsMemoryCache.set(userId, result);
+  return result;
 }
 
 export async function fetchReceivedInvites(email: string) {
@@ -268,7 +300,7 @@ export async function fetchFamilyGroupDetail(
       .order('priority'),
     supabase
       .from('group_budgets')
-      .select('id,category,monthly_limit')
+      .select('id,category,monthly_limit,percentage')
       .eq('group_id', group.id)
       .order('category'),
     supabase.rpc('group_member_balances', { p_group_id: group.id }),
@@ -335,7 +367,7 @@ export async function fetchFamilyGroupDetail(
     pendingInvites = await attachGroupNames(data ?? []);
   }
 
-  return {
+  const result = {
     members: (membersResult.data ?? []).map((member) => {
       const contribution = contributionByUser.get(member.user_id);
       return {
@@ -352,6 +384,12 @@ export async function fetchFamilyGroupDetail(
         shareTransactions: Boolean(member.share_transactions),
         shareTransactionCategories: Boolean(member.share_transactions),
         contributionPercentage: contribution?.percentage ?? 0,
+        contributionMode: member.user_id === userId
+          ? group.contributionMode
+          : 'percentage',
+        contributionFixedAmount: member.user_id === userId
+          ? group.contributionFixedAmount
+          : null,
         scheduledContributionPercentage: member.user_id === userId
           ? group.scheduledContributionPercentage
           : null,
@@ -382,7 +420,10 @@ export async function fetchFamilyGroupDetail(
     budgets: (budgetsResult.data ?? []).map((budget) => ({
       id: budget.id,
       category: budget.category,
-      monthlyLimit: Number(budget.monthly_limit),
+      monthlyLimit: budget.percentage == null
+        ? Number(budget.monthly_limit)
+        : Math.round(dashboardSummary.budgetTotal * Number(budget.percentage)) / 100,
+      percentage: Number(budget.percentage ?? 0),
       spent: dashboardSummary.budgets.find((item) => item.id === budget.id)?.spent ?? 0,
     })),
     balances: ((balancesResult.data ?? []) as {
@@ -417,7 +458,9 @@ export async function fetchFamilyGroupDetail(
       category: transaction.category,
       occurredAt: transaction.occurred_at,
     })),
-  };
+  } satisfies FamilyGroupDetail;
+  groupDetailMemoryCache.set(group.id, result);
+  return result;
 }
 
 async function attachGroupNames<
@@ -554,6 +597,19 @@ export async function saveFamilyBudget(
   return data as string;
 }
 
+export async function saveFamilyBudgetAllocation(
+  groupId: string,
+  allocation: { needs: number; wants: number; savings: number },
+) {
+  const { error } = await supabase.rpc('save_group_budget_allocation', {
+    p_group_id: groupId,
+    p_needs: allocation.needs,
+    p_wants: allocation.wants,
+    p_savings: allocation.savings,
+  });
+  if (error) throw error;
+}
+
 export async function createSharedExpense(
   groupId: string,
   description: string,
@@ -625,6 +681,20 @@ export async function setMyGroupContribution(groupId: string, percentage: number
   return data as string;
 }
 
+export async function setMyGroupContributionV2(
+  groupId: string,
+  mode: GroupContributionMode,
+  value: number,
+) {
+  const { data, error } = await supabase.rpc('set_my_group_contribution_v2', {
+    p_group_id: groupId,
+    p_mode: mode,
+    p_value: value,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
 export async function setMyGroupPrivacy(
   groupId: string,
   transactionVisibility: TransactionVisibility,
@@ -690,7 +760,7 @@ export async function fetchFamilyDashboardSummary(groupId: string) {
     supabase.rpc('family_dashboard_summary', { p_group_id: groupId }),
     supabase
       .from('group_budgets')
-      .select('id,category,monthly_limit')
+      .select('id,category,monthly_limit,percentage')
       .eq('group_id', groupId)
       .order('category'),
     supabase
@@ -774,7 +844,12 @@ export async function fetchFamilyDashboardSummary(groupId: string) {
     budgets: (budgetsResult.data ?? []).map((budget) => ({
       id: budget.id,
       category: budget.category,
-      monthlyLimit: Number(budget.monthly_limit),
+      monthlyLimit: budget.percentage == null
+        ? Number(budget.monthly_limit)
+        : Math.round(Number(summary.budgetTotal) * Number(budget.percentage)) / 100,
+      percentage: budget.percentage == null
+        ? 0
+        : Number(budget.percentage),
       spent: currentSpentByCategory[budgetCategoryKey(budget.category)] ?? 0,
     })),
     expenses,

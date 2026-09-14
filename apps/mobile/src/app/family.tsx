@@ -1,9 +1,10 @@
-import { router } from 'expo-router';
+import { router, type Href, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import { Slider } from '@expo/ui/community/slider';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Easing, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import {
@@ -33,8 +34,11 @@ import {
   type SharingAccess,
   type TransactionVisibility,
   leaveFamilyGroup,
+  peekFamilyGroupDetail,
+  peekFamilyGroups,
   setActiveFamilyGroupId,
   setGoalSharedWithGroup,
+  saveFamilyBudgetAllocation,
   setMyGroupContribution,
   setMyGroupCycleDisposition,
   setMyGroupPrivacy,
@@ -42,6 +46,7 @@ import {
 } from '@/lib/family';
 import { useApp } from '@/providers/app-provider';
 import { contributionAmounts } from '@/lib/group-finance';
+import { type BudgetAllocation, updateAllocation } from '@/lib/onboarding';
 
 const accessLabels: Record<SharingAccess, string> = {
   none: 'Nessuno',
@@ -66,11 +71,15 @@ const initialInviteAccess: InviteAccess = {
 export default function FamilyScreen() {
   const { colors } = useFlowndTheme();
   const { session, financialAccounts, grossBudgetMonthlyIncome, refreshData } = useApp();
-  const [groups, setGroups] = useState<FamilyGroup[]>([]);
+  const initialCachedGroups = peekFamilyGroups(session?.user.id);
+  const [groups, setGroups] = useState<FamilyGroup[]>(() => initialCachedGroups ?? []);
   const [receivedInvites, setReceivedInvites] = useState<GroupInvite[]>([]);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const [scope, setScope] = useState<'personal' | 'group'>('personal');
-  const [detail, setDetail] = useState<FamilyGroupDetail | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
+    () => initialCachedGroups?.[0]?.id ?? null,
+  );
+  const [detail, setDetail] = useState<FamilyGroupDetail | null>(
+    () => peekFamilyGroupDetail(initialCachedGroups?.[0]?.id),
+  );
   const [newGroupName, setNewGroupName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteAccess, setInviteAccess] = useState(initialInviteAccess);
@@ -78,7 +87,7 @@ export default function FamilyScreen() {
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialCachedGroups === null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sharingDraft, setSharingDraft] = useState<{
@@ -95,6 +104,8 @@ export default function FamilyScreen() {
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const sharingMutationVersion = useRef(0);
   const sharingSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const groupBudgetSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const hasFocusedOnce = useRef(false);
 
   const selectedGroup = useMemo(
     () => groups.find((group) => group.id === selectedGroupId) ?? null,
@@ -146,9 +157,19 @@ export default function FamilyScreen() {
     };
   }, [loadGroups]);
 
+  useFocusEffect(useCallback(() => {
+    if (!hasFocusedOnce.current) {
+      hasFocusedOnce.current = true;
+      return;
+    }
+    void loadGroups().catch((loadError) => {
+      if (__DEV__) console.error('Flownd family hub refresh failed', loadError);
+    });
+  }, [loadGroups]));
+
   useEffect(() => {
     let active = true;
-    if (!selectedGroup || scope !== 'group') {
+    if (!selectedGroup) {
       return () => {
         active = false;
       };
@@ -179,7 +200,7 @@ export default function FamilyScreen() {
     return () => {
       active = false;
     };
-  }, [scope, selectedGroup, session?.user.id]);
+  }, [selectedGroup, session?.user.id]);
 
   async function runAction(action: () => Promise<void>) {
     setSaving(true);
@@ -305,14 +326,51 @@ export default function FamilyScreen() {
       });
   }
 
+  function saveGroupBudgetAllocation(allocation: BudgetAllocation) {
+    if (!selectedGroup || !detail || detail.summary.budgetTotal <= 0) return;
+    const budgetTotal = detail.summary.budgetTotal;
+    const categories = [
+      { key: 'needs' as const, label: 'Necessità' },
+      { key: 'wants' as const, label: 'Desideri' },
+      { key: 'savings' as const, label: 'Risparmi' },
+    ];
+    setDetail((current) => current ? {
+      ...current,
+      budgets: categories.map(({ key, label }) => ({
+        id: current.budgets.find((item) => item.category === label)?.id ?? key,
+        category: label,
+        monthlyLimit: Math.round(budgetTotal * allocation[key]) / 100,
+        percentage: allocation[key],
+        spent: current.budgets.find((item) => item.category === label)?.spent ?? 0,
+      })),
+      summary: {
+        ...current.summary,
+        budgets: categories.map(({ key, label }) => ({
+          id: current.summary.budgets.find((item) => item.category === label)?.id ?? key,
+          category: label,
+          monthlyLimit: Math.round(budgetTotal * allocation[key]) / 100,
+          percentage: allocation[key],
+          spent: current.summary.budgets.find((item) => item.category === label)?.spent ?? 0,
+        })),
+      },
+    } : current);
+    const request = groupBudgetSaveQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        await saveFamilyBudgetAllocation(selectedGroup.id, allocation);
+      });
+    groupBudgetSaveQueue.current = request;
+    void request
+      .then(() => refreshDetail())
+      .catch((saveError) => {
+        if (__DEV__) console.error('Flownd group budget allocation failed', saveError);
+        setError('Non riesco a salvare la suddivisione del budget del gruppo.');
+      });
+  }
+
   const navigateBack = useCallback(() => {
-    if (scope === 'group') {
-      setDetail(null);
-      setScope('personal');
-      return;
-    }
     router.back();
-  }, [scope]);
+  }, []);
   const swipeBackGesture = useMemo(
     () => Gesture.Pan()
       .activeOffsetX(-55)
@@ -328,63 +386,74 @@ export default function FamilyScreen() {
     <GestureDetector gesture={swipeBackGesture}>
     <Screen>
       <PageHeader
-        title={scope === 'group' && selectedGroup ? selectedGroup.name : 'Gruppi'}
+        title="Gruppi"
         titleStyle={styles.pageTitle}
         leading={
           <GroupBackButton onPress={navigateBack} />
         }
-        action={scope === 'group' && selectedGroup ? (
-          <Pressable
+        action={selectedGroup ? (
+          <GroupGlassIconButton
             accessibilityLabel="Impostazioni gruppo"
-            accessibilityRole="button"
-            hitSlop={8}
+            icon="settings"
             onPress={() => {
-              setInviteModalOpen(false);
-              setSettingsModalOpen(true);
+              router.push(`/group-settings?groupId=${selectedGroup.id}` as Href);
             }}
-            style={styles.backButton}>
-            <Text style={[styles.materialIcon, { color: colors.text }]}>settings</Text>
-          </Pressable>
+          />
         ) : null}
       />
 
       {loading ? (
-        <ActivityIndicator color={colors.accent} style={styles.loader} />
-      ) : scope === 'personal' ? (
-        <PersonalView
+        <GroupTabsSkeleton />
+      ) : (
+        <GroupTabs
           groups={groups}
+          selectedGroupId={selectedGroupId}
+          onCreate={() => setCreateModalOpen(true)}
+          onSelect={(groupId) => {
+            if (groupId === selectedGroupId) return;
+            setDetail(peekFamilyGroupDetail(groupId));
+            setSelectedGroupId(groupId);
+          }}
+        />
+      )}
+
+      {loading ? (
+        <GroupDetailSkeleton />
+      ) : (
+        <>
+          <ReceivedGroupInvites
           receivedInvites={receivedInvites}
           saving={saving}
-          onOpenCreate={() => setCreateModalOpen(true)}
-          onSelectGroup={(groupId) => {
-            setDetail(null);
-            setSelectedGroupId(groupId);
-            setScope('group');
-          }}
           onAcceptInvite={(inviteId) => void runAction(async () => {
             const groupId = await acceptGroupInvite(inviteId);
             setDetail(null);
             await loadGroups(groupId);
-            setScope('group');
           })}
-        />
-      ) : selectedGroup ? (
-        <GroupView
-          group={selectedGroup}
-          detail={detail}
-          onChooseDisposition={(action, goalId) => void runAction(async () => {
-            const previous = detail?.summary.myPreviousCycle;
-            if (!previous) return;
-            await setMyGroupCycleDisposition(
-              selectedGroup.id,
-              previous.cycleStart,
-              action,
-              goalId,
-            );
-            await refreshDetail();
-          })}
-        />
-      ) : null}
+          />
+          {selectedGroup ? (
+            <GroupView
+              group={selectedGroup}
+              detail={detail}
+              onChooseDisposition={(action, goalId) => void runAction(async () => {
+                const previous = detail?.summary.myPreviousCycle;
+                if (!previous) return;
+                await setMyGroupCycleDisposition(
+                  selectedGroup.id,
+                  previous.cycleStart,
+                  action,
+                  goalId,
+                );
+                await refreshDetail();
+              })}
+            />
+          ) : (
+            <Card style={styles.groupEmptyCard}>
+              <Text style={[styles.itemTitle, { color: colors.text }]}>Crea il primo gruppo</Text>
+              <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>Usa il tasto + per iniziare uno spazio condiviso.</Text>
+            </Card>
+          )}
+        </>
+      )}
 
       {notice ? <Text style={[styles.notice, { color: colors.positive }]}>{notice}</Text> : null}
       {error ? <Text style={[styles.error, { color: colors.negative }]}>{error}</Text> : null}
@@ -407,7 +476,6 @@ export default function FamilyScreen() {
             setCreateModalOpen(false);
             setDetail(null);
             await loadGroups(groupId);
-            setScope('group');
           });
         }}>
           Crea gruppo
@@ -537,6 +605,19 @@ export default function FamilyScreen() {
             </View>
           ) : null}
 
+          {selectedGroup && detail && selectedGroup.budgetsAccess === 'edit' ? (
+            <View style={styles.settingsBlock}>
+              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>SUDDIVISIONE BUDGET DEL GRUPPO</Text>
+              <GroupBudgetAllocation
+                key={selectedGroup.id}
+                budgets={detail.budgets}
+                budgetTotal={detail.summary.budgetTotal}
+                currency={selectedGroup.currency}
+                onChange={saveGroupBudgetAllocation}
+              />
+            </View>
+          ) : null}
+
           {selectedGroup && detail?.shareableGoals.length ? (
             <View style={styles.settingsBlock}>
               <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>OBIETTIVI CONDIVISI</Text>
@@ -598,7 +679,6 @@ export default function FamilyScreen() {
                         else await leaveFamilyGroup(selectedGroup.id);
                         setSettingsModalOpen(false);
                         setDetail(null);
-                        setScope('personal');
                         await setActiveFamilyGroupId(session?.user.id ?? '', null);
                         await loadGroups();
                       }),
@@ -624,13 +704,22 @@ export default function FamilyScreen() {
 }
 
 function GroupBackButton({ onPress }: { onPress: () => void }) {
+  return <GroupGlassIconButton accessibilityLabel="Indietro" icon="arrow_back" onPress={onPress} />;
+}
+
+function GroupGlassIconButton({
+  accessibilityLabel,
+  icon,
+  onPress,
+}: {
+  accessibilityLabel: string;
+  icon: string;
+  onPress: () => void;
+}) {
   const { colors, isDark } = useFlowndTheme();
-  const content = (
-    <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-  );
   return (
     <Pressable
-      accessibilityLabel="Indietro"
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       hitSlop={8}
       onPress={onPress}
@@ -640,46 +729,136 @@ function GroupBackButton({ onPress }: { onPress: () => void }) {
           colorScheme={isDark ? 'dark' : 'light'}
           glassEffectStyle="regular"
           isInteractive
-          style={styles.backButton}>
-          {content}
+          style={styles.groupGlassIcon}>
+          <Text style={[styles.materialIcon, { color: colors.text }]}>{icon}</Text>
         </GlassView>
       ) : (
         <View
           style={[
-            styles.backButton,
+            styles.groupGlassIcon,
             styles.backButtonFallback,
             { backgroundColor: colors.sunken, borderColor: colors.border },
           ]}>
-          {content}
+          <Text style={[styles.materialIcon, { color: colors.text }]}>{icon}</Text>
         </View>
       )}
     </Pressable>
   );
 }
 
-function PersonalView({
+function useSkeletonOpacity() {
+  const [opacity] = useState(() => new Animated.Value(0.42));
+  useEffect(() => {
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(opacity, { toValue: 0.82, duration: 700, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 0.42, duration: 700, useNativeDriver: true }),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [opacity]);
+  return opacity;
+}
+
+function GroupTabsSkeleton() {
+  const { colors } = useFlowndTheme();
+  const opacity = useSkeletonOpacity();
+  return (
+    <View style={[styles.groupTabsBar, { borderBottomColor: colors.border }]}>
+      <Animated.View style={[styles.groupTabsSkeletonContent, { opacity }]}>
+        <View style={[styles.skeletonTab, { backgroundColor: colors.sunken }]} />
+        <View style={[styles.skeletonTab, styles.skeletonTabShort, { backgroundColor: colors.sunken }]} />
+      </Animated.View>
+      <Animated.View style={[styles.groupTabAdd, { backgroundColor: colors.sunken, opacity }]} />
+    </View>
+  );
+}
+
+function GroupDetailSkeleton() {
+  const { colors } = useFlowndTheme();
+  const opacity = useSkeletonOpacity();
+  return (
+    <Animated.View style={[styles.detailSkeleton, { opacity }]}>
+      <View style={styles.skeletonAvatarRow}>
+        {[0, 1, 2].map((item) => (
+          <View key={item} style={[styles.skeletonAvatar, { backgroundColor: colors.sunken }]} />
+        ))}
+      </View>
+      <View style={[styles.skeletonLine, { backgroundColor: colors.sunken }]} />
+      <View style={[styles.skeletonLine, styles.skeletonLineShort, { backgroundColor: colors.sunken }]} />
+      <View style={[styles.skeletonCard, { backgroundColor: colors.sunken }]} />
+      <View style={[styles.skeletonCard, styles.skeletonCardSmall, { backgroundColor: colors.sunken }]} />
+    </Animated.View>
+  );
+}
+
+function GroupTabs({
   groups,
-  receivedInvites,
-  saving,
-  onOpenCreate,
-  onSelectGroup,
-  onAcceptInvite,
+  selectedGroupId,
+  onCreate,
+  onSelect,
 }: {
   groups: FamilyGroup[];
-  receivedInvites: GroupInvite[];
-  saving: boolean;
-  onOpenCreate: () => void;
-  onSelectGroup: (groupId: string) => void;
-  onAcceptInvite: (inviteId: string) => void;
+  selectedGroupId: string | null;
+  onCreate: () => void;
+  onSelect: (groupId: string) => void;
 }) {
   const { colors } = useFlowndTheme();
   return (
-    <>
-      <Text style={[styles.intro, { color: colors.textSecondary }]}>
-        La vista personale resta privata. Passa a un gruppo per vedere soltanto i dati che i membri hanno scelto di condividere.
-      </Text>
+    <View style={[styles.groupTabsBar, { borderBottomColor: colors.border }]}>
+      <ScrollView
+        horizontal
+        contentContainerStyle={styles.groupTabsContent}
+        showsHorizontalScrollIndicator={false}
+        style={styles.groupTabsScroll}>
+        {groups.map((group) => {
+          const selected = group.id === selectedGroupId;
+          return (
+            <Pressable
+              key={group.id}
+              accessibilityRole="tab"
+              accessibilityState={{ selected }}
+              onPress={() => onSelect(group.id)}
+              style={({ pressed }) => [
+                styles.groupTab,
+                selected && { borderBottomColor: colors.accent },
+                pressed && styles.disabled,
+              ]}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.groupTabLabel,
+                  { color: selected ? colors.text : colors.textSecondary },
+                  selected && styles.groupTabLabelSelected,
+                ]}>
+                {group.name}
+              </Text>
+            </Pressable>
+          );
+        })}
+        {!groups.length ? (
+          <Text style={[styles.groupTabsEmpty, { color: colors.textSecondary }]}>Nessun gruppo</Text>
+        ) : null}
+      </ScrollView>
+      <GroupGlassIconButton
+        accessibilityLabel="Crea un nuovo gruppo"
+        icon="add"
+        onPress={onCreate}
+      />
+    </View>
+  );
+}
 
-      {receivedInvites.length ? (
+function ReceivedGroupInvites({
+  receivedInvites,
+  saving,
+  onAcceptInvite,
+}: {
+  receivedInvites: GroupInvite[];
+  saving: boolean;
+  onAcceptInvite: (inviteId: string) => void;
+}) {
+  const { colors } = useFlowndTheme();
+  return receivedInvites.length ? (
         <Section title="INVITI RICEVUTI">
           {receivedInvites.map((invite) => (
             <Card key={invite.id} style={styles.listCard}>
@@ -695,44 +874,7 @@ function PersonalView({
             </Card>
           ))}
         </Section>
-      ) : null}
-
-      <Section title="I TUOI GRUPPI">
-        {groups.map((group) => (
-          <Pressable key={group.id} onPress={() => onSelectGroup(group.id)}>
-            <Card style={styles.listCard}>
-              <View style={[styles.groupIcon, { backgroundColor: colors.accentSoft }]}>
-                <Text style={[styles.materialIcon, { color: colors.accent }]}>group</Text>
-              </View>
-              <View style={styles.flex}>
-                <Text style={[styles.itemTitle, { color: colors.text }]}>{group.name}</Text>
-                <Text style={[styles.itemCaption, { color: colors.textSecondary }]}>
-                  {group.role === 'owner' ? 'Amministratore' : 'Membro'}
-                </Text>
-              </View>
-              <Text style={[styles.chevron, { color: colors.textSecondary }]}>›</Text>
-            </Card>
-          </Pressable>
-        ))}
-        {!groups.length ? (
-          <Text style={[styles.empty, { color: colors.textSecondary }]}>Nessun gruppo attivo.</Text>
-        ) : null}
-      </Section>
-
-      <Pressable
-        accessibilityLabel="Crea un nuovo gruppo"
-        accessibilityRole="button"
-        onPress={onOpenCreate}
-        style={({ pressed }) => [
-          styles.addAction,
-          { backgroundColor: colors.accentSoft },
-          pressed && styles.disabled,
-        ]}>
-        <Text style={[styles.addActionIcon, { color: colors.accent }]}>add</Text>
-        <Text style={[styles.addActionLabel, { color: colors.accent }]}>Nuovo gruppo</Text>
-      </Pressable>
-    </>
-  );
+  ) : null;
 }
 
 function GroupView({
@@ -748,7 +890,7 @@ function GroupView({
   ) => void;
 }) {
   const { colors } = useFlowndTheme();
-  if (!detail) return <ActivityIndicator color={colors.accent} style={styles.loader} />;
+  if (!detail) return <GroupDetailSkeleton />;
   const memberNames = new Map(detail.members.map((member) => [member.userId, member.displayName]));
   const openBalances = detail.balances.filter((balance) => Math.abs(balance.balance) >= 0.01);
   const familyBudgetRemaining = detail.summary.budgetRemaining;
@@ -771,7 +913,7 @@ function GroupView({
       ) : null}
 
       {detail.summary.budgetTotal > 0 ? (
-        <Section title="BUDGET FAMILIARE">
+        <Section title="BUDGET DEL GRUPPO">
           <Card>
             <Text style={[styles.groupImpactAmount, { color: colors.text }]}>
               {formatAmount(familyBudgetRemaining, group.currency)}
@@ -892,12 +1034,16 @@ function GroupView({
                 styles.amount,
                 { color: balance.balance >= 0 ? colors.positive : colors.negative },
               ]}>
-                {formatAmount(balance.balance, group.currency)}
+                {balance.balance >= 0 ? 'Riceve ' : 'Deve '}
+                {formatUnsignedAmount(Math.abs(balance.balance), group.currency)}
               </Text>
             </View>
           )) : (
             <Text style={[styles.empty, { color: colors.textSecondary }]}>Nessuna spesa divisa.</Text>
           )}
+          {openBalances.length ? (
+            <Text style={[styles.virtualNote, { color: colors.textSecondary }]}>Il saldo dipende da chi ha pagato e dalla quota economica attribuita a ciascun membro.</Text>
+          ) : null}
         </Card>
       </Section>
 
@@ -996,6 +1142,89 @@ function BudgetMetric({
     <View style={styles.budgetMetric}>
       <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{label}</Text>
       <Text style={[styles.amount, { color: colors.text }]}>{formatAmount(value, currency)}</Text>
+    </View>
+  );
+}
+
+function GroupBudgetAllocation({
+  budgets,
+  budgetTotal,
+  currency,
+  onChange,
+}: {
+  budgets: FamilyGroupDetail['budgets'];
+  budgetTotal: number;
+  currency: string;
+  onChange: (allocation: BudgetAllocation) => void;
+}) {
+  const { colors } = useFlowndTheme();
+  const configuredTotal = budgets.reduce((sum, budget) => sum + budget.monthlyLimit, 0);
+  const percentageFor = (label: string, fallback: number) => configuredTotal > 0
+    ? Math.round(budgets.find((budget) => budget.category === label)?.percentage || (
+        (budgets.find((budget) => budget.category === label)?.monthlyLimit ?? 0) /
+        configuredTotal * 100
+      ))
+    : fallback;
+  const initialNeeds = percentageFor('Necessità', 50);
+  const initialWants = percentageFor('Desideri', 30);
+  const initialAllocation: BudgetAllocation = configuredTotal > 0
+    ? {
+        needs: initialNeeds,
+        wants: initialWants,
+        savings: Math.max(0, 100 - initialNeeds - initialWants),
+      }
+    : { needs: 50, wants: 30, savings: 20 };
+  const [allocation, setAllocation] = useState(initialAllocation);
+  const allocationRef = useRef(initialAllocation);
+  const rows = [
+    { key: 'needs' as const, label: 'Necessità', icon: 'home' },
+    { key: 'wants' as const, label: 'Desideri', icon: 'luggage' },
+    { key: 'savings' as const, label: 'Risparmi', icon: 'savings' },
+  ];
+
+  function updatePercentage(key: keyof BudgetAllocation, value: number) {
+    const next = updateAllocation(allocationRef.current, key, value);
+    allocationRef.current = next;
+    setAllocation(next);
+  }
+
+  return (
+    <View style={styles.groupAllocationList}>
+      <Text style={[styles.sharingCaption, { color: colors.textSecondary }]}>Le tre quote sommano sempre al 100%.</Text>
+      {rows.map((row) => (
+        <View key={row.key} style={[styles.groupAllocationRow, { backgroundColor: colors.sunken }]}>
+          <View style={styles.groupAllocationHeading}>
+            <Text style={[styles.materialIcon, { color: colors.accent }]}>{row.icon}</Text>
+            <View style={styles.flex}>
+              <Text style={[styles.permissionLabel, { color: colors.text }]}>{row.label}</Text>
+              <Text style={[styles.sharingCaption, { color: colors.textSecondary }]}>
+                {formatUnsignedAmount(budgetTotal * allocation[row.key] / 100, currency)} al mese
+              </Text>
+            </View>
+            <Text style={[styles.contributionValue, { color: colors.accent }]}>{allocation[row.key]}%</Text>
+          </View>
+          <View
+            onTouchEnd={() => onChange(allocationRef.current)}
+            onTouchCancel={() => onChange(allocationRef.current)}
+            style={styles.groupAllocationSliderTouch}>
+            <Slider
+              disabled={budgetTotal <= 0}
+              value={allocation[row.key]}
+              minimumValue={5}
+              maximumValue={90}
+              step={1}
+              minimumTrackTintColor={colors.accent}
+              maximumTrackTintColor={colors.background}
+              thumbTintColor={colors.accent}
+              onValueChange={(value) => updatePercentage(row.key, value)}
+              style={styles.groupAllocationSlider}
+            />
+          </View>
+        </View>
+      ))}
+      {budgetTotal <= 0 ? (
+        <Text style={[styles.sharingCaption, { color: colors.warning }]}>Aggiungi prima una quota mensile al gruppo per calcolare gli importi.</Text>
+      ) : null}
     </View>
   );
 }
@@ -1316,13 +1545,62 @@ function formatAmount(amount: number, currency: string) {
   }).format(amount);
 }
 
+function formatUnsignedAmount(amount: number, currency: string) {
+  return new Intl.NumberFormat('it-IT', {
+    style: 'currency',
+    currency,
+  }).format(amount);
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  pageTitle: { fontSize: 20, lineHeight: 27 },
+  pageTitle: { fontSize: 19, lineHeight: 26, marginLeft: 14 },
   backButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  groupGlassIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   backButtonFallback: { borderWidth: StyleSheet.hairlineWidth },
   backButtonPressed: { opacity: 0.68 },
   materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
+  groupTabsBar: {
+    minHeight: 46,
+    marginTop: -7,
+    marginBottom: 15,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  groupTabsScroll: { flex: 1 },
+  groupTabsContent: { alignItems: 'stretch', paddingRight: 8 },
+  groupTabsSkeletonContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  skeletonTab: { width: 112, height: 17, borderRadius: 9 },
+  skeletonTabShort: { width: 76 },
+  groupTab: {
+    minWidth: 92,
+    maxWidth: 150,
+    paddingHorizontal: 14,
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupTabLabel: { fontFamily: font.bodyMedium, fontSize: 12 },
+  groupTabLabelSelected: { fontFamily: font.bodySemiBold },
+  groupTabsEmpty: { alignSelf: 'center', paddingHorizontal: 12, fontFamily: font.body, fontSize: 11 },
+  groupTabAdd: {
+    width: 42,
+    height: 36,
+    borderRadius: 18,
+    marginLeft: 8,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailSkeleton: { paddingTop: 2, gap: 10 },
+  skeletonAvatarRow: { flexDirection: 'row', gap: 12, marginBottom: 5 },
+  skeletonAvatar: { width: 48, height: 48, borderRadius: 24 },
+  skeletonLine: { width: '78%', height: 12, borderRadius: 6 },
+  skeletonLineShort: { width: '48%' },
+  skeletonCard: { width: '100%', height: 142, borderRadius: 18, marginTop: 9 },
+  skeletonCardSmall: { height: 92, marginTop: 0 },
   scopeControl: { flexDirection: 'row', borderRadius: 13, padding: 3, marginBottom: 15 },
   scopeButton: { flex: 1, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: 'transparent', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 10 },
   scopeIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 18 },
@@ -1362,6 +1640,11 @@ const styles = StyleSheet.create({
   budgetMetricRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
   budgetMetric: { flex: 1 },
   contributionBlock: { paddingVertical: 7 },
+  groupAllocationList: { gap: 9, marginTop: 4 },
+  groupAllocationRow: { borderRadius: 13, padding: 12 },
+  groupAllocationHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  groupAllocationSliderTouch: { paddingTop: 7, paddingBottom: 2 },
+  groupAllocationSlider: { width: '100%', height: 28 },
   dispositionActions: { gap: 8, marginTop: 14 },
   smallAmount: { fontFamily: font.dataMedium, fontSize: 10 },
   goalBlock: { marginBottom: 10 },

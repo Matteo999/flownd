@@ -91,6 +91,7 @@ function RootNavigation() {
           <Stack.Screen name="goal-detail" />
           <Stack.Screen name="financing" />
           <Stack.Screen name="family" />
+          <Stack.Screen name="group-settings" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="notifications" />
           <Stack.Screen name="recurring-payments" />
