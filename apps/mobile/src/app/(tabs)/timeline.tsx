@@ -57,6 +57,7 @@ import {
   type DashboardPeriod,
   transactionsForPeriod,
 } from '@/lib/dashboard';
+import { fetchFamilyGroups, type FamilyGroup } from '@/lib/family';
 import type { ExpenseDraft } from '@/lib/onboarding';
 import { formatEuro } from '@/lib/onboarding';
 import {
@@ -291,6 +292,7 @@ export default function TimelineScreen() {
     transactionId?: string | string[];
   }>();
   const {
+    session,
     transactions,
     financialAccounts,
     recurringPayments,
@@ -347,12 +349,22 @@ export default function TimelineScreen() {
     useState<DashboardPeriod>(initialPeriod);
   const [periodAnchor, setPeriodAnchor] = useState(() => new Date());
   const [refreshing, setRefreshing] = useState(false);
+  const [familyGroups, setFamilyGroups] = useState<FamilyGroup[]>([]);
+  const userId = session?.user.id;
 
   useFocusEffect(
     useCallback(() => {
       // Rilegge i movimenti al ritorno dai form/import, anche con tab native congelate.
       void refreshData();
-    }, [refreshData]),
+      if (userId) {
+        void fetchFamilyGroups(userId)
+          .then(setFamilyGroups)
+          .catch((groupError) => {
+            if (__DEV__) console.error('Flownd timeline groups load failed', groupError);
+            setFamilyGroups([]);
+          });
+      }
+    }, [refreshData, userId]),
   );
 
   const refreshTimeline = useCallback(async () => {
@@ -1037,6 +1049,7 @@ export default function TimelineScreen() {
           recurringSeries={recurringPayments.find(
             (series) => series.id === editingTransaction.recurringPaymentId,
           )}
+          groups={familyGroups}
           onClose={() => {
             clearError();
             setEditingTransaction(null);
@@ -1367,6 +1380,11 @@ const TransactionRow = memo(function TransactionRow({
             <Text style={[styles.category, { color: colors.textSecondary }]}>
               {transaction.internalTransfer ? 'Trasferimento interno' : transaction.category}
             </Text>
+            {transaction.groupId ? (
+              <View style={[styles.groupBadge, { backgroundColor: colors.accentSoft }]}>
+                <Text style={[styles.groupBadgeText, { color: colors.accent }]}>Gruppo</Text>
+              </View>
+            ) : null}
             {transaction.isRecurring ? (
               <Text
                 accessibilityLabel="Ricorrente"
@@ -1954,6 +1972,7 @@ function EditTransactionModal({
   allowRemember,
   accountName,
   recurringSeries,
+  groups,
   onClose,
   onSave,
   onDelete,
@@ -1964,6 +1983,7 @@ function EditTransactionModal({
   allowRemember: boolean;
   accountName: string;
   recurringSeries?: RecurringSeries;
+  groups: FamilyGroup[];
   onClose: () => void;
   onSave: (
     transactionId: string,
@@ -2004,6 +2024,9 @@ function EditTransactionModal({
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [keyboardExpanded, setKeyboardExpanded] = useState(false);
   const [rememberSimilar, setRememberSimilar] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
+    transaction.groupId ?? null,
+  );
   const categoryOptions = categoriesForTransactionKind(kind);
   const categoryMenuActions = useMemo<MenuAction[]>(
     () => categoryOptions.map((option) => ({
@@ -2026,6 +2049,24 @@ function EditTransactionModal({
       { id: 'repeat-additional', title: '', displayInline: true, subactions: additionalRepeatOptions.map(action) },
     ];
   }, [repeatFrequency]);
+  const groupMenuActions = useMemo<MenuAction[]>(
+    () => [
+      {
+        id: 'personal',
+        title: 'Spesa personale',
+        image: 'person',
+        state: selectedGroupId === null ? 'on' as const : 'off' as const,
+      },
+      ...groups.map((group): MenuAction => ({
+        id: `group:${group.id}`,
+        title: group.name,
+        image: 'person.2',
+        state: selectedGroupId === group.id ? 'on' as const : 'off' as const,
+      })),
+    ],
+    [groups, selectedGroupId],
+  );
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const numericAmount = Number(amount.replace(',', '.')) || 0;
   const [sheetTranslateY] = useState(() => new Animated.Value(480));
   const [sheetHeight] = useState(() => new Animated.Value(0));
@@ -2184,6 +2225,7 @@ function EditTransactionModal({
         kind,
         occurredAt: occurredAt.toISOString(),
         rememberSimilar,
+        groupId: kind === 'expense' ? selectedGroupId : null,
       },
       repeatFrequency,
     );
@@ -2256,7 +2298,10 @@ function EditTransactionModal({
               compact={true}
               onChange={(nextKind) => {
                 setKind(nextKind);
-                if (nextKind === 'income') setRememberSimilar(false);
+                if (nextKind === 'income') {
+                  setRememberSimilar(false);
+                  setSelectedGroupId(null);
+                }
                 setCategory(nextKind === 'income' ? 'Altra entrata' : 'Altro');
                 setCategoriesOpen(false);
               }}
@@ -2293,6 +2338,29 @@ function EditTransactionModal({
                   style={[styles.editDescriptionInput, { color: colors.text }]}
                   value={description}
                 />
+                {kind === 'expense' && groups.length ? (
+                  <MenuView
+                    actions={groupMenuActions}
+                    onPressAction={(event) => {
+                      const value = event.nativeEvent.event;
+                      setSelectedGroupId(
+                        value === 'personal' ? null : value.replace(/^group:/, ''),
+                      );
+                    }}
+                    style={styles.editRepeatMenu}>
+                    <View
+                      accessible
+                      accessibilityRole="button"
+                      accessibilityLabel={`Imputa al gruppo: ${selectedGroup?.name ?? 'Nessun gruppo'}`}
+                      style={[styles.editRepeatTrigger, { borderTopColor: colors.border }]}>
+                      <Text style={[styles.editRepeatIcon, { color: colors.accent }]}>groups</Text>
+                      <Text style={[styles.editRepeatText, { color: colors.text }]}>
+                        {selectedGroup?.name ?? 'Spesa personale'}
+                      </Text>
+                      <Text style={[styles.editorDropdownIcon, { color: colors.textSecondary }]}>expand_more</Text>
+                    </View>
+                  </MenuView>
+                ) : null}
                 <MenuView
                   actions={repeatMenuActions}
                   onPressAction={(event) => {
@@ -2930,6 +2998,8 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   category: { fontFamily: font.bodyMedium, fontSize: 10 },
+  groupBadge: { borderRadius: 7, paddingHorizontal: 6, paddingVertical: 2 },
+  groupBadgeText: { fontFamily: font.bodySemiBold, fontSize: 8 },
   transactionDate: { fontFamily: font.data, fontSize: 9 },
   amount: { fontFamily: font.dataMedium, fontSize: 11 },
   empty: { alignItems: 'center', paddingVertical: 28 },

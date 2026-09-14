@@ -125,6 +125,7 @@ export type ExpenseDraft = {
   recurringPaymentId?: string | null;
   recurringOccurrenceId?: string | null;
   isRecurring?: boolean;
+  groupId?: string | null;
   incomeType?:
     | 'salary'
     | 'extra_salary'

@@ -128,8 +128,8 @@ export default function ProfileScreen() {
         />
         <ProfileRow
           icon="group"
-          label="Gruppi e condivisione"
-          caption="Famiglia, permessi, split e budget condivisi"
+          label="Gruppi"
+          caption="Membri, permessi, split e budget condivisi"
           onPress={() => router.push('/family' as Href)}
         />
         <ProfileRow

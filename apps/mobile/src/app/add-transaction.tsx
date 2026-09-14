@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
 import { TransactionKindSelector } from '@/components/transaction-kind-selector';
+import { fetchFamilyGroups, type FamilyGroup } from '@/lib/family';
 import { GENERIC_OPERATION_ERROR, reportClientError } from '@/lib/transaction-import';
 import {
   categoriesForTransactionKind,
@@ -124,6 +125,9 @@ export default function AddTransactionScreen() {
     accountId ?? null,
   );
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
+  const [familyGroups, setFamilyGroups] = useState<FamilyGroup[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const manualAccounts = financialAccounts.filter(
     (account) => account.source === 'manual',
   );
@@ -131,6 +135,7 @@ export default function AddTransactionScreen() {
     (account) => account.id === selectedAccountId,
   );
   const effectiveAccountId = selectedAccount?.id ?? null;
+  const selectedGroup = familyGroups.find((group) => group.id === selectedGroupId);
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
   const [step, setStep] = useState<TransactionStep>('amount');
   const [description, setDescription] = useState('');
@@ -207,6 +212,24 @@ export default function AddTransactionScreen() {
       }),
     ]).start();
   }, [backdropOpacity, sheetTranslateY]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!session?.user.id) return undefined;
+      let active = true;
+      void fetchFamilyGroups(session.user.id)
+        .then((groups) => {
+          if (active) setFamilyGroups(groups);
+        })
+        .catch((groupError) => {
+          if (__DEV__) console.error('Flownd transaction groups load failed', groupError);
+          if (active) setFamilyGroups([]);
+        });
+      return () => {
+        active = false;
+      };
+    }, [session?.user.id]),
+  );
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -295,6 +318,7 @@ export default function AddTransactionScreen() {
         step === 'category' ||
         importMenuOpen ||
         accountPickerOpen ||
+        groupPickerOpen ||
         datePickerOpen
       ) {
         return undefined;
@@ -304,12 +328,12 @@ export default function AddTransactionScreen() {
         if (step === 'description') descriptionInputRef.current?.focus();
       }, 180);
       return () => clearTimeout(timer);
-    }, [accountPickerOpen, datePickerOpen, importMenuOpen, step]),
+    }, [accountPickerOpen, datePickerOpen, groupPickerOpen, importMenuOpen, step]),
   );
 
   const sheetPanGesture = useMemo(
     () => Gesture.Pan()
-      .enabled(step !== 'category' && !accountPickerOpen && !datePickerOpen)
+      .enabled(step !== 'category' && !accountPickerOpen && !groupPickerOpen && !datePickerOpen)
       .activeOffsetY(4)
       .failOffsetX([-24, 24])
       .shouldCancelWhenOutside(false)
@@ -332,7 +356,7 @@ export default function AddTransactionScreen() {
           useNativeDriver: true,
         }).start();
       }),
-    [accountPickerOpen, closeSheet, datePickerOpen, sheetTranslateY, step],
+    [accountPickerOpen, closeSheet, datePickerOpen, groupPickerOpen, sheetTranslateY, step],
   );
 
   useEffect(() => {
@@ -566,6 +590,7 @@ export default function AddTransactionScreen() {
 
   function showAmountStep() {
     setAccountPickerOpen(false);
+    setGroupPickerOpen(false);
     switchingInputRef.current = keyboardVisibleRef.current;
     amountInputRef.current?.focus();
     setStep('amount');
@@ -579,6 +604,7 @@ export default function AddTransactionScreen() {
 
   function showDescriptionStep() {
     setAccountPickerOpen(false);
+    setGroupPickerOpen(false);
     switchingInputRef.current = keyboardVisibleRef.current;
     descriptionInputRef.current?.focus();
     setStep('description');
@@ -604,6 +630,7 @@ export default function AddTransactionScreen() {
       kind,
       occurredAt: occurredAt.toISOString(),
       financialAccountId: effectiveAccountId,
+      groupId: kind === 'expense' ? selectedGroupId : null,
     });
     if (saved) closeSheet();
   }
@@ -657,6 +684,10 @@ export default function AddTransactionScreen() {
                   clearError();
                   setKind(nextKind);
                   setCategoryOverride(null);
+                  if (nextKind === 'income') {
+                    setSelectedGroupId(null);
+                    setGroupPickerOpen(false);
+                  }
                 }}
               />
 
@@ -742,6 +773,7 @@ export default function AddTransactionScreen() {
                   pointerEvents={step === 'amount' ? 'none' : 'auto'}
                   style={[
                     styles.messageComposer,
+                    kind === 'expense' && familyGroups.length > 0 && styles.messageComposerWithGroup,
                     {
                       backgroundColor: colors.surface,
                       borderColor: colors.border,
@@ -787,14 +819,21 @@ export default function AddTransactionScreen() {
                     <View style={[styles.composerMeta, { borderTopColor: colors.border }]}>
                       <Pressable
                         accessibilityRole="button"
-                        onPress={() => setDatePickerOpen(true)}
+                        onPress={() => {
+                          setAccountPickerOpen(false);
+                          setGroupPickerOpen(false);
+                          setDatePickerOpen(true);
+                        }}
                         style={({ pressed }) => [styles.metaButton, pressed && styles.pressed]}>
                         <Text style={[styles.metaIcon, { color: colors.accent }]}>calendar_today</Text>
                         <Text style={[styles.metaText, { color: colors.text }]}>{compactDateLabel(occurredAt)}</Text>
                       </Pressable>
                       <Pressable
                         accessibilityRole="button"
-                        onPress={() => setAccountPickerOpen(true)}
+                        onPress={() => {
+                          setGroupPickerOpen(false);
+                          setAccountPickerOpen(true);
+                        }}
                         style={({ pressed }) => [styles.metaButton, pressed && styles.pressed]}>
                         <Text style={[styles.metaIcon, { color: colors.accent }]}>account_balance_wallet</Text>
                         <Text numberOfLines={1} style={[styles.metaText, styles.walletText, { color: colors.text }]}>
@@ -802,12 +841,33 @@ export default function AddTransactionScreen() {
                         </Text>
                       </Pressable>
                     </View>
+                    {kind === 'expense' && familyGroups.length ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Imputa al gruppo: ${selectedGroup?.name ?? 'Nessun gruppo'}`}
+                        onPress={() => {
+                          setAccountPickerOpen(false);
+                          setDatePickerOpen(false);
+                          setGroupPickerOpen(true);
+                        }}
+                        style={({ pressed }) => [
+                          styles.groupMetaButton,
+                          { borderTopColor: colors.border },
+                          pressed && styles.pressed,
+                        ]}>
+                        <Text style={[styles.metaIcon, { color: colors.accent }]}>groups</Text>
+                        <Text numberOfLines={1} style={[styles.groupMetaText, { color: colors.text }]}>
+                          {selectedGroup?.name ?? 'Spesa personale'}
+                        </Text>
+                        <Text style={[styles.metaIcon, { color: colors.textSecondary }]}>expand_more</Text>
+                      </Pressable>
+                    ) : null}
                   </Animated.View>
 
                 {insufficientCash ? (
-                  <Text style={[uiStyles.error, styles.inlineError, { color: colors.negative }]}>Il portafoglio non contiene abbastanza contanti.</Text>
+                  <Text style={[uiStyles.error, styles.inlineError, kind === 'expense' && familyGroups.length > 0 && styles.inlineErrorWithGroup, { color: colors.negative }]}>Il portafoglio non contiene abbastanza contanti.</Text>
                 ) : null}
-                {error ? <Text style={[uiStyles.error, styles.inlineError, { color: colors.negative }]}>{error}</Text> : null}
+                {error ? <Text style={[uiStyles.error, styles.inlineError, kind === 'expense' && familyGroups.length > 0 && styles.inlineErrorWithGroup, { color: colors.negative }]}>{error}</Text> : null}
               </View>
             </View>
 
@@ -942,6 +1002,37 @@ export default function AddTransactionScreen() {
                       ]}>
                       <Text style={[styles.metaIcon, { color: colors.accent }]}>account_balance_wallet</Text>
                       <Text style={[styles.accountOptionText, { color: colors.text }]}>{option?.name ?? 'Automatico'}</Text>
+                      {selected ? <Text style={[styles.optionCheck, { color: colors.accent }]}>check</Text> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+          {groupPickerOpen ? (
+            <View style={styles.categoryPopoverLayer}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => setGroupPickerOpen(false)} />
+              <View style={[styles.accountPicker, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.categoryPopoverTitle, { color: colors.text }]}>Imputa la spesa</Text>
+                {[null, ...familyGroups].map((option) => {
+                  const optionId = option?.id ?? null;
+                  const selected = selectedGroupId === optionId;
+                  return (
+                    <Pressable
+                      key={optionId ?? 'personal'}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      onPress={() => {
+                        setSelectedGroupId(optionId);
+                        setGroupPickerOpen(false);
+                      }}
+                      style={({ pressed }) => [
+                        styles.accountOption,
+                        selected && { backgroundColor: colors.accentSoft },
+                        pressed && styles.pressed,
+                      ]}>
+                      <Text style={[styles.metaIcon, { color: colors.accent }]}>{option ? 'groups' : 'person'}</Text>
+                      <Text style={[styles.accountOptionText, { color: colors.text }]}>{option?.name ?? 'Spesa personale'}</Text>
                       {selected ? <Text style={[styles.optionCheck, { color: colors.accent }]}>check</Text> : null}
                     </Pressable>
                   );
@@ -1137,6 +1228,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
   },
+  messageComposerWithGroup: { minHeight: 170 },
   descriptionReturnOverlay: {
     position: 'absolute',
     top: 0,
@@ -1185,7 +1277,17 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   walletText: { flexShrink: 1 },
+  groupMetaButton: {
+    minHeight: 44,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 17,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  groupMetaText: { flex: 1, fontFamily: font.bodyMedium, fontSize: 12, lineHeight: 16 },
   inlineError: { position: 'absolute', top: 198, right: 0, left: 0 },
+  inlineErrorWithGroup: { top: 242 },
   formFooter: {
     position: 'absolute',
     right: 0,

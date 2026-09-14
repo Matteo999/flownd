@@ -83,6 +83,9 @@ export default function DashboardScreen() {
     amountsVisible,
     budgetCycleStartDay,
     budgetRolloverMode,
+    grossBudgetMonthlyIncome,
+    groupMonthlyAllocation,
+    previousGroupMonthlyAllocation,
     budgetMonthlyIncome,
     firstDashboardVisit,
     dismissFirstVisit,
@@ -157,7 +160,7 @@ export default function DashboardScreen() {
     previousCycle,
   ).filter((transaction) => !transaction.excludedFromTotals);
   const monthlyTransactions = currentMonthTransactions.filter(
-    (transaction) => transaction.kind !== 'income',
+    (transaction) => transaction.kind !== 'income' && !transaction.excludedFromBudget,
   );
   const previousIncome = previousCycleTransactions
     .filter(
@@ -184,7 +187,13 @@ export default function DashboardScreen() {
     })
     .reduce((sum, contribution) => sum + contribution.amount, 0);
   const rolloverAmount = budgetRolloverMode === 'carry'
-    ? Math.max(0, previousIncome - previousSpent - savedPreviousCycle)
+    ? Math.max(
+        0,
+        previousIncome
+          - previousGroupMonthlyAllocation
+          - previousSpent
+          - savedPreviousCycle,
+      )
     : 0;
   const monthlyBudget = budgetMonthlyIncome + rolloverAmount;
   const dashboardRecurrences = [...recurringPayments]
@@ -245,6 +254,21 @@ export default function DashboardScreen() {
   const hasChartTransactions = chartTransactions.length > 0;
   const activeFamilySummary =
     familySummaries[familyGroupIndex] ?? familySummaries[0] ?? null;
+  const groupChartTransactions = transactionsForPeriod(
+    (activeFamilySummary?.expenses ?? []).map((expense) => ({
+      id: expense.id,
+      description: activeFamilySummary?.groupName ?? 'Spesa del gruppo',
+      amount: expense.amount,
+      category: expense.category === 'wants'
+        ? 'Desideri'
+        : expense.category === 'savings'
+          ? 'Risparmi'
+          : 'Necessità',
+      kind: 'expense' as const,
+      occurredAt: expense.occurredAt,
+    })),
+    chartPeriod,
+  );
   const [dashboardPageWidth, setDashboardPageWidth] = useState(
     Math.max(1, windowWidth),
   );
@@ -491,10 +515,23 @@ export default function DashboardScreen() {
                         </>
                       )}
                     </Text>
+                    {groupMonthlyAllocation > 0 ? (
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          styles.personalAllocationCaption,
+                          { color: overviewSecondaryForeground, opacity: 0.82 },
+                        ]}>
+                        {amountsVisible
+                          ? `${formatEuro(grossBudgetMonthlyIncome)} mensili · ${formatEuro(groupMonthlyAllocation)} ai gruppi`
+                          : `${HIDDEN_AMOUNT} mensili · ${HIDDEN_AMOUNT} ai gruppi`}
+                      </Text>
+                    ) : null}
                   </View>
                   <BudgetRadialChart
                     amountsVisible={amountsVisible}
                     spent={monthlyBudgetUsed}
+                    textColor={overviewForeground}
                     total={monthlyBudget}
                   />
                 </View>
@@ -503,11 +540,11 @@ export default function DashboardScreen() {
           ) : (
             <View style={styles.overviewPage}>
               <Pressable
-                accessibilityHint="Apre la sezione Famiglia e condivisione"
+                accessibilityHint="Apre la sezione Gruppi"
                 accessibilityLabel={
                   activeFamilySummary
                     ? `Apri il gruppo ${activeFamilySummary.groupName}`
-                    : 'Apri Famiglia e condivisione'
+                    : 'Apri Gruppi'
                 }
                 accessibilityRole="button"
                 onPress={() => router.push('/family' as Href)}
@@ -559,16 +596,13 @@ export default function DashboardScreen() {
                           {amountsVisible ? (
                             <>
                               {formatFamilyCurrency(
-                                Math.max(
-                                  0,
-                                  activeFamilySummary.budgetTotal -
-                                    activeFamilySummary.budgetSpent,
-                                ),
+                                activeFamilySummary.budgetRemaining,
                                 activeFamilySummary.currency,
                               )}
                               <Text
                                 style={[
                                   styles.budgetAmountTotal,
+                                  styles.groupBudgetAmountTotal,
                                   {
                                     color: overviewSecondaryForeground,
                                     opacity: 0.82,
@@ -587,6 +621,7 @@ export default function DashboardScreen() {
                               <Text
                                 style={[
                                   styles.budgetAmountTotal,
+                                  styles.groupBudgetAmountTotal,
                                   {
                                     color: overviewSecondaryForeground,
                                     opacity: 0.82,
@@ -597,10 +632,22 @@ export default function DashboardScreen() {
                             </>
                           )}
                         </Text>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.personalAllocationCaption,
+                            styles.groupBudgetCaption,
+                            { color: overviewSecondaryForeground, opacity: 0.82 },
+                          ]}>
+                          {amountsVisible
+                            ? `${formatFamilyCurrency(activeFamilySummary.budgetCovered, activeFamilySummary.currency)} coperti · ${formatFamilyCurrency(activeFamilySummary.budgetSpent, activeFamilySummary.currency)} spesi`
+                            : `${HIDDEN_AMOUNT} coperti · ${HIDDEN_AMOUNT} spesi`}
+                        </Text>
                       </View>
                       <BudgetRadialChart
                         amountsVisible={amountsVisible}
                         spent={activeFamilySummary.budgetSpent}
+                        textColor={overviewForeground}
                         total={activeFamilySummary.budgetTotal}
                       />
                     </View>
@@ -643,7 +690,7 @@ export default function DashboardScreen() {
         </View>
       </Card>
 
-      {firstDashboardVisit ? (
+      {renderedScope === 'personal' && firstDashboardVisit ? (
         <Card
           style={[
             styles.confirmation,
@@ -711,8 +758,8 @@ export default function DashboardScreen() {
                   ? ['#173A63', '#57331F', '#164D3B']
                   : ['#EAF3FF', '#FFF0E7', '#E5FBF3'];
                 const visualIndex = index % groupBudgetColors.length;
-                const allocation = activeFamilySummary.budgetTotal > 0
-                  ? budget.monthlyLimit / activeFamilySummary.budgetTotal
+                const progress = budget.monthlyLimit > 0
+                  ? budget.spent / budget.monthlyLimit
                   : 0;
                 return (
                   <View
@@ -720,7 +767,7 @@ export default function DashboardScreen() {
                     accessible
                     accessibilityLabel={
                       amountsVisible
-                        ? `${budget.category}: ${formatFamilyCurrency(budget.monthlyLimit, activeFamilySummary.currency)}, ${Math.round(allocation * 100)} per cento del budget del gruppo`
+                        ? `${budget.category}: ${formatFamilyCurrency(budget.spent, activeFamilySummary.currency)} su ${formatFamilyCurrency(budget.monthlyLimit, activeFamilySummary.currency)}`
                         : `${budget.category}: importo nascosto`
                     }
                     style={styles.budgetCategoryRow}>
@@ -749,7 +796,7 @@ export default function DashboardScreen() {
                               styles.budgetCategoryPercentage,
                               { color: groupBudgetColors[visualIndex] },
                             ]}>
-                            {amountsVisible ? `${Math.round(allocation * 100)}%` : '••%'}
+                            {amountsVisible ? `${Math.round(progress * 100)}%` : '••%'}
                           </Text>
                         </View>
                         <Text
@@ -758,8 +805,8 @@ export default function DashboardScreen() {
                             { color: colors.textSecondary },
                           ]}>
                           {amountsVisible
-                            ? `${formatFamilyCurrency(budget.monthlyLimit, activeFamilySummary.currency)} al mese`
-                            : `${HIDDEN_AMOUNT} al mese`}
+                            ? `${formatFamilyCurrency(budget.spent, activeFamilySummary.currency)} di ${formatFamilyCurrency(budget.monthlyLimit, activeFamilySummary.currency)}`
+                            : `${HIDDEN_AMOUNT} di ${HIDDEN_AMOUNT}`}
                         </Text>
                       </View>
                     </View>
@@ -773,7 +820,7 @@ export default function DashboardScreen() {
                           styles.budgetCategoryFill,
                           {
                             backgroundColor: groupBudgetColors[visualIndex],
-                            width: `${Math.min(100, Math.max(0, allocation * 100))}%`,
+                            width: `${Math.min(100, Math.max(0, progress * 100))}%`,
                           },
                         ]}
                       />
@@ -884,7 +931,7 @@ export default function DashboardScreen() {
 
       <View accessibilityState={{ busy: periodPending }}>
         <Card style={styles.chartCard}>
-          {hasChartTransactions ? (
+          {(renderedScope === 'groups' ? groupChartTransactions.length > 0 : hasChartTransactions) ? (
             <SpendingDonutChart
               amountsVisible={amountsVisible}
               totalLabel={
@@ -892,7 +939,7 @@ export default function DashboardScreen() {
                   ? 'TOTALE SPESO NEL CICLO'
                   : 'TOTALE SPESO'
               }
-              transactions={chartTransactions}
+              transactions={renderedScope === 'groups' ? groupChartTransactions : chartTransactions}
             />
           ) : (
             <View style={styles.guidedState}>
@@ -910,7 +957,7 @@ export default function DashboardScreen() {
         </Card>
       </View>
 
-      {dashboardRecurrences.length ? (
+      {renderedScope === 'personal' && dashboardRecurrences.length ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Apri ${dashboardRecurrences.length} ricorrenze`}
@@ -947,7 +994,7 @@ export default function DashboardScreen() {
         </Pressable>
       ) : null}
 
-      {coachInsight ? (
+      {renderedScope === 'personal' && coachInsight ? (
         <Card style={[styles.contentCard, { backgroundColor: colors.accentSoft }]}>
           <Text style={[styles.eyebrow, { color: colors.accent }]}>
             INSIGHT DEL COACH
@@ -961,7 +1008,7 @@ export default function DashboardScreen() {
         </Card>
       ) : null}
 
-      {featuredGoal ? (
+      {renderedScope === 'personal' && featuredGoal ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Apri l’obiettivo ${featuredGoal.name}`}
@@ -994,7 +1041,44 @@ export default function DashboardScreen() {
         </Pressable>
       ) : null}
 
-      {budgetAlert ? (
+      {renderedScope === 'groups' && activeFamilySummary?.goalTarget ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Apri gli obiettivi condivisi di ${activeFamilySummary.groupName}`}
+          onPress={() => router.push('/family' as Href)}
+          style={({ pressed }) => pressed && styles.iconPressed}>
+          <Card style={styles.contentCard}>
+            <View style={styles.goalTop}>
+              <View style={styles.flex}>
+                <Text style={[styles.eyebrow, { color: colors.textSecondary }]}>
+                  {activeFamilySummary.sharedGoalCount === 1
+                    ? 'OBIETTIVO CONDIVISO'
+                    : 'OBIETTIVI CONDIVISI'}
+                </Text>
+                <Text style={[styles.goalName, { color: colors.text }]}>
+                  {activeFamilySummary.groupName}
+                </Text>
+                <Text style={[styles.goalAmount, { color: colors.textSecondary }]}>
+                  {amountsVisible
+                    ? `${formatFamilyCurrency(activeFamilySummary.goalSaved, activeFamilySummary.currency)} di ${formatFamilyCurrency(activeFamilySummary.goalTarget, activeFamilySummary.currency)}`
+                    : `${HIDDEN_AMOUNT} di ${HIDDEN_AMOUNT}`}
+                </Text>
+              </View>
+              <Text style={[styles.goalPercent, { color: colors.accent }]}>
+                {amountsVisible
+                  ? `${Math.round((activeFamilySummary.goalSaved / activeFamilySummary.goalTarget) * 100)}%`
+                  : '••%'}
+              </Text>
+            </View>
+            <ProgressBar
+              value={activeFamilySummary.goalSaved / activeFamilySummary.goalTarget}
+            />
+            <Text style={[styles.cardLink, { color: colors.accent }]}>Apri il gruppo</Text>
+          </Card>
+        </Pressable>
+      ) : null}
+
+      {renderedScope === 'personal' && budgetAlert ? (
         <Card
           style={[
             styles.contentCard,
@@ -1030,7 +1114,7 @@ export default function DashboardScreen() {
         </Card>
       ) : null}
 
-      {!hasRecentData ? (
+      {renderedScope === 'personal' && !hasRecentData ? (
         <Card style={styles.contentCard}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>
             {financialAccounts.length
@@ -1095,10 +1179,12 @@ function budgetArcColor(spentProgress: number) {
 
 function BudgetRadialChart({
   spent,
+  textColor,
   total,
   amountsVisible,
 }: {
   spent: number;
+  textColor: string;
   total: number;
   amountsVisible: boolean;
 }) {
@@ -1137,7 +1223,7 @@ function BudgetRadialChart({
         style={styles.budgetRadialImage}
       />
       <View pointerEvents="none" style={styles.budgetRadialLabel}>
-        <Text style={styles.budgetRadialPercentage}>
+        <Text style={[styles.budgetRadialPercentage, { color: textColor }]}>
           {amountsVisible ? `${percentage}%` : '••%'}
         </Text>
       </View>
@@ -1160,11 +1246,11 @@ function FamilyOverviewPage({
     return (
       <>
         <Text style={[styles.overviewLabel, { color: secondaryForeground, opacity: 0.82 }]}>
-          FAMIGLIA E CONDIVISIONE
+          GRUPPI
         </Text>
         <Text style={[styles.familyEmptyTitle, { color: foreground }]}>Crea il tuo gruppo</Text>
         <Text style={[styles.overviewHint, { color: secondaryForeground, opacity: 0.82 }]}>
-          Invita famiglia o coinquilini e scegli cosa condividere.
+          Invita altre persone e scegli cosa condividere.
         </Text>
       </>
     );
@@ -1407,11 +1493,19 @@ const styles = StyleSheet.create({
     fontSize: 29,
     lineHeight: 38,
   },
-  groupBudgetAmount: { fontSize: 31, lineHeight: 40 },
+  groupBudgetAmount: { fontSize: 29, lineHeight: 38 },
   budgetAmountTotal: {
     fontFamily: font.bodyMedium,
     fontSize: 12,
   },
+  groupBudgetAmountTotal: { fontSize: 14 },
+  personalAllocationCaption: {
+    fontFamily: font.bodyMedium,
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  groupBudgetCaption: { fontSize: 12, lineHeight: 17 },
   recurrencesCard: { gap: 14 },
   recurrencesHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   recurrencesTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
@@ -1441,7 +1535,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   budgetRadialPercentage: {
-    color: '#FFFFFF',
     fontFamily: font.dataMedium,
     fontSize: 18,
     lineHeight: 23,

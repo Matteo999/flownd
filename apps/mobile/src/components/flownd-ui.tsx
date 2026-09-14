@@ -21,6 +21,7 @@ import {
   Text,
   TextInput,
   TextInputProps,
+  TextStyle,
   View,
   ViewStyle,
 } from 'react-native';
@@ -462,6 +463,7 @@ export function PageHeader({
   action,
   collapseInPlace = false,
   compactBorderless = true,
+  titleStyle,
 }: {
   eyebrow?: string;
   title: string;
@@ -469,6 +471,7 @@ export function PageHeader({
   action?: ReactNode;
   collapseInPlace?: boolean;
   compactBorderless?: boolean;
+  titleStyle?: StyleProp<TextStyle>;
 }) {
   const { colors, isDark } = useFlowndTheme();
   const scrollContext = useContext(ScrollHeaderContext);
@@ -516,7 +519,7 @@ export function PageHeader({
         {leading ? <View style={styles.pageHeaderLeading}>{leading}</View> : null}
         <View style={styles.flex}>
           {eyebrow ? <Text style={[styles.eyebrow, { color: colors.accent }]}>{eyebrow}</Text> : null}
-          <Text style={[styles.pageTitle, { color: colors.text }]}>{title}</Text>
+          <Text style={[styles.pageTitle, { color: colors.text }, titleStyle]}>{title}</Text>
         </View>
       </Animated.View>
       {scrollContext ? (

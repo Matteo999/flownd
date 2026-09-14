@@ -15,6 +15,7 @@ import React, {
 import {
   BudgetCategory,
   BudgetGroupKey,
+  categoryToBudgetGroup,
   ExpenseDraft,
   IncomeBandId,
   incomeReferenceForBand,
@@ -62,6 +63,7 @@ export type TransactionUpdate = {
   kind: 'expense' | 'income';
   occurredAt: string;
   rememberSimilar?: boolean;
+  groupId?: string | null;
 };
 
 export type FinancialAccount = {
@@ -108,6 +110,19 @@ function isTransientBudgetSaveError(error: { message?: string; details?: string 
   );
 }
 
+async function syncTransactionGroup(
+  transactionId: string,
+  groupId: string | null,
+  category: string,
+) {
+  const { error } = await supabase.rpc('set_my_transaction_group', {
+    p_transaction_id: transactionId,
+    p_group_id: groupId,
+    p_macro_category: categoryToBudgetGroup(category),
+  });
+  if (error) throw error;
+}
+
 type AppContextValue = {
   session: Session | null;
   loading: boolean;
@@ -129,6 +144,10 @@ type AppContextValue = {
   amountsVisible: boolean;
   budgetCycleStartDay: number;
   budgetRolloverMode: BudgetRolloverMode;
+  grossBudgetMonthlyIncome: number;
+  groupMonthlyAllocation: number;
+  previousGroupMonthlyAllocation: number;
+  groupPersonalCarryIn: number;
   budgetMonthlyIncome: number;
   error: string | null;
   updateDraft: (next: Partial<OnboardingDraft>) => void;
@@ -276,6 +295,9 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [budgetCycleStartDay, setBudgetCycleStartDay] = useState(1);
   const [budgetRolloverMode, setBudgetRolloverMode] =
     useState<BudgetRolloverMode>('savings');
+  const [groupMonthlyAllocation, setGroupMonthlyAllocation] = useState(0);
+  const [previousGroupMonthlyAllocation, setPreviousGroupMonthlyAllocation] = useState(0);
+  const [groupPersonalCarryIn, setGroupPersonalCarryIn] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const activeUserId = useRef<string | null>(null);
   const recurringStartupRefreshUserId = useRef<string | null>(null);
@@ -309,6 +331,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       loansResult,
       goalNoticeResult,
       goalContributionsResult,
+      groupAllocationResult,
+      groupTransactionLinksResult,
     ] = await Promise.all([
       supabase
         .from('budget_categories')
@@ -359,6 +383,8 @@ export function AppProvider({ children }: PropsWithChildren) {
         .is('group_id', null)
         .gte('occurred_at', contributionHistoryStart.toISOString())
         .order('occurred_at', { ascending: false }),
+      supabase.rpc('my_group_allocation_summary'),
+      supabase.rpc('my_group_transaction_links'),
     ]);
 
     if (
@@ -376,7 +402,26 @@ export function AppProvider({ children }: PropsWithChildren) {
       return;
     }
 
+    if (__DEV__ && groupAllocationResult.error) {
+      console.warn(
+        'Flownd group allocation is unavailable; personal budget will use the full amount.',
+        groupAllocationResult.error,
+      );
+    }
+    if (__DEV__ && groupTransactionLinksResult.error) {
+      console.warn(
+        'Flownd group transaction links are unavailable; personal transactions remain visible.',
+        groupTransactionLinksResult.error,
+      );
+    }
+
     if (activeUserId.current !== userId) return;
+    const groupTransactionIds = new Map(
+      ((groupTransactionLinksResult.data ?? []) as {
+        transaction_id: string;
+        group_id: string;
+      }[]).map((item) => [item.transaction_id, item.group_id]),
+    );
     const monthlyTransactions = (transactionResult.data ?? []).map((item) => ({
       id: item.id,
       description: item.description,
@@ -391,7 +436,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       bankStatus: item.bank_status,
       excludedFromTotals: Boolean(item.excluded_from_totals),
       internalTransfer: Boolean(item.internal_transfer),
-      excludedFromBudget: Boolean(item.excluded_from_budget),
+      excludedFromBudget: Boolean(item.excluded_from_budget) || groupTransactionIds.has(item.id),
+      groupId: groupTransactionIds.get(item.id) ?? null,
       incomeType: item.income_type as ExpenseDraft['incomeType'],
       rawDescription: item.raw_description,
       merchantName: item.merchant_name,
@@ -405,7 +451,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       isRecurring: Boolean(item.recurring_payment_id),
     }));
     const incomeBand = goalSettingsResult.data.income_band as IncomeBandId | null;
-    const plannedMonthlyIncome = incomeReferenceForBand(incomeBand);
+    const plannedMonthlyIncome = Number(
+      goalSettingsResult.data.planned_monthly_income
+      ?? incomeReferenceForBand(incomeBand),
+    );
     const hydratedBudgets: BudgetCategory[] = (budgetsResult.data ?? []).map(
       (item) => ({
         id: item.category_key,
@@ -485,6 +534,12 @@ export function AppProvider({ children }: PropsWithChildren) {
       })),
     );
     setGoalNotice(goalNoticeResult.data ?? null);
+    const groupAllocation = groupAllocationResult.error
+      ? null
+      : groupAllocationResult.data as Record<string, unknown> | null;
+    setGroupMonthlyAllocation(Number(groupAllocation?.allocatedToGroups ?? 0));
+    setPreviousGroupMonthlyAllocation(Number(groupAllocation?.previousAllocatedToGroups ?? 0));
+    setGroupPersonalCarryIn(Number(groupAllocation?.personalCarryIn ?? 0));
     setDraft((current) => ({
       ...current,
       incomeBand,
@@ -584,6 +639,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       setGoals([]);
       setCompletedGoals([]);
       setGoalContributions([]);
+      setGroupMonthlyAllocation(0);
+      setPreviousGroupMonthlyAllocation(0);
+      setGroupPersonalCarryIn(0);
       setLoans([]);
       setGoalAllocationModeState('priority');
       setGoalNotice(null);
@@ -736,19 +794,23 @@ export function AppProvider({ children }: PropsWithChildren) {
     };
   }, [hydrateUserData, onboardingComplete, session?.user.id]);
 
-  const budgetMonthlyIncome = useMemo(() => {
+  const grossBudgetMonthlyIncome = useMemo(() => {
     const cycle = financialCycleForDate(new Date(), budgetCycleStartDay, transactions);
     const incomeCandidates = incomeCandidatesForFinancialCycle(transactions, cycle);
     const currentCycleIncome = budgetIncomeForFinancialCycle(transactions, cycle)
       .reduce((sum, transaction) => sum + transaction.amount, 0);
     return incomeCandidates.length
       ? currentCycleIncome
-      : incomeReferenceForBand(draft.incomeBand);
+      : draft.monthlyReference;
   }, [
     budgetCycleStartDay,
-    draft.incomeBand,
+    draft.monthlyReference,
     transactions,
   ]);
+  const budgetMonthlyIncome = Math.max(
+    0,
+    grossBudgetMonthlyIncome - groupMonthlyAllocation + groupPersonalCarryIn,
+  );
 
   async function completeOnboarding() {
     if (!session) {
@@ -843,8 +905,8 @@ export function AppProvider({ children }: PropsWithChildren) {
             incomeTreatment?.excludedFromBudget ?? false,
         },
       );
-      setSaving(false);
       if (rpcError || !transactionId) {
+        setSaving(false);
         if (__DEV__) console.error('Flownd manual account transaction failed', rpcError);
         setError(
           manualAccount.accountKind === 'cash_wallet' &&
@@ -855,6 +917,17 @@ export function AppProvider({ children }: PropsWithChildren) {
         );
         return false;
       }
+      try {
+        if (kind === 'expense' && transaction.groupId) {
+          await syncTransactionGroup(String(transactionId), transaction.groupId, category);
+        }
+      } catch (groupError) {
+        setSaving(false);
+        if (__DEV__) console.error('Flownd transaction group assignment failed', groupError);
+        setError('La transazione è stata salvata, ma non è stato possibile imputarla al gruppo.');
+        return false;
+      }
+      setSaving(false);
       const recordedTransaction: ExpenseDraft = {
         ...transaction,
         id: String(transactionId),
@@ -866,7 +939,9 @@ export function AppProvider({ children }: PropsWithChildren) {
         internalTransfer: incomeTreatment?.incomeType === 'internal_transfer',
         excludedFromTotals: incomeTreatment?.incomeType === 'internal_transfer',
         incomeType: incomeTreatment?.incomeType,
-        excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
+        excludedFromBudget:
+          (incomeTreatment?.excludedFromBudget ?? false) || Boolean(transaction.groupId),
+        groupId: kind === 'expense' ? transaction.groupId ?? null : null,
       };
       await hydrateUserData(session.user.id);
       if (recordedTransaction.kind !== 'income') {
@@ -918,14 +993,25 @@ export function AppProvider({ children }: PropsWithChildren) {
       .single();
     const insertResult = await insertTransaction();
     const { data, error: insertError } = insertResult;
-    setSaving(false);
-
     if (insertError) {
+      setSaving(false);
       if (insertError.code === '23505' && source !== 'manual') return true;
       if (__DEV__) console.error('Flownd transaction save failed', insertError);
       setError('Non siamo riusciti a salvare la transazione. Riprova.');
       return false;
     }
+
+    try {
+      if (kind === 'expense' && transaction.groupId) {
+        await syncTransactionGroup(String(data.id), transaction.groupId, category);
+      }
+    } catch (groupError) {
+      setSaving(false);
+      if (__DEV__) console.error('Flownd transaction group assignment failed', groupError);
+      setError('La transazione è stata salvata, ma non è stato possibile imputarla al gruppo.');
+      return false;
+    }
+    setSaving(false);
 
     const recordedTransaction: ExpenseDraft = {
       id: data.id,
@@ -940,7 +1026,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       internalTransfer: Boolean(data.internal_transfer),
       excludedFromTotals: Boolean(data.excluded_from_totals),
       incomeType: incomeTreatment?.incomeType,
-      excludedFromBudget: incomeTreatment?.excludedFromBudget ?? false,
+      excludedFromBudget:
+        (incomeTreatment?.excludedFromBudget ?? false) || Boolean(transaction.groupId),
+      groupId: kind === 'expense' ? transaction.groupId ?? null : null,
       financialAccountId: null,
       rawDescription: transaction.rawDescription ?? null,
       merchantName: transaction.merchantName ?? null,
@@ -1449,6 +1537,25 @@ export function AppProvider({ children }: PropsWithChildren) {
       }
     }
 
+    const shouldSyncGroup =
+      transaction.groupId !== undefined || Boolean(existingTransaction?.groupId);
+    const targetGroupId = transaction.kind === 'expense'
+      ? transaction.groupId === undefined
+        ? existingTransaction?.groupId ?? null
+        : transaction.groupId
+      : null;
+    if (shouldSyncGroup) {
+      try {
+        await syncTransactionGroup(transactionId, targetGroupId, nextCategory);
+      } catch (groupError) {
+        setSaving(false);
+        if (__DEV__) console.error('Flownd transaction group update failed', groupError);
+        setError('La transazione è stata aggiornata, ma non è stato possibile cambiare il gruppo.');
+        await hydrateUserData(session.user.id);
+        return false;
+      }
+    }
+
     setSaving(false);
 
     if (manualAccount || existingTransaction?.source === 'recurring_generated') {
@@ -1463,7 +1570,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       kind: transaction.kind,
       incomeType: incomeTreatment?.incomeType,
       excludedFromBudget:
-        internalTransfer || incomeTreatment?.excludedFromBudget || false,
+        internalTransfer || incomeTreatment?.excludedFromBudget || Boolean(targetGroupId),
+      groupId: targetGroupId,
       internalTransfer,
       excludedFromTotals: internalTransfer,
       occurredAt: transaction.occurredAt,
@@ -2301,6 +2409,10 @@ export function AppProvider({ children }: PropsWithChildren) {
     amountsVisible,
     budgetCycleStartDay,
     budgetRolloverMode,
+    grossBudgetMonthlyIncome,
+    groupMonthlyAllocation,
+    previousGroupMonthlyAllocation,
+    groupPersonalCarryIn,
     budgetMonthlyIncome,
     error,
     updateDraft: (next) => setDraft((current) => ({ ...current, ...next })),
