@@ -30,8 +30,8 @@ test('coverage progresses on actual income without blocking the plan', () => {
 
 test('equal contributions attribute a 360 euro remainder equally', () => {
   assert.deepEqual(splitByContribution(360, [
-    { id: 'A', percentage: 40 },
-    { id: 'B', percentage: 40 },
+    { id: 'A', plannedContribution: 800 },
+    { id: 'B', plannedContribution: 800 },
   ]), [
     { memberId: 'A', amount: 180 },
     { memberId: 'B', amount: 180 },
@@ -49,6 +49,25 @@ test('payer balances stay separate from the economic split', () => {
   }]), [
     { memberId: 'A', balance: 50 },
     { memberId: 'B', balance: -50 },
+  ]);
+});
+
+test('expense split follows planned euro contributions, not percentages', () => {
+  const shares = splitByContribution(600, [
+    { id: 'A', plannedContribution: 592.77 },
+    { id: 'B', plannedContribution: 500 },
+  ]);
+  assert.deepEqual(shares, [
+    { memberId: 'A', amount: 325.47 },
+    { memberId: 'B', amount: 274.53 },
+  ]);
+  assert.deepEqual(calculateMemberBalances(['A', 'B'], [{
+    paidBy: 'A',
+    amount: 600,
+    shares,
+  }]), [
+    { memberId: 'A', balance: 274.53 },
+    { memberId: 'B', balance: -274.53 },
   ]);
 });
 
@@ -73,4 +92,20 @@ test('database privacy projection never exposes private transaction fields', asy
   );
   assert.match(projection, /else 'Movimento condiviso'/);
   assert.doesNotMatch(projection, /merchant_name|financial_account_id|raw_description/);
+});
+
+test('latest database split uses planned euro contributions', async () => {
+  const migration = await readFile(
+    new URL('../../../../supabase/migrations/202609140003_group_contribution_modes_and_split.sql', import.meta.url),
+    'utf8',
+  );
+  const splitFunction = migration.slice(
+    migration.indexOf('create or replace function public.group_default_expense_split'),
+    migration.indexOf('create or replace function public.refresh_group_monthly_contributions'),
+  );
+  assert.match(splitFunction, /planned_monthly_income/);
+  assert.match(splitFunction, /contribution_mode = 'fixed'/);
+  assert.match(splitFunction, /planned_contribution/);
+  assert.doesNotMatch(splitFunction, /as weight,[\s\S]*rule\.percentage/);
+  assert.ok((migration.match(/group_default_expense_split\(/g) ?? []).length >= 4);
 });

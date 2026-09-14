@@ -33,20 +33,21 @@ export function coveredContribution(
 
 export function splitByContribution(
   amount: number,
-  members: { id: string; percentage: number }[],
+  members: { id: string; plannedContribution: number }[],
 ) {
-  const eligible = members.filter((member) => member.percentage > 0);
+  const eligible = members.filter((member) => member.plannedContribution > 0);
   const weighted = eligible.length
     ? eligible
-    : members.map((member) => ({ ...member, percentage: 1 }));
-  const totalWeight = totalContributionPercentage(
-    weighted.map((member) => member.percentage),
+    : members.map((member) => ({ ...member, plannedContribution: 1 }));
+  const totalWeight = weighted.reduce(
+    (total, member) => total + member.plannedContribution,
+    0,
   );
   let allocated = 0;
   return weighted.map((member, index) => {
     const share = index === weighted.length - 1
       ? Math.round((amount - allocated) * 100) / 100
-      : Math.round(amount * member.percentage / totalWeight * 100) / 100;
+      : Math.round(amount * member.plannedContribution / totalWeight * 100) / 100;
     allocated += share;
     return { memberId: member.id, amount: share };
   });
