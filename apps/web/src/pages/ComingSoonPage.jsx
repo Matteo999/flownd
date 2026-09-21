@@ -38,17 +38,17 @@ export default function ComingSoonPage() {
       <div className="coming-soon__glow coming-soon__glow--one" />
       <div className="coming-soon__glow coming-soon__glow--two" />
       <section className="coming-soon__content">
-        <img className="coming-soon__logo" src="/flownd-alpha.png" alt="Flownd" />
+        <img className="coming-soon__logo" src="/Wordmark_dark.png" alt="Flownd" />
         <h1 id="coming-soon-title">Stiamo arrivando.</h1>
         <p className="coming-soon__intro">
           Flownd ti aiuterà a vedere con chiarezza dove vanno i tuoi soldi.
-          Ci vediamo il 1° ottobre.
+          Ci vediamo il 1° novembre.
         </p>
 
         {released ? (
           <p className="coming-soon__released">Flownd è disponibile.</p>
         ) : (
-          <div className="countdown" aria-label="Conto alla rovescia al lancio del 1 ottobre 2026">
+          <div className="countdown" aria-label="Conto alla rovescia al lancio del 1 novembre 2026">
             <CounterUnit label="giorni" value={timeLeft.days} />
             <CounterUnit label="ore" value={timeLeft.hours} />
             <CounterUnit label="minuti" value={timeLeft.minutes} />
