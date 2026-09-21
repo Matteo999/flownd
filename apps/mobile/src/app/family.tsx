@@ -4,13 +4,12 @@ import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { Slider } from '@expo/ui/community/slider';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Alert, Animated, Easing, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import {
   Card,
   Field,
-  PageHeader,
   PrimaryButton,
   Screen,
   SecondaryButton,
@@ -106,6 +105,7 @@ export default function FamilyScreen() {
   const sharingSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const groupBudgetSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const hasFocusedOnce = useRef(false);
+  const newGroupInputRef = useRef<TextInput>(null);
 
   const selectedGroup = useMemo(
     () => groups.find((group) => group.id === selectedGroupId) ?? null,
@@ -384,14 +384,11 @@ export default function FamilyScreen() {
 
   return (
     <GestureDetector gesture={swipeBackGesture}>
-    <Screen>
-      <PageHeader
-        title="Gruppi"
-        titleStyle={styles.pageTitle}
-        leading={
-          <GroupBackButton onPress={navigateBack} />
-        }
-        action={selectedGroup ? (
+    <Screen scroll={false} style={styles.groupsScreen}>
+      <View style={styles.staticHeader}>
+        <GroupBackButton onPress={navigateBack} />
+        <Text style={[styles.pageTitle, { color: colors.text }]}>Gruppi</Text>
+        {selectedGroup ? (
           <GroupGlassIconButton
             accessibilityLabel="Impostazioni gruppo"
             icon="settings"
@@ -399,79 +396,118 @@ export default function FamilyScreen() {
               router.push(`/group-settings?groupId=${selectedGroup.id}` as Href);
             }}
           />
-        ) : null}
-      />
+        ) : <View style={styles.headerControlPlaceholder} />}
+      </View>
 
-      {loading ? (
-        <GroupTabsSkeleton />
-      ) : (
-        <GroupTabs
-          groups={groups}
-          selectedGroupId={selectedGroupId}
-          onCreate={() => setCreateModalOpen(true)}
-          onSelect={(groupId) => {
-            if (groupId === selectedGroupId) return;
-            setDetail(peekFamilyGroupDetail(groupId));
-            setSelectedGroupId(groupId);
-          }}
-        />
-      )}
-
-      {loading ? (
-        <GroupDetailSkeleton />
-      ) : (
-        <>
-          <ReceivedGroupInvites
-          receivedInvites={receivedInvites}
-          saving={saving}
-          onAcceptInvite={(inviteId) => void runAction(async () => {
-            const groupId = await acceptGroupInvite(inviteId);
-            setDetail(null);
-            await loadGroups(groupId);
-          })}
+      {loading || groups.length ? (
+        loading ? (
+          <GroupTabsSkeleton />
+        ) : (
+          <GroupTabs
+            groups={groups}
+            selectedGroupId={selectedGroupId}
+            onCreate={() => setCreateModalOpen(true)}
+            onSelect={(groupId) => {
+              if (groupId === selectedGroupId) return;
+              setDetail(peekFamilyGroupDetail(groupId));
+              setSelectedGroupId(groupId);
+            }}
           />
-          {selectedGroup ? (
-            <GroupView
-              group={selectedGroup}
-              detail={detail}
-              onChooseDisposition={(action, goalId) => void runAction(async () => {
-                const previous = detail?.summary.myPreviousCycle;
-                if (!previous) return;
-                await setMyGroupCycleDisposition(
-                  selectedGroup.id,
-                  previous.cycleStart,
-                  action,
-                  goalId,
-                );
-                await refreshDetail();
+        )
+      ) : null}
+
+      <ScrollView
+        contentContainerStyle={styles.groupsBodyContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        style={styles.groupsBody}>
+        {loading ? (
+          <GroupDetailSkeleton />
+        ) : groups.length ? (
+          <>
+            <ReceivedGroupInvites
+              receivedInvites={receivedInvites}
+              saving={saving}
+              onAcceptInvite={(inviteId) => void runAction(async () => {
+                const groupId = await acceptGroupInvite(inviteId);
+                setDetail(null);
+                await loadGroups(groupId);
               })}
             />
-          ) : (
-            <Card style={styles.groupEmptyCard}>
-              <Text style={[styles.itemTitle, { color: colors.text }]}>Crea il primo gruppo</Text>
-              <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>Usa il tasto + per iniziare uno spazio condiviso.</Text>
-            </Card>
-          )}
-        </>
-      )}
+            {selectedGroup ? (
+              <GroupView
+                group={selectedGroup}
+                detail={detail}
+                onChooseDisposition={(action, goalId) => void runAction(async () => {
+                  const previous = detail?.summary.myPreviousCycle;
+                  if (!previous) return;
+                  await setMyGroupCycleDisposition(
+                    selectedGroup.id,
+                    previous.cycleStart,
+                    action,
+                    goalId,
+                  );
+                  await refreshDetail();
+                })}
+              />
+            ) : null}
+          </>
+        ) : (
+          <View style={styles.firstGroupEmpty}>
+            <View style={[styles.firstGroupIcon, { backgroundColor: colors.accentSoft }]}>
+              <Text style={[styles.firstGroupIconGlyph, { color: colors.accent }]}>group_add</Text>
+            </View>
+            <Text style={[styles.firstGroupTitle, { color: colors.text }]}>Non ci sono ancora gruppi</Text>
+            <Text style={[styles.firstGroupCopy, { color: colors.textSecondary }]}>
+              Crea uno spazio condiviso per organizzare budget, obiettivi e spese insieme ad altre persone.
+            </Text>
+            <PrimaryButton onPress={() => setCreateModalOpen(true)}>
+              Crea il primo gruppo
+            </PrimaryButton>
+          </View>
+        )}
 
-      {notice ? <Text style={[styles.notice, { color: colors.positive }]}>{notice}</Text> : null}
-      {error ? <Text style={[styles.error, { color: colors.negative }]}>{error}</Text> : null}
+        {notice ? <Text style={[styles.notice, { color: colors.positive }]}>{notice}</Text> : null}
+        {error ? <Text style={[styles.error, { color: colors.negative }]}>{error}</Text> : null}
+      </ScrollView>
 
-      <Popup visible={createModalOpen} title="Nuovo gruppo" onClose={() => setCreateModalOpen(false)}>
+      <Popup
+        closeOnLeft
+        glassClose
+        sheet
+        visible={createModalOpen}
+        title="Nuovo gruppo"
+        onClose={() => setCreateModalOpen(false)}
+        onOpen={() => newGroupInputRef.current?.focus()}>
         <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
           Crea uno spazio condiviso per coppie, coinquilini, amici o altri membri.
         </Text>
         <Field
+          autoFocus
+          ref={newGroupInputRef}
           label="Nome del gruppo"
           placeholder="es. Casa Rossi"
+          returnKeyType="done"
+          style={styles.groupNameInput}
           value={newGroupName}
           onChangeText={setNewGroupName}
+          onSubmitEditing={() => {
+            if (!session || !newGroupName.trim() || saving) return;
+            void runAction(async () => {
+              const groupId = await createFamilyGroup(newGroupName);
+              Keyboard.dismiss();
+              setNewGroupName('');
+              setCreateModalOpen(false);
+              setDetail(null);
+              await loadGroups(groupId);
+            });
+          }}
         />
         <PrimaryButton disabled={!newGroupName.trim()} loading={saving} onPress={() => {
           if (!session || !newGroupName.trim()) return;
           void runAction(async () => {
             const groupId = await createFamilyGroup(newGroupName);
+            Keyboard.dismiss();
             setNewGroupName('');
             setCreateModalOpen(false);
             setDetail(null);
@@ -768,7 +804,6 @@ function GroupTabsSkeleton() {
         <View style={[styles.skeletonTab, { backgroundColor: colors.sunken }]} />
         <View style={[styles.skeletonTab, styles.skeletonTabShort, { backgroundColor: colors.sunken }]} />
       </Animated.View>
-      <Animated.View style={[styles.groupTabAdd, { backgroundColor: colors.sunken, opacity }]} />
     </View>
   );
 }
@@ -835,15 +870,14 @@ function GroupTabs({
             </Pressable>
           );
         })}
-        {!groups.length ? (
-          <Text style={[styles.groupTabsEmpty, { color: colors.textSecondary }]}>Nessun gruppo</Text>
-        ) : null}
       </ScrollView>
-      <GroupGlassIconButton
-        accessibilityLabel="Crea un nuovo gruppo"
-        icon="add"
-        onPress={onCreate}
-      />
+      <View style={styles.groupTabsAction}>
+        <GroupGlassIconButton
+          accessibilityLabel="Crea un nuovo gruppo"
+          icon="add"
+          onPress={onCreate}
+        />
+      </View>
     </View>
   );
 }
@@ -1401,39 +1435,76 @@ function Popup({
   onClose,
   children,
   sheet = false,
+  onOpen,
+  closeOnLeft = false,
+  glassClose = false,
 }: {
   visible: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
   sheet?: boolean;
+  onOpen?: () => void;
+  closeOnLeft?: boolean;
+  glassClose?: boolean;
 }) {
   const { colors } = useFlowndTheme();
   const [translateY] = useState(() => new Animated.Value(680));
+  const [backdropOpacity] = useState(() => new Animated.Value(0));
+  const [cardProgress] = useState(() => new Animated.Value(0));
 
-  function openSheet() {
-    if (!sheet) return;
-    translateY.setValue(680);
-    Animated.spring(translateY, {
-      toValue: 0,
-      damping: 22,
-      stiffness: 230,
-      mass: 0.9,
-      useNativeDriver: true,
-    }).start();
+  function openPopup() {
+    backdropOpacity.setValue(0);
+    cardProgress.setValue(0);
+    if (sheet) translateY.setValue(680);
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 210,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      sheet
+        ? Animated.spring(translateY, {
+            toValue: 0,
+            damping: 22,
+            stiffness: 230,
+            mass: 0.9,
+            useNativeDriver: true,
+          })
+        : Animated.timing(cardProgress, {
+            toValue: 1,
+            duration: 260,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+    ]).start();
+    requestAnimationFrame(() => onOpen?.());
   }
 
   function dismiss() {
-    if (!sheet) {
-      onClose();
-      return;
-    }
-    Animated.timing(translateY, {
-      toValue: 680,
-      duration: 220,
-      easing: Easing.in(Easing.cubic),
-      useNativeDriver: true,
-    }).start(({ finished }) => {
+    Keyboard.dismiss();
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 180,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      sheet
+        ? Animated.timing(translateY, {
+            toValue: 680,
+            duration: 220,
+            easing: Easing.in(Easing.cubic),
+            useNativeDriver: true,
+          })
+        : Animated.timing(cardProgress, {
+            toValue: 0,
+            duration: 180,
+            easing: Easing.in(Easing.cubic),
+            useNativeDriver: true,
+          }),
+    ]).start(({ finished }) => {
       if (finished) onClose();
     });
   }
@@ -1455,43 +1526,74 @@ function Popup({
       }).start();
     });
 
+  const closeButton = glassClose ? (
+    <GroupGlassIconButton accessibilityLabel="Chiudi" icon="close" onPress={dismiss} />
+  ) : (
+    <Pressable accessibilityLabel="Chiudi" onPress={dismiss} hitSlop={8}>
+      <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>close</Text>
+    </Pressable>
+  );
+
   const card = (
     <Card style={[styles.modalCard, sheet && styles.modalSheetCard]}>
       {sheet ? (
-        <GestureDetector gesture={dismissGesture}>
-          <View accessibilityLabel="Trascina verso il basso per chiudere" style={styles.sheetHandleArea}>
-            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
-          </View>
-        </GestureDetector>
+        <View accessibilityLabel="Trascina verso il basso per chiudere" style={styles.sheetHandleArea}>
+          <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+        </View>
       ) : null}
-      <View style={styles.modalHeader}>
-        <Text style={[styles.modalTitle, { color: colors.text }]}>{title}</Text>
-        <Pressable accessibilityLabel="Chiudi" onPress={dismiss} hitSlop={8}>
-          <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>close</Text>
-        </Pressable>
+      <View style={[styles.modalHeader, closeOnLeft && styles.modalHeaderCloseLeft]}>
+        {closeOnLeft ? closeButton : null}
+        <Text style={[
+          styles.modalTitle,
+          closeOnLeft && styles.modalTitleCentered,
+          { color: colors.text },
+        ]}>{title}</Text>
+        {closeOnLeft ? <View style={styles.modalHeaderPlaceholder} /> : closeButton}
       </View>
       {children}
     </Card>
   );
   return (
     <Modal
-      animationType={sheet ? 'none' : 'slide'}
+      animationType="none"
       onRequestClose={dismiss}
-      onShow={openSheet}
+      onShow={openPopup}
       transparent
       visible={visible}>
-      <View style={[styles.modalRoot, sheet && styles.modalSheetRoot]}>
-        <Pressable
-          accessibilityLabel="Chiudi popup"
-          onPress={dismiss}
-          style={styles.modalBackdrop}
-        />
-        {sheet ? (
-          <Animated.View style={[styles.modalSheetContainer, { transform: [{ translateY }] }]}>
-            {card}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.modalKeyboardAvoider}>
+        <View style={[styles.modalRoot, sheet && styles.modalSheetRoot]}>
+          <Animated.View style={[styles.modalBackdrop, { opacity: backdropOpacity }]}>
+            <Pressable
+              accessibilityLabel="Chiudi popup"
+              onPress={dismiss}
+              style={StyleSheet.absoluteFill}
+            />
           </Animated.View>
-        ) : card}
-      </View>
+          {sheet ? (
+            <GestureDetector gesture={dismissGesture}>
+              <Animated.View style={[styles.modalSheetContainer, { transform: [{ translateY }] }]}>
+                {card}
+              </Animated.View>
+            </GestureDetector>
+          ) : (
+            <Animated.View
+              style={[
+                styles.modalAnimatedCard,
+                {
+                  opacity: cardProgress,
+                  transform: [
+                    { translateY: cardProgress.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) },
+                    { scale: cardProgress.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1] }) },
+                  ],
+                },
+              ]}>
+              {card}
+            </Animated.View>
+          )}
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1554,7 +1656,26 @@ function formatUnsignedAmount(amount: number, currency: string) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  pageTitle: { fontSize: 19, lineHeight: 26, marginLeft: 14 },
+  groupsScreen: { paddingBottom: 0 },
+  staticHeader: {
+    minHeight: 45,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+  },
+  pageTitle: {
+    position: 'absolute',
+    right: 48,
+    left: 48,
+    fontFamily: font.displayBold,
+    fontSize: 19,
+    lineHeight: 26,
+    textAlign: 'center',
+  },
+  headerControlPlaceholder: { width: 38, height: 38 },
+  groupsBody: { flex: 1 },
+  groupsBodyContent: { flexGrow: 1, paddingBottom: 110 },
   backButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   groupGlassIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   backButtonFallback: { borderWidth: StyleSheet.hairlineWidth },
@@ -1563,13 +1684,19 @@ const styles = StyleSheet.create({
   groupTabsBar: {
     minHeight: 46,
     marginTop: -7,
-    marginBottom: 15,
+    marginBottom: 0,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'stretch',
   },
   groupTabsScroll: { flex: 1 },
   groupTabsContent: { alignItems: 'stretch', paddingRight: 8 },
+  groupTabsAction: {
+    width: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+  },
   groupTabsSkeletonContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   skeletonTab: { width: 112, height: 17, borderRadius: 9 },
   skeletonTabShort: { width: 76 },
@@ -1584,7 +1711,6 @@ const styles = StyleSheet.create({
   },
   groupTabLabel: { fontFamily: font.bodyMedium, fontSize: 12 },
   groupTabLabelSelected: { fontFamily: font.bodySemiBold },
-  groupTabsEmpty: { alignSelf: 'center', paddingHorizontal: 12, fontFamily: font.body, fontSize: 11 },
   groupTabAdd: {
     width: 42,
     height: 36,
@@ -1607,6 +1733,11 @@ const styles = StyleSheet.create({
   scopeLabel: { fontFamily: font.bodySemiBold, fontSize: 12, maxWidth: 110 },
   intro: { fontFamily: font.body, fontSize: 12, lineHeight: 18 },
   groupEmptyCard: { marginTop: 18 },
+  firstGroupEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 90 },
+  firstGroupIcon: { width: 72, height: 72, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
+  firstGroupIconGlyph: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 34, lineHeight: 39 },
+  firstGroupTitle: { fontFamily: font.displaySemiBold, fontSize: 20, lineHeight: 27, textAlign: 'center' },
+  firstGroupCopy: { maxWidth: 310, fontFamily: font.body, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 7, marginBottom: 4 },
   loader: { marginVertical: 42 },
   section: { marginTop: 23 },
   sectionLabel: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 1.05, marginBottom: 8 },
@@ -1672,16 +1803,22 @@ const styles = StyleSheet.create({
   pending: { fontFamily: font.body, fontSize: 10, marginTop: 8 },
   destructiveAction: { minHeight: 52, borderRadius: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 28 },
   destructiveLabel: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  modalKeyboardAvoider: { flex: 1 },
   modalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: 20 },
   modalSheetRoot: { justifyContent: 'flex-end', paddingHorizontal: 0 },
   modalBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(3, 14, 11, 0.55)' },
   modalCard: { maxWidth: 520, width: '100%', alignSelf: 'center', padding: 20 },
+  modalAnimatedCard: { maxWidth: 520, width: '100%', alignSelf: 'center' },
   modalSheetContainer: { maxWidth: 520, width: '100%', alignSelf: 'center' },
   modalSheetCard: { maxWidth: undefined, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingTop: 4 },
   sheetHandleArea: { height: 30, alignItems: 'center', justifyContent: 'center', marginHorizontal: -20 },
   sheetHandle: { width: 42, height: 5, borderRadius: 3 },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  modalHeaderCloseLeft: { gap: 10 },
+  modalHeaderPlaceholder: { width: 38, height: 38 },
   modalTitle: { fontFamily: font.displaySemiBold, fontSize: 20 },
+  modalTitleCentered: { flex: 1, textAlign: 'center' },
+  groupNameInput: { paddingVertical: 0, lineHeight: 20, textAlignVertical: 'center' },
   settingsScroll: { maxHeight: 620 },
   invitePanel: { paddingTop: 4 },
   settingsBlock: { marginTop: 22 },

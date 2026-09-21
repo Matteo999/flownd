@@ -1,7 +1,7 @@
 import { Slider } from '@expo/ui/community/slider';
 import { Image } from 'expo-image';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -49,20 +49,35 @@ type SettingsSection = 'budget' | 'sharing' | 'members';
 
 export default function GroupSettingsScreen() {
   const { colors } = useFlowndTheme();
-  const { groupId } = useLocalSearchParams<{ groupId?: string }>();
+  const { groupId, section } = useLocalSearchParams<{
+    groupId?: string;
+    section?: string;
+  }>();
+  const activeSection: SettingsSection | null = section === 'budget'
+    || section === 'sharing'
+    || section === 'members'
+    ? section
+    : null;
   const { session, grossBudgetMonthlyIncome, refreshData } = useApp();
-  const cachedGroup = peekFamilyGroups(session?.user.id)?.find((item) => item.id === groupId) ?? null;
+  const cachedGroups = peekFamilyGroups(session?.user.id) ?? [];
+  const cachedGroup = cachedGroups.find((item) => item.id === groupId) ?? null;
+  const [allGroups, setAllGroups] = useState<FamilyGroup[]>(cachedGroups);
   const [group, setGroup] = useState<FamilyGroup | null>(cachedGroup);
   const [detail, setDetail] = useState<FamilyGroupDetail | null>(
     () => peekFamilyGroupDetail(groupId),
   );
-  const [openSection, setOpenSection] = useState<SettingsSection | null>('budget');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [savingInvite, setSavingInvite] = useState(false);
   const navigateBack = useCallback(() => router.back(), []);
+  const openSettingsSection = useCallback((nextSection: SettingsSection) => {
+    if (!groupId) return;
+    router.push(
+      `/group-settings?groupId=${encodeURIComponent(groupId)}&section=${nextSection}` as Href,
+    );
+  }, [groupId]);
   const swipeBackGesture = useMemo(
     () => Gesture.Pan()
       .activeOffsetX(-55)
@@ -80,11 +95,35 @@ export default function GroupSettingsScreen() {
     setDetail(next);
   }
 
+  function confirmRemoveGroup() {
+    if (!group) return;
+    const deleting = group.role === 'owner';
+    Alert.alert(
+      deleting ? 'Eliminare il gruppo?' : 'Uscire dal gruppo?',
+      deleting
+        ? `“${group.name}” e i suoi dati condivisi verranno eliminati.`
+        : `Non vedrai più i dati condivisi di “${group.name}”.`,
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: deleting ? 'Elimina' : 'Esci',
+          style: 'destructive',
+          onPress: () => void (deleting
+            ? deleteFamilyGroup(group.id)
+            : leaveFamilyGroup(group.id)).then(() => {
+              router.replace('/family' as Href);
+            }),
+        },
+      ],
+    );
+  }
+
   useEffect(() => {
     let active = true;
     if (!session?.user.id || !groupId) return () => { active = false; };
     void fetchFamilyGroups(session.user.id)
       .then(async (groups) => {
+        setAllGroups(groups);
         const target = groups.find((item) => item.id === groupId) ?? null;
         if (!active) return;
         setGroup(target);
@@ -104,9 +143,22 @@ export default function GroupSettingsScreen() {
     <GestureDetector gesture={swipeBackGesture}>
     <Screen>
       <PageHeader
-        title="Impostazioni"
+        title={activeSection === 'budget'
+          ? 'Budget'
+          : activeSection === 'sharing'
+            ? 'Condivisione'
+            : activeSection === 'members'
+              ? 'Membri'
+              : 'Impostazioni'}
         titleStyle={styles.pageTitle}
         leading={<GlassIconButton label="Indietro" icon="arrow_back" onPress={navigateBack} />}
+        action={activeSection === 'members' && group?.role === 'owner' ? (
+          <GlassIconButton
+            label="Invita membro"
+            icon="add"
+            onPress={() => setInviteOpen((value) => !value)}
+          />
+        ) : undefined}
       />
 
       {!group || !detail ? (
@@ -115,71 +167,78 @@ export default function GroupSettingsScreen() {
         <View style={styles.sections}>
           <Text style={[styles.groupName, { color: colors.textSecondary }]}>{group.name}</Text>
 
-          <SettingsSectionCard
-            title="Budget"
-            caption="Quota mensile e suddivisione del budget"
-            icon="donut_large"
-            open={openSection === 'budget'}
-            onPress={() => setOpenSection(openSection === 'budget' ? null : 'budget')}>
-            <BudgetSettings
-              group={group}
-              detail={detail}
-              monthlyIncome={grossBudgetMonthlyIncome}
-              onError={setError}
-              onSaved={async (nextGroup) => {
-                setGroup(nextGroup);
-                await Promise.all([reload(nextGroup), refreshData()]);
-              }}
-              onAllocationChange={(allocation) => {
-                const total = detail.summary.budgetTotal;
-                const categories = [
-                  { key: 'needs' as const, label: 'Necessità' },
-                  { key: 'wants' as const, label: 'Desideri' },
-                  { key: 'savings' as const, label: 'Risparmi' },
-                ];
-                setDetail((current) => current ? {
-                  ...current,
-                  budgets: categories.map(({ key, label }) => ({
-                    id: current.budgets.find((item) => item.category === label)?.id ?? key,
-                    category: label,
-                    monthlyLimit: Math.round(total * allocation[key]) / 100,
-                    percentage: allocation[key],
-                    spent: current.budgets.find((item) => item.category === label)?.spent ?? 0,
-                  })),
-                } : current);
-              }}
-            />
-          </SettingsSectionCard>
-
-          <SettingsSectionCard
-            title="Condivisione"
-            caption="Transazioni personali, patrimonio e obiettivi"
-            icon="share"
-            open={openSection === 'sharing'}
-            onPress={() => setOpenSection(openSection === 'sharing' ? null : 'sharing')}>
-            <SharingSettings
-              group={group}
-              detail={detail}
-              onDetail={setDetail}
-              onError={setError}
-            />
-          </SettingsSectionCard>
-
-          <SettingsSectionCard
-            title="Membri"
-            caption={`${detail.members.length} partecipant${detail.members.length === 1 ? 'e' : 'i'}`}
-            icon="group"
-            action={group.role === 'owner' ? (
-              <GlassIconButton
-                label="Invita membro"
-                icon="add"
-                small
-                onPress={() => setInviteOpen((value) => !value)}
+          {activeSection === null ? (
+            <>
+              <SettingsNavigationRow
+                title="Budget"
+                caption="Quota mensile e suddivisione del budget"
+                icon="donut_large"
+                onPress={() => openSettingsSection('budget')}
               />
-            ) : null}
-            open={openSection === 'members'}
-            onPress={() => setOpenSection(openSection === 'members' ? null : 'members')}>
-            {inviteOpen && group.role === 'owner' ? (
+              <SettingsNavigationRow
+                title="Condivisione"
+                caption="Transazioni personali, patrimonio e obiettivi"
+                icon="share"
+                onPress={() => openSettingsSection('sharing')}
+              />
+              <SettingsNavigationRow
+                title="Membri"
+                caption={`${detail.members.length} partecipant${detail.members.length === 1 ? 'e' : 'i'}`}
+                icon="group"
+                onPress={() => openSettingsSection('members')}
+              />
+              <GroupDestructiveAction group={group} onPress={confirmRemoveGroup} />
+            </>
+          ) : null}
+
+          {activeSection === 'budget' ? (
+            <View style={styles.detailPage}>
+              <BudgetSettings
+                group={group}
+                detail={detail}
+                monthlyIncome={grossBudgetMonthlyIncome}
+                otherGroups={allGroups.filter((item) => item.id !== group.id)}
+                onError={setError}
+                onSaved={async (nextGroup) => {
+                  setGroup(nextGroup);
+                  await Promise.all([reload(nextGroup), refreshData()]);
+                }}
+                onAllocationChange={(allocation) => {
+                  const total = detail.summary.budgetTotal;
+                  const categories = [
+                    { key: 'needs' as const, label: 'Necessità' },
+                    { key: 'wants' as const, label: 'Desideri' },
+                    { key: 'savings' as const, label: 'Risparmi' },
+                  ];
+                  setDetail((current) => current ? {
+                    ...current,
+                    budgets: categories.map(({ key, label }) => ({
+                      id: current.budgets.find((item) => item.category === label)?.id ?? key,
+                      category: label,
+                      monthlyLimit: Math.round(total * allocation[key]) / 100,
+                      percentage: allocation[key],
+                      spent: current.budgets.find((item) => item.category === label)?.spent ?? 0,
+                    })),
+                  } : current);
+                }}
+              />
+            </View>
+          ) : null}
+
+          {activeSection === 'sharing' ? (
+            <View style={styles.detailPage}>
+              <SharingSettings
+                group={group}
+                detail={detail}
+                onDetail={setDetail}
+                onError={setError}
+              />
+            </View>
+          ) : null}
+
+          {activeSection === 'members' ? (
+            <View style={styles.detailPage}>
+              {inviteOpen && group.role === 'owner' ? (
               <View style={[styles.inviteBox, { backgroundColor: colors.sunken }]}>
                 <Field
                   label="Email"
@@ -224,8 +283,8 @@ export default function GroupSettingsScreen() {
                   Invita
                 </PrimaryButton>
               </View>
-            ) : null}
-            <View style={styles.memberList}>
+              ) : null}
+              <View style={styles.memberList}>
               {detail.members.map((member) => (
                 <View key={member.userId} style={styles.memberRow}>
                   {member.avatarUrl ? (
@@ -245,44 +304,18 @@ export default function GroupSettingsScreen() {
                   </View>
                 </View>
               ))}
-            </View>
+              </View>
 
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                const deleting = group.role === 'owner';
-                Alert.alert(
-                  deleting ? 'Eliminare il gruppo?' : 'Uscire dal gruppo?',
-                  deleting
-                    ? `“${group.name}” e i suoi dati condivisi verranno eliminati.`
-                    : `Non vedrai più i dati condivisi di “${group.name}”.`,
-                  [
-                    { text: 'Annulla', style: 'cancel' },
-                    {
-                      text: deleting ? 'Elimina' : 'Esci',
-                      style: 'destructive',
-                      onPress: () => void (deleting
-                        ? deleteFamilyGroup(group.id)
-                        : leaveFamilyGroup(group.id)).then(() => router.back()),
-                    },
-                  ],
-                );
-              }}
-              style={[styles.destructive, { backgroundColor: colors.negativeSoft }]}>
-              <Text style={[styles.materialIcon, { color: colors.negative }]}>
-                {group.role === 'owner' ? 'delete' : 'logout'}
-              </Text>
-              <Text style={[styles.destructiveText, { color: colors.negative }]}>
-                {group.role === 'owner' ? 'Elimina gruppo' : 'Esci dal gruppo'}
-              </Text>
-            </Pressable>
-          </SettingsSectionCard>
+            </View>
+          ) : null}
         </View>
       )}
 
-      <Text style={[styles.virtualNote, { color: colors.textSecondary }]}>
-        Le quote sono virtuali: nessun denaro viene spostato.
-      </Text>
+      {activeSection === 'budget' ? (
+        <Text style={[styles.virtualNote, { color: colors.textSecondary }]}>
+          Le quote sono virtuali: nessun denaro viene spostato.
+        </Text>
+      ) : null}
       {notice ? <Text style={[styles.message, { color: colors.positive }]}>{notice}</Text> : null}
       {error ? <Text style={[styles.message, { color: colors.negative }]}>{error}</Text> : null}
     </Screen>
@@ -531,41 +564,33 @@ function SharingSettings({
   );
 }
 
-function SettingsSectionCard({
+function SettingsNavigationRow({
   title,
   caption,
   icon,
-  open,
-  action,
   onPress,
-  children,
-}: React.PropsWithChildren<{
+}: {
   title: string;
   caption: string;
   icon: string;
-  open: boolean;
-  action?: React.ReactNode;
   onPress: () => void;
-}>) {
+}) {
   const { colors } = useFlowndTheme();
   return (
-    <Card style={styles.sectionCard}>
-      <View style={styles.sectionHeaderRow}>
-        <Pressable onPress={onPress} style={({ pressed }) => [styles.sectionButton, pressed && styles.pressed]}>
-          <View style={[styles.sectionIcon, { backgroundColor: colors.accentSoft }]}>
+    <Card style={styles.navigationCard}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [styles.sectionButton, pressed && styles.pressed]}>
+        <View style={[styles.sectionIcon, { backgroundColor: colors.accentSoft }]}>
             <Text style={[styles.materialIcon, { color: colors.accent }]}>{icon}</Text>
           </View>
           <View style={styles.flex}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
             <Text style={[styles.sectionCaption, { color: colors.textSecondary }]}>{caption}</Text>
           </View>
-          <Text style={[styles.chevron, { color: colors.textSecondary }]}>
-            {open ? 'expand_less' : 'expand_more'}
-          </Text>
-        </Pressable>
-        {action}
-      </View>
-      {open ? children : null}
+        <Text style={[styles.chevron, { color: colors.textSecondary }]}>chevron_right</Text>
+      </Pressable>
     </Card>
   );
 }
@@ -733,14 +758,14 @@ const styles = StyleSheet.create({
   pageTitle: { fontSize: 19, lineHeight: 26, marginLeft: 14 },
   sections: { gap: 12 },
   groupName: { fontFamily: font.bodyMedium, fontSize: 12, marginBottom: 2 },
-  sectionCard: { padding: 0, overflow: 'hidden' },
-  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', paddingRight: 14 },
+  navigationCard: { padding: 0, overflow: 'hidden' },
+  detailPage: { paddingHorizontal: 2 },
   sectionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 16 },
   sectionIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   sectionTitle: { fontFamily: font.bodySemiBold, fontSize: 15 },
   sectionCaption: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 2 },
   chevron: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
-  sectionContent: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(127,127,127,0.22)', paddingHorizontal: 16, paddingBottom: 16 },
+  sectionContent: { paddingBottom: 12 },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14 },
   settingLabel: { fontFamily: font.bodySemiBold, fontSize: 13 },
   settingCaption: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 2 },
