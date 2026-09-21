@@ -1,5 +1,6 @@
 import {
   createContext,
+  forwardRef,
   PropsWithChildren,
   ReactNode,
   useContext,
@@ -15,6 +16,7 @@ import {
   Easing,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  Platform,
   Pressable,
   StyleProp,
   StyleSheet,
@@ -26,6 +28,8 @@ import {
   ViewStyle,
 } from 'react-native';
 import { useIsFocused } from 'expo-router';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import MaskedView from '@react-native-masked-view/masked-view';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -81,6 +85,8 @@ export function Screen({
   style,
   floatingAction,
   floatingActionPosition = 'right',
+  fixedHeader,
+  transparentHeaderOnScroll = false,
 }: PropsWithChildren<{
   scroll?: boolean;
   scrollEnabled?: boolean;
@@ -89,6 +95,8 @@ export function Screen({
   style?: StyleProp<ViewStyle>;
   floatingAction?: ReactNode;
   floatingActionPosition?: 'right' | 'center' | 'free';
+  fixedHeader?: ReactNode;
+  transparentHeaderOnScroll?: boolean;
 }>) {
   const { colors, isDark } = useFlowndTheme();
   const insets = useSafeAreaInsets();
@@ -148,10 +156,19 @@ export function Screen({
     }),
     [headerProgress, onScroll, scroll, scrollHeaderWithContent, scrollY],
   );
-  const content = <View style={[styles.screenContent, style]}>{children}</View>;
+  const content = (
+    <View
+      style={[
+        styles.screenContent,
+        transparentHeaderOnScroll && { paddingTop: insets.top + 10 },
+        style,
+      ]}>
+      {children}
+    </View>
+  );
   return (
     <AnimatedSafeAreaView
-      edges={['top', 'left', 'right']}
+      edges={transparentHeaderOnScroll ? ['left', 'right'] : ['top', 'left', 'right']}
       style={[
         styles.safe,
         { backgroundColor: colors.background },
@@ -169,19 +186,21 @@ export function Screen({
         start={{ x: 0.1, y: 0 }}
         style={StyleSheet.absoluteFill}
       />
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.compactHeaderBackdrop,
-          {
-            backgroundColor: isDark
-              ? darkCompactHeaderBackground
-              : lightCompactHeaderBackground,
-            height: insets.top,
-            opacity: headerProgress,
-          },
-        ]}
-      />
+      {!transparentHeaderOnScroll ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.compactHeaderBackdrop,
+            {
+              backgroundColor: isDark
+                ? darkCompactHeaderBackground
+                : lightCompactHeaderBackground,
+              height: insets.top,
+              opacity: headerProgress,
+            },
+          ]}
+        />
+      ) : null}
       <ScrollHeaderContext.Provider value={headerContext}>
         {scroll ? (
           <Animated.ScrollView
@@ -197,6 +216,36 @@ export function Screen({
           content
         )}
       </ScrollHeaderContext.Provider>
+      {transparentHeaderOnScroll && Platform.OS === 'ios' && isGlassEffectAPIAvailable() ? (
+        <MaskedView
+          maskElement={(
+            <LinearGradient
+              colors={['#000000', '#000000', 'rgba(0,0,0,0)']}
+              locations={[0, 0.52, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+          )}
+          pointerEvents="none"
+          style={[styles.scrollBlurMask, { height: insets.top + 50 }]}>
+          <GlassView
+            colorScheme={isDark ? 'dark' : 'light'}
+            glassEffectStyle={{
+              style: headerCollapsed ? 'clear' : 'none',
+              animate: true,
+              animationDuration: 0.16,
+            }}
+            pointerEvents="none"
+            style={StyleSheet.absoluteFill}
+          />
+        </MaskedView>
+      ) : null}
+      {fixedHeader ? (
+        <View
+          pointerEvents="box-none"
+          style={[styles.fixedScreenHeader, { top: insets.top + 3 }]}>
+          {fixedHeader}
+        </View>
+      ) : null}
       {floatingAction ? (
         <View
           pointerEvents="box-none"
@@ -414,29 +463,31 @@ export function SecondaryButton({ children, onPress, disabled, compact }: Button
   );
 }
 
-export function Field({
+export const Field = forwardRef<TextInput, TextInputProps & { label: string; suffix?: string }>(function Field({
   label,
   suffix,
   keyboardAppearance,
+  style,
   ...props
-}: TextInputProps & { label: string; suffix?: string }) {
+}, ref) {
   const { colors, isDark } = useFlowndTheme();
   return (
     <View style={styles.fieldWrap}>
       <Text style={[styles.fieldLabel, { color: colors.text }]}>{label}</Text>
       <View style={[styles.field, { borderColor: colors.border, backgroundColor: colors.surface }]}>
         <TextInput
+          ref={ref}
           keyboardAppearance={keyboardAppearance ?? (isDark ? 'dark' : 'light')}
           placeholderTextColor={colors.textSecondary}
           selectionColor={colors.accent}
-          style={[styles.input, { color: colors.text }]}
+          style={[styles.input, { color: colors.text }, style]}
           {...props}
         />
         {suffix ? <Text style={[styles.suffix, { color: colors.textSecondary }]}>{suffix}</Text> : null}
       </View>
     </View>
   );
-}
+});
 
 export function Card({
   children,
@@ -615,6 +666,21 @@ const styles = StyleSheet.create({
     right: 0,
     left: 0,
     zIndex: 10,
+  },
+  fixedScreenHeader: {
+    position: 'absolute',
+    right: 20,
+    left: 20,
+    height: 44,
+    zIndex: 40,
+    elevation: 9,
+  },
+  scrollBlurMask: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    left: 0,
+    zIndex: 30,
   },
   scroll: { flexGrow: 1 },
   screenContent: { flex: 1, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 110 },

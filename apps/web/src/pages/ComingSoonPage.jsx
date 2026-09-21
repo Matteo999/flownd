@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import './ComingSoonPage.css'
 
-const RELEASE_DATE = new Date('2026-10-01T00:00:00+02:00')
+const RELEASE_DATE = new Date('2026-11-01T00:00:00+02:00')
 
 function getTimeLeft() {
   const distance = Math.max(0, RELEASE_DATE.getTime() - Date.now())

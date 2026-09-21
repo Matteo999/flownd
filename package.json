@@ -24,14 +24,14 @@
     "preview:web": "npm run preview --workspace @flownd/web"
   },
   "devDependencies": {
-    "expo-router": "~57.0.14",
+    "expo-router": "~57.0.22",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
     "@vercel/functions": "^3.9.5",
-    "expo": "~57.0.14",
+    "expo": "~57.0.24",
     "jose": "^6.2.3",
     "read-excel-file": "^9.3.10"
   }
