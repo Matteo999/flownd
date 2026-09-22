@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { coachTools, geminiCoachTools } from './_coach-data.js'
-import { conversationTitle } from './coach.js'
+import { coachErrorLog, conversationTitle } from './coach.js'
 
 const expectedTools = [
   'get_financial_overview',
@@ -41,6 +41,32 @@ test('l API limita il contesto e non delega la memoria al provider', async () =>
   assert.match(source, /MODEL_CONTEXT_MESSAGES = 20/)
   assert.match(source, /store: false/)
   assert.match(source, /loadMessages\(client, user\.id, conversation\.id, MODEL_CONTEXT_MESSAGES\)/)
+})
+
+test('il log del Coach espone la fase ma oscura credenziali e contenuti sensibili', () => {
+  const error = new Error('Gemini rejected Authorization=secret-value Bearer token-value')
+  error.code = 'PERMISSION_DENIED'
+  error.status = 403
+  error.details = 'token=another-secret'
+  error.coachContext = {
+    phase: 'provider_request',
+    provider: 'gemini',
+    model: 'gemini-test',
+    tool: 'get_financial_overview',
+  }
+  const log = coachErrorLog(error, {
+    requestId: 'request-id',
+    method: 'POST',
+    userId: 'user-id',
+  })
+
+  assert.equal(log.phase, 'provider_request')
+  assert.equal(log.provider, 'gemini')
+  assert.equal(log.model, 'gemini-test')
+  assert.equal(log.tool, 'get_financial_overview')
+  assert.equal(log.error.code, 'PERMISSION_DENIED')
+  assert.equal(log.error.status, 403)
+  assert.doesNotMatch(JSON.stringify(log), /secret-value|token-value|another-secret/)
 })
 
 test('la migrazione applica limiti, RLS e risoluzione atomica', async () => {
