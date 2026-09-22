@@ -2,7 +2,15 @@ import { Slider } from '@expo/ui/community/slider';
 import { Image } from 'expo-image';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { router, type Href, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type PropsWithChildren,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Alert,
   Animated,
@@ -49,15 +57,7 @@ type SettingsSection = 'budget' | 'sharing' | 'members';
 
 export default function GroupSettingsScreen() {
   const { colors } = useFlowndTheme();
-  const { groupId, section } = useLocalSearchParams<{
-    groupId?: string;
-    section?: string;
-  }>();
-  const activeSection: SettingsSection | null = section === 'budget'
-    || section === 'sharing'
-    || section === 'members'
-    ? section
-    : null;
+  const { groupId } = useLocalSearchParams<{ groupId?: string }>();
   const { session, grossBudgetMonthlyIncome, refreshData } = useApp();
   const cachedGroups = peekFamilyGroups(session?.user.id) ?? [];
   const cachedGroup = cachedGroups.find((item) => item.id === groupId) ?? null;
@@ -68,16 +68,15 @@ export default function GroupSettingsScreen() {
   );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [openSection, setOpenSection] = useState<SettingsSection | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [savingInvite, setSavingInvite] = useState(false);
   const navigateBack = useCallback(() => router.back(), []);
-  const openSettingsSection = useCallback((nextSection: SettingsSection) => {
-    if (!groupId) return;
-    router.push(
-      `/group-settings?groupId=${encodeURIComponent(groupId)}&section=${nextSection}` as Href,
-    );
-  }, [groupId]);
+  const toggleSection = useCallback((section: SettingsSection) => {
+    if (section !== 'members' || openSection === 'members') setInviteOpen(false);
+    setOpenSection((current) => current === section ? null : section);
+  }, [openSection]);
   const swipeBackGesture = useMemo(
     () => Gesture.Pan()
       .activeOffsetX(-55)
@@ -123,9 +122,9 @@ export default function GroupSettingsScreen() {
     if (!session?.user.id || !groupId) return () => { active = false; };
     void fetchFamilyGroups(session.user.id)
       .then(async (groups) => {
-        setAllGroups(groups);
         const target = groups.find((item) => item.id === groupId) ?? null;
         if (!active) return;
+        setAllGroups(groups);
         setGroup(target);
         if (target) {
           const next = await fetchFamilyGroupDetail(target, session.user.id);
@@ -143,22 +142,9 @@ export default function GroupSettingsScreen() {
     <GestureDetector gesture={swipeBackGesture}>
     <Screen>
       <PageHeader
-        title={activeSection === 'budget'
-          ? 'Budget'
-          : activeSection === 'sharing'
-            ? 'Condivisione'
-            : activeSection === 'members'
-              ? 'Membri'
-              : 'Impostazioni'}
+        title="Impostazioni"
         titleStyle={styles.pageTitle}
         leading={<GlassIconButton label="Indietro" icon="arrow_back" onPress={navigateBack} />}
-        action={activeSection === 'members' && group?.role === 'owner' ? (
-          <GlassIconButton
-            label="Invita membro"
-            icon="add"
-            onPress={() => setInviteOpen((value) => !value)}
-          />
-        ) : undefined}
       />
 
       {!group || !detail ? (
@@ -167,32 +153,13 @@ export default function GroupSettingsScreen() {
         <View style={styles.sections}>
           <Text style={[styles.groupName, { color: colors.textSecondary }]}>{group.name}</Text>
 
-          {activeSection === null ? (
-            <>
-              <SettingsNavigationRow
-                title="Budget"
-                caption="Quota mensile e suddivisione del budget"
-                icon="donut_large"
-                onPress={() => openSettingsSection('budget')}
-              />
-              <SettingsNavigationRow
-                title="Condivisione"
-                caption="Transazioni personali, patrimonio e obiettivi"
-                icon="share"
-                onPress={() => openSettingsSection('sharing')}
-              />
-              <SettingsNavigationRow
-                title="Membri"
-                caption={`${detail.members.length} partecipant${detail.members.length === 1 ? 'e' : 'i'}`}
-                icon="group"
-                onPress={() => openSettingsSection('members')}
-              />
-              <GroupDestructiveAction group={group} onPress={confirmRemoveGroup} />
-            </>
-          ) : null}
-
-          {activeSection === 'budget' ? (
-            <View style={styles.detailPage}>
+          <SettingsAccordionCard
+            title="Budget"
+            caption="Quota mensile e suddivisione del budget"
+            icon="donut_large"
+            open={openSection === 'budget'}
+            onPress={() => toggleSection('budget')}>
+            <View style={styles.accordionContent}>
               <BudgetSettings
                 group={group}
                 detail={detail}
@@ -222,11 +189,19 @@ export default function GroupSettingsScreen() {
                   } : current);
                 }}
               />
+              <Text style={[styles.virtualNote, { color: colors.textSecondary }]}>
+                Le quote sono virtuali: nessun denaro viene spostato.
+              </Text>
             </View>
-          ) : null}
+          </SettingsAccordionCard>
 
-          {activeSection === 'sharing' ? (
-            <View style={styles.detailPage}>
+          <SettingsAccordionCard
+            title="Condivisione"
+            caption="Transazioni personali, patrimonio e obiettivi"
+            icon="share"
+            open={openSection === 'sharing'}
+            onPress={() => toggleSection('sharing')}>
+            <View style={styles.accordionContent}>
               <SharingSettings
                 group={group}
                 detail={detail}
@@ -234,88 +209,97 @@ export default function GroupSettingsScreen() {
                 onError={setError}
               />
             </View>
-          ) : null}
+          </SettingsAccordionCard>
 
-          {activeSection === 'members' ? (
-            <View style={styles.detailPage}>
+          <SettingsAccordionCard
+            title="Membri"
+            caption={`${detail.members.length} partecipant${detail.members.length === 1 ? 'e' : 'i'}`}
+            icon="group"
+            open={openSection === 'members'}
+            action={group.role === 'owner' && openSection === 'members' ? (
+              <GlassIconButton
+                label="Invita membro"
+                icon="add"
+                small
+                onPress={() => setInviteOpen((value) => !value)}
+              />
+            ) : null}
+            onPress={() => toggleSection('members')}>
+            <View style={styles.accordionContent}>
               {inviteOpen && group.role === 'owner' ? (
-              <View style={[styles.inviteBox, { backgroundColor: colors.sunken }]}>
-                <Field
-                  label="Email"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  placeholder="nome@esempio.it"
-                  value={inviteEmail}
-                  onChangeText={setInviteEmail}
-                />
-                <PrimaryButton
-                  disabled={!inviteEmail.includes('@')}
-                  loading={savingInvite}
-                  onPress={() => {
-                    if (!session || !inviteEmail.trim()) return;
-                    setSavingInvite(true);
-                    setError(null);
-                    const recipient = inviteEmail.trim();
-                    void createGroupInvite(
-                      group.id,
-                      recipient,
-                      session.user.id,
-                      {
-                        role: 'member',
-                        transactionsAccess: 'view',
-                        budgetsAccess: 'view',
-                        goalsAccess: 'edit',
-                      },
-                      session.access_token,
-                    ).then(async (delivery) => {
-                      setInviteEmail('');
-                      setInviteOpen(false);
-                      setNotice(delivery.emailSent
-                        ? `Invito inviato a ${recipient}.`
-                        : `Invito creato per ${recipient}; la mail non è stata consegnata.`);
-                      await reload();
-                    }).catch((inviteError) => {
-                      if (__DEV__) console.error('Flownd group invite failed', inviteError);
-                      setError('Non riesco a creare questo invito.');
-                    }).finally(() => setSavingInvite(false));
-                  }}>
-                  Invita
-                </PrimaryButton>
-              </View>
+                <View style={[styles.inviteBox, { backgroundColor: colors.sunken }]}>
+                  <Field
+                    label="Email"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    placeholder="nome@esempio.it"
+                    value={inviteEmail}
+                    onChangeText={setInviteEmail}
+                  />
+                  <PrimaryButton
+                    disabled={!inviteEmail.includes('@')}
+                    loading={savingInvite}
+                    onPress={() => {
+                      if (!session || !inviteEmail.trim()) return;
+                      setSavingInvite(true);
+                      setError(null);
+                      const recipient = inviteEmail.trim();
+                      void createGroupInvite(
+                        group.id,
+                        recipient,
+                        session.user.id,
+                        {
+                          role: 'member',
+                          transactionsAccess: 'view',
+                          budgetsAccess: 'view',
+                          goalsAccess: 'edit',
+                        },
+                        session.access_token,
+                      ).then(async (delivery) => {
+                        setInviteEmail('');
+                        setInviteOpen(false);
+                        setNotice(delivery.emailSent
+                          ? `Invito inviato a ${recipient}.`
+                          : `Invito creato per ${recipient}; la mail non è stata consegnata.`);
+                        await reload();
+                      }).catch((inviteError) => {
+                        if (__DEV__) console.error('Flownd group invite failed', inviteError);
+                        setError('Non riesco a creare questo invito.');
+                      }).finally(() => setSavingInvite(false));
+                    }}>
+                    Invita
+                  </PrimaryButton>
+                </View>
               ) : null}
               <View style={styles.memberList}>
-              {detail.members.map((member) => (
-                <View key={member.userId} style={styles.memberRow}>
-                  {member.avatarUrl ? (
-                    <Image source={{ uri: member.avatarUrl }} style={styles.avatar} contentFit="cover" />
-                  ) : (
-                    <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.accentSoft }]}>
-                      <Text style={[styles.avatarInitial, { color: colors.accent }]}>
-                        {member.displayName.trim().charAt(0).toUpperCase() || '?'}
+                {detail.members.map((member) => (
+                  <View key={member.userId} style={styles.memberRow}>
+                    {member.avatarUrl ? (
+                      <Image source={{ uri: member.avatarUrl }} style={styles.avatar} contentFit="cover" />
+                    ) : (
+                      <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.accentSoft }]}>
+                        <Text style={[styles.avatarInitial, { color: colors.accent }]}>
+                          {member.displayName.trim().charAt(0).toUpperCase() || '?'}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.flex}>
+                      <Text style={[styles.memberName, { color: colors.text }]}>{member.displayName}</Text>
+                      <Text style={[styles.memberMeta, { color: colors.textSecondary }]}>
+                        {member.role === 'owner' ? 'Amministratore' : 'Membro'}
                       </Text>
                     </View>
-                  )}
-                  <View style={styles.flex}>
-                    <Text style={[styles.memberName, { color: colors.text }]}>{member.displayName}</Text>
-                    <Text style={[styles.memberMeta, { color: colors.textSecondary }]}>
-                      {member.role === 'owner' ? 'Amministratore' : 'Membro'}
-                    </Text>
                   </View>
-                </View>
-              ))}
+                ))}
               </View>
-
             </View>
-          ) : null}
+          </SettingsAccordionCard>
+
+          <GroupDestructiveAction group={group} onPress={confirmRemoveGroup} />
         </View>
       )}
 
-      {activeSection === 'budget' ? (
-        <Text style={[styles.virtualNote, { color: colors.textSecondary }]}>
-          Le quote sono virtuali: nessun denaro viene spostato.
-        </Text>
-      ) : null}
       {notice ? <Text style={[styles.message, { color: colors.positive }]}>{notice}</Text> : null}
       {error ? <Text style={[styles.message, { color: colors.negative }]}>{error}</Text> : null}
     </Screen>
@@ -327,6 +311,7 @@ function BudgetSettings({
   group,
   detail,
   monthlyIncome,
+  otherGroups,
   onSaved,
   onAllocationChange,
   onError,
@@ -334,6 +319,7 @@ function BudgetSettings({
   group: FamilyGroup;
   detail: FamilyGroupDetail;
   monthlyIncome: number;
+  otherGroups: FamilyGroup[];
   onSaved: (group: FamilyGroup) => Promise<void>;
   onAllocationChange: (allocation: BudgetAllocation) => void;
   onError: (message: string | null) => void;
@@ -348,12 +334,27 @@ function BudgetSettings({
   const [fieldValue, setFieldValue] = useState(String(initialValue));
   const lastPositiveValue = useRef(initialValue > 0 ? initialValue : (mode === 'fixed' ? 100 : 25));
   const saveVersion = useRef(0);
+  const allocatedElsewherePercentage = Math.min(100, otherGroups.reduce((total, item) => {
+    const effectivePercentage = item.scheduledContributionPercentage
+      ?? (item.shareMonthlyBudget ? item.contributionPercentage : 0);
+    return total + Math.max(0, effectivePercentage);
+  }, 0));
+  const maxContributionPercentage = Math.max(0, 100 - allocatedElsewherePercentage);
+  const allocatedElsewhereAmount = monthlyIncome * allocatedElsewherePercentage / 100;
+  const maxContributionAmount = Math.max(0, monthlyIncome - allocatedElsewhereAmount);
   const parsedValue = Number(fieldValue.replace(',', '.'));
   const previewAmount = mode === 'fixed'
     ? Math.max(0, value)
     : contributionAmounts(monthlyIncome, value).group;
 
   async function persist(nextEnabled: boolean, nextMode: GroupContributionMode, nextValue: number) {
+    const maximum = nextMode === 'percentage'
+      ? maxContributionPercentage
+      : maxContributionAmount;
+    if (nextEnabled && nextValue > maximum + 0.005) {
+      onError(`Hai già destinato ${Math.round(allocatedElsewherePercentage)}% del budget agli altri gruppi.`);
+      return;
+    }
     const mutation = ++saveVersion.current;
     onError(null);
     try {
@@ -377,8 +378,8 @@ function BudgetSettings({
 
   function applyValue(nextValue: number) {
     const bounded = mode === 'percentage'
-      ? Math.max(0, Math.min(100, nextValue))
-      : Math.max(0, nextValue);
+      ? Math.max(0, Math.min(maxContributionPercentage, nextValue))
+      : Math.max(0, Math.min(maxContributionAmount, nextValue));
     if (bounded > 0) lastPositiveValue.current = bounded;
     setValue(bounded);
     setFieldValue(String(Math.round(bounded * 100) / 100));
@@ -395,8 +396,15 @@ function BudgetSettings({
         caption="Destina una quota del tuo budget mensile al gruppo"
         value={enabled}
         onChange={(next) => {
+          const maximum = mode === 'percentage'
+            ? maxContributionPercentage
+            : maxContributionAmount;
+          const nextValue = next ? Math.min(lastPositiveValue.current, maximum) : value;
+          if (next && maximum <= 0) {
+            onError('Hai già destinato tutto il budget mensile agli altri gruppi.');
+            return;
+          }
           setEnabled(next);
-          const nextValue = next ? lastPositiveValue.current : value;
           if (next) {
             setValue(nextValue);
             setFieldValue(String(nextValue));
@@ -410,7 +418,7 @@ function BudgetSettings({
           <View style={styles.modeRow}>
             <ModeButton label="Percentuale" selected={mode === 'percentage'} onPress={() => {
               setMode('percentage');
-              const next = Math.min(100, group.contributionPercentage || 25);
+              const next = Math.min(maxContributionPercentage, group.contributionPercentage || 25);
               setValue(next);
               setFieldValue(String(next));
               lastPositiveValue.current = next;
@@ -418,7 +426,10 @@ function BudgetSettings({
             }} />
             <ModeButton label="Importo fisso" selected={mode === 'fixed'} onPress={() => {
               setMode('fixed');
-              const next = group.contributionFixedAmount || previewAmount || 100;
+              const next = Math.min(
+                maxContributionAmount,
+                group.contributionFixedAmount || previewAmount || 100,
+              );
               setValue(next);
               setFieldValue(String(Math.round(next * 100) / 100));
               lastPositiveValue.current = next;
@@ -435,8 +446,9 @@ function BudgetSettings({
               <Slider
                 value={value}
                 minimumValue={0}
-                maximumValue={100}
+                maximumValue={Math.max(1, maxContributionPercentage)}
                 step={1}
+                disabled={maxContributionPercentage <= 0}
                 minimumTrackTintColor={colors.accent}
                 maximumTrackTintColor={colors.sunken}
                 thumbTintColor={colors.accent}
@@ -456,15 +468,22 @@ function BudgetSettings({
               </View>
               <SecondaryButton
                 compact
-                disabled={!Number.isFinite(parsedValue) || parsedValue <= 0}
+                disabled={!Number.isFinite(parsedValue)
+                  || parsedValue <= 0
+                  || parsedValue > maxContributionAmount}
                 onPress={() => applyValue(parsedValue)}>
                 Applica
               </SecondaryButton>
             </View>
           )}
           <Text style={[styles.preview, { color: colors.textSecondary }]}>
-            {formatAmount(previewAmount, group.currency)} al gruppo · {formatAmount(Math.max(0, monthlyIncome - previewAmount), group.currency)} personali
+            {formatAmount(previewAmount, group.currency)} al gruppo · {formatAmount(Math.max(0, monthlyIncome - allocatedElsewhereAmount - previewAmount), group.currency)} personali
           </Text>
+          {allocatedElsewherePercentage > 0 ? (
+            <Text style={[styles.availabilityNote, { color: colors.textSecondary }]}>
+              Disponibile per questo gruppo: {Math.round(maxContributionPercentage)}% ({formatAmount(maxContributionAmount, group.currency)}). Il resto è già allocato agli altri gruppi.
+            </Text>
+          ) : null}
 
           {group.budgetsAccess === 'edit' ? (
             <BudgetAllocationSliders
@@ -564,34 +583,145 @@ function SharingSettings({
   );
 }
 
-function SettingsNavigationRow({
-  title,
-  caption,
-  icon,
+function GroupDestructiveAction({
+  group,
   onPress,
 }: {
-  title: string;
-  caption: string;
-  icon: string;
+  group: FamilyGroup;
   onPress: () => void;
 }) {
   const { colors } = useFlowndTheme();
   return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.destructive,
+        { backgroundColor: colors.negativeSoft },
+        pressed && styles.pressed,
+      ]}>
+      <Text style={[styles.materialIcon, { color: colors.negative }]}>
+        {group.role === 'owner' ? 'delete' : 'logout'}
+      </Text>
+      <Text style={[styles.destructiveText, { color: colors.negative }]}>
+        {group.role === 'owner' ? 'Elimina gruppo' : 'Esci dal gruppo'}
+      </Text>
+    </Pressable>
+  );
+}
+
+function SettingsAccordionCard({
+  title,
+  caption,
+  icon,
+  open,
+  action,
+  onPress,
+  children,
+}: PropsWithChildren<{
+  title: string;
+  caption: string;
+  icon: string;
+  open: boolean;
+  action?: ReactNode;
+  onPress: () => void;
+}>) {
+  const { colors } = useFlowndTheme();
+  const [chevronProgress] = useState(() => new Animated.Value(open ? 1 : 0));
+  useEffect(() => {
+    const animation = Animated.timing(chevronProgress, {
+      toValue: open ? 1 : 0,
+      duration: 380,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [chevronProgress, open]);
+  return (
     <Card style={styles.navigationCard}>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onPress}
-        style={({ pressed }) => [styles.sectionButton, pressed && styles.pressed]}>
-        <View style={[styles.sectionIcon, { backgroundColor: colors.accentSoft }]}>
+      <View style={styles.accordionHeader}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          onPress={onPress}
+          style={({ pressed }) => [styles.sectionButton, pressed && styles.pressed]}>
+          <View style={[styles.sectionIcon, { backgroundColor: colors.accentSoft }]}>
             <Text style={[styles.materialIcon, { color: colors.accent }]}>{icon}</Text>
           </View>
           <View style={styles.flex}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
             <Text style={[styles.sectionCaption, { color: colors.textSecondary }]}>{caption}</Text>
           </View>
-        <Text style={[styles.chevron, { color: colors.textSecondary }]}>chevron_right</Text>
-      </Pressable>
+          <Animated.Text
+            style={[
+              styles.chevron,
+              {
+                color: colors.textSecondary,
+                transform: [{
+                  rotate: chevronProgress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0deg', '180deg'],
+                  }),
+                }],
+              },
+            ]}>
+            expand_more
+          </Animated.Text>
+        </Pressable>
+        {action ? <View style={styles.accordionAction}>{action}</View> : null}
+      </View>
+      <AnimatedAccordionBody open={open}>{children}</AnimatedAccordionBody>
     </Card>
+  );
+}
+
+function AnimatedAccordionBody({
+  open,
+  children,
+}: PropsWithChildren<{ open: boolean }>) {
+  const [contentHeight, setContentHeight] = useState(0);
+  const [animatedHeight] = useState(() => new Animated.Value(0));
+  const [animatedOpacity] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    if (open && contentHeight <= 0) return;
+    const animation = Animated.parallel([
+      Animated.timing(animatedHeight, {
+        toValue: open ? contentHeight : 0,
+        duration: open ? 420 : 340,
+        easing: open ? Easing.out(Easing.cubic) : Easing.inOut(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(animatedOpacity, {
+        toValue: open ? 1 : 0,
+        duration: open ? 360 : 260,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: false,
+      }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [animatedHeight, animatedOpacity, contentHeight, open]);
+
+  return (
+    <Animated.View
+      accessibilityElementsHidden={!open}
+      importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
+      pointerEvents={open ? 'auto' : 'none'}
+      style={[
+        styles.animatedAccordionBody,
+        { height: animatedHeight, opacity: animatedOpacity },
+      ]}>
+      <View
+        style={styles.accordionMeasuredContent}
+        onLayout={(event) => {
+          const nextHeight = event.nativeEvent.layout.height;
+          if (Math.abs(nextHeight - contentHeight) > 0.5) setContentHeight(nextHeight);
+        }}>
+        {children}
+      </View>
+    </Animated.View>
   );
 }
 
@@ -756,10 +886,19 @@ function formatAmount(value: number, currency: string) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   pageTitle: { fontSize: 19, lineHeight: 26, marginLeft: 14 },
-  sections: { gap: 12 },
+  sections: { flex: 1, gap: 12 },
   groupName: { fontFamily: font.bodyMedium, fontSize: 12, marginBottom: 2 },
   navigationCard: { padding: 0, overflow: 'hidden' },
-  detailPage: { paddingHorizontal: 2 },
+  accordionHeader: { flexDirection: 'row', alignItems: 'center' },
+  accordionAction: { paddingRight: 14 },
+  animatedAccordionBody: { overflow: 'hidden' },
+  accordionMeasuredContent: { position: 'absolute', top: 0, right: 0, left: 0 },
+  accordionContent: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(127,127,127,0.22)',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
   sectionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 16 },
   sectionIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   sectionTitle: { fontFamily: font.bodySemiBold, fontSize: 15 },
@@ -780,6 +919,7 @@ const styles = StyleSheet.create({
   slider: { height: 34 },
   fixedRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
   preview: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 5 },
+  availabilityNote: { fontFamily: font.bodyMedium, fontSize: 10, lineHeight: 15, marginTop: 5 },
   allocationBlock: { marginTop: 20, gap: 8 },
   allocationRow: { gap: 2 },
   subsectionTitle: { fontFamily: font.bodySemiBold, fontSize: 9, letterSpacing: 0.9, opacity: 0.58, marginBottom: 4 },
@@ -793,7 +933,7 @@ const styles = StyleSheet.create({
   avatarInitial: { fontFamily: font.bodySemiBold, fontSize: 15 },
   memberName: { fontFamily: font.bodySemiBold, fontSize: 13 },
   memberMeta: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
-  destructive: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, borderRadius: 13, marginTop: 16 },
+  destructive: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 44, borderRadius: 13, marginTop: 'auto' },
   destructiveText: { fontFamily: font.bodySemiBold, fontSize: 12 },
   materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21, lineHeight: 24 },
   materialIconSmall: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 18, lineHeight: 21 },

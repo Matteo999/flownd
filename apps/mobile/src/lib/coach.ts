@@ -1,11 +1,5 @@
 import { Platform } from 'react-native';
 
-export type CoachMessage = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-};
-
 export type CoachActionType =
   | 'add_transaction'
   | 'create_goal'
@@ -17,9 +11,33 @@ export type CoachPendingAction = {
   arguments: Record<string, string | number | null>;
 };
 
-export type CoachResponse = {
-  message: string;
+export type CoachActionStatus = 'pending' | 'confirmed' | 'cancelled' | null;
+
+export type CoachMessage = {
+  id: string;
+  conversationId: string | null;
+  role: 'user' | 'assistant';
+  content: string;
   pendingAction: CoachPendingAction | null;
+  actionStatus: CoachActionStatus;
+  createdAt: string;
+};
+
+export type CoachConversation = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CoachSendResponse = {
+  conversation: CoachConversation;
+  message: CoachMessage;
+};
+
+type CoachResolutionResponse = {
+  actionStatus: Exclude<CoachActionStatus, null | 'pending'>;
+  message: CoachMessage | null;
 };
 
 function coachEndpoint() {
@@ -28,9 +46,10 @@ function coachEndpoint() {
   return Platform.OS === 'web' ? '/api/coach' : null;
 }
 
-export async function askCoach(
-  messages: CoachMessage[],
+async function coachRequest<T>(
   accessToken: string,
+  options: RequestInit = {},
+  query?: Record<string, string>,
 ) {
   const endpoint = coachEndpoint();
   if (!endpoint) {
@@ -38,27 +57,85 @@ export async function askCoach(
       'Configura EXPO_PUBLIC_API_URL per collegare il Coach al backend.',
     );
   }
-  const response = await fetch(endpoint, {
-    method: 'POST',
+  const suffix = query ? `?${new URLSearchParams(query).toString()}` : '';
+  const response = await fetch(`${endpoint}${suffix}`, {
+    ...options,
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
     },
-    body: JSON.stringify({
-      messages: messages.map(({ role, content }) => ({ role, content })),
-    }),
   });
   const body = await response.text();
-  let data: CoachResponse & { error?: string };
+  let data: T & { error?: string };
   try {
-    data = JSON.parse(body) as CoachResponse & { error?: string };
+    data = JSON.parse(body) as T & { error?: string };
   } catch {
     throw new Error(
       'Il backend del Coach ha restituito una risposta non valida. Verifica che il server locale sia avviato.',
     );
   }
-  if (!response.ok) {
-    throw new Error(data.error ?? 'Il Coach non è disponibile.');
-  }
+  if (!response.ok) throw new Error(data.error ?? 'Il Coach non è disponibile.');
   return data;
+}
+
+export function createCoachMessageId() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (token) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = token === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+export async function listCoachConversations(accessToken: string) {
+  const data = await coachRequest<{ conversations: CoachConversation[] }>(accessToken);
+  return data.conversations;
+}
+
+export async function loadCoachConversation(
+  conversationId: string,
+  accessToken: string,
+) {
+  return coachRequest<{
+    conversation: CoachConversation;
+    messages: CoachMessage[];
+  }>(accessToken, {}, { conversationId });
+}
+
+export async function askCoach(
+  conversationId: string | null,
+  message: Pick<CoachMessage, 'id' | 'content'>,
+  accessToken: string,
+) {
+  return coachRequest<CoachSendResponse>(accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ conversationId, message }),
+  });
+}
+
+export async function deleteCoachConversation(
+  conversationId: string,
+  accessToken: string,
+) {
+  await coachRequest<{ deleted: boolean }>(
+    accessToken,
+    { method: 'DELETE' },
+    { conversationId },
+  );
+}
+
+export async function resolveCoachAction(
+  messageId: string,
+  resolution: 'confirmed' | 'cancelled',
+  action: CoachPendingAction,
+  accessToken: string,
+) {
+  return coachRequest<CoachResolutionResponse>(accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      messageId,
+      resolution,
+      arguments: action.arguments,
+    }),
+  });
 }

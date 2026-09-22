@@ -86,6 +86,7 @@ export function Screen({
   floatingAction,
   floatingActionPosition = 'right',
   fixedHeader,
+  onScroll: onScreenScroll,
   transparentHeaderOnScroll = false,
 }: PropsWithChildren<{
   scroll?: boolean;
@@ -96,6 +97,7 @@ export function Screen({
   floatingAction?: ReactNode;
   floatingActionPosition?: 'right' | 'center' | 'free';
   fixedHeader?: ReactNode;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   transparentHeaderOnScroll?: boolean;
 }>) {
   const { colors, isDark } = useFlowndTheme();
@@ -108,7 +110,7 @@ export function Screen({
   );
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const firstFocusRevealed = useRef(!animateFirstFocus);
-  const onScroll = useMemo(
+  const handleScroll = useMemo(
     () =>
       Animated.event(
         [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -116,6 +118,7 @@ export function Screen({
           useNativeDriver: true,
           listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
             const offset = event.nativeEvent.contentOffset.y;
+            onScreenScroll?.(event);
             setHeaderCollapsed((current) => {
               if (offset >= 14) return true;
               if (offset <= 4) return false;
@@ -124,7 +127,7 @@ export function Screen({
           },
         },
       ),
-    [scrollY],
+    [onScreenScroll, scrollY],
   );
   useEffect(() => {
     const animation = Animated.timing(headerProgress, {
@@ -152,9 +155,9 @@ export function Screen({
       scrollY,
       headerProgress,
       scrollsWithContent: scroll || scrollHeaderWithContent,
-      onScroll,
+      onScroll: handleScroll,
     }),
-    [headerProgress, onScroll, scroll, scrollHeaderWithContent, scrollY],
+    [handleScroll, headerProgress, scroll, scrollHeaderWithContent, scrollY],
   );
   const content = (
     <View
@@ -206,7 +209,7 @@ export function Screen({
           <Animated.ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            onScroll={onScroll}
+            onScroll={handleScroll}
             scrollEnabled={scrollEnabled}
             scrollEventThrottle={16}
             contentContainerStyle={styles.scroll}>

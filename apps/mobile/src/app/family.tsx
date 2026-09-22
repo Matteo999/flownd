@@ -1675,7 +1675,7 @@ const styles = StyleSheet.create({
   },
   headerControlPlaceholder: { width: 38, height: 38 },
   groupsBody: { flex: 1 },
-  groupsBodyContent: { flexGrow: 1, paddingBottom: 110 },
+  groupsBodyContent: { flexGrow: 1, paddingTop: 14, paddingBottom: 110 },
   backButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   groupGlassIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   backButtonFallback: { borderWidth: StyleSheet.hairlineWidth },
