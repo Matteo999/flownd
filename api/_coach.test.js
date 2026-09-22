@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { coachTools, geminiCoachTools } from './_coach-data.js'
+import { coachTools, cycleHistoryComparison, geminiCoachTools } from './_coach-data.js'
 import { coachErrorLog, conversationTitle } from './coach.js'
 
 const expectedTools = [
@@ -34,6 +34,19 @@ test('OpenAI e Gemini espongono gli stessi tool del Coach', () => {
   assert.ok(geminiCoachTools[0].functionDeclarations.every(
     (tool) => !Object.hasOwn(tool.parameters, 'additionalProperties'),
   ))
+})
+
+test('il confronto storico usa fino a sei cicli finanziari completati', () => {
+  const comparison = cycleHistoryComparison([
+    { occurred_at: '2026-07-10T12:00:00.000Z', kind: 'expense', amount: 100 },
+    { occurred_at: '2026-07-12T12:00:00.000Z', kind: 'income', amount: 500 },
+    { occurred_at: '2026-08-10T12:00:00.000Z', kind: 'expense', amount: 300 },
+  ], new Date('2026-08-25T00:00:00.000Z'), 250)
+
+  assert.equal(comparison.sample_size, 2)
+  assert.equal(comparison.average_expense, 200)
+  assert.equal(comparison.difference, 50)
+  assert.equal(comparison.difference_percentage, 25)
 })
 
 test('l API limita il contesto e non delega la memoria al provider', async () => {
@@ -81,4 +94,11 @@ test('la migrazione applica limiti, RLS e risoluzione atomica', async () => {
   assert.match(source, /create or replace function public\.resolve_coach_action/)
   assert.match(source, /for update/)
   assert.match(source, /proposal\.action_status <> 'pending'/)
+
+  const management = await readFile(
+    new URL('../supabase/migrations/202609220002_coach_conversation_management.sql', import.meta.url),
+    'utf8',
+  )
+  assert.match(management, /add column if not exists is_pinned boolean/)
+  assert.match(management, /order by older\.is_pinned desc, older\.updated_at desc/)
 })

@@ -67,6 +67,7 @@ const coachInstructions = [
   'Prima di fare affermazioni sui dati finanziari dell’utente, usa il tool di lettura più pertinente.',
   'Distingui sempre in modo esplicito dati personali e dati di gruppo. Non dedurre dati che i tool non restituiscono.',
   'Per dettagli sui movimenti usa get_transactions; per obiettivi e prestiti usa get_goals_and_debts; per gruppi usa get_group_finances.',
+  'La panoramica del ciclo include fino a 6 cicli completati e la loro media: usa historical_comparison per confronti storici e dichiara sempre il numero di cicli disponibili.',
   'Prima di update_goal usa get_goals_and_debts e passa sempre il goal_id restituito.',
   'Per registrare spese o creare/modificare obiettivi e budget, chiama il tool appropriato.',
   'Non dire mai che un’azione è stata salvata: i tool di modifica creano solo una proposta che l’utente deve confermare.',
@@ -173,7 +174,13 @@ export function conversationTitle(content) {
 }
 
 function publicConversation(row) {
-  return { id: row.id, title: row.title, createdAt: row.created_at, updatedAt: row.updated_at }
+  return {
+    id: row.id,
+    title: row.title,
+    pinned: Boolean(row.is_pinned),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
 }
 
 function publicMessage(row) {
@@ -212,7 +219,8 @@ async function ownedConversation(client, userId, conversationId) {
 
 async function listHistory(client, userId) {
   const { data, error } = await client.from('coach_conversations')
-    .select('id,title,created_at,updated_at').eq('user_id', userId)
+    .select('id,title,is_pinned,created_at,updated_at').eq('user_id', userId)
+    .order('is_pinned', { ascending: false })
     .order('updated_at', { ascending: false }).order('id', { ascending: false }).limit(10)
   if (error) throw error
   return (data || []).map(publicConversation)
@@ -417,7 +425,26 @@ async function handleDelete(req, res, client, user) {
   return res.status(200).json({ deleted: true })
 }
 
-async function handlePatch(req, res, client) {
+async function handlePatch(req, res, client, user) {
+  const conversationId = String(req.body?.conversationId || '')
+  const operation = String(req.body?.operation || '')
+  if (conversationId || operation) {
+    if (!UUID_PATTERN.test(conversationId) || !['pin', 'rename'].includes(operation)) {
+      return res.status(400).json({ error: 'Modifica conversazione non valida' })
+    }
+    const conversation = await ownedConversation(client, user.id, conversationId)
+    if (!conversation) return res.status(404).json({ error: 'Conversazione non trovata' })
+    const updates = operation === 'pin'
+      ? { is_pinned: Boolean(req.body?.pinned) }
+      : { title: String(req.body?.title || '').replace(/\s+/g, ' ').trim().slice(0, 60) }
+    if (operation === 'rename' && !updates.title) {
+      return res.status(400).json({ error: 'Il titolo non può essere vuoto' })
+    }
+    const { data, error } = await client.from('coach_conversations').update(updates)
+      .eq('id', conversationId).eq('user_id', user.id).select('*').single()
+    if (error) throw error
+    return res.status(200).json({ conversation: publicConversation(data) })
+  }
   const messageId = String(req.body?.messageId || '')
   const resolution = String(req.body?.resolution || '')
   if (!UUID_PATTERN.test(messageId) || !['confirmed', 'cancelled'].includes(resolution)) {
@@ -446,7 +473,7 @@ export default async function handler(req, res) {
     if (auth.error) return res.status(auth.status).json({ error: auth.error, requestId })
     if (req.method === 'GET') return await handleGet(req, res, auth.client, auth.user)
     if (req.method === 'POST') return await handlePost(req, res, auth.client, auth.user)
-    if (req.method === 'PATCH') return await handlePatch(req, res, auth.client)
+    if (req.method === 'PATCH') return await handlePatch(req, res, auth.client, auth.user)
     return await handleDelete(req, res, auth.client, auth.user)
   } catch (error) {
     const conversationId = UUID_PATTERN.test(String(req.body?.conversationId || req.query?.conversationId || ''))

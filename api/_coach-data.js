@@ -177,6 +177,7 @@ function throwFirstError(results) {
 
 export async function getFinancialOverview(client, userId, period) {
   const start = await periodStart(client, userId, period)
+  const historyStart = period === 'cycle' ? shiftCycle(start, -6) : null
   const results = await Promise.all([
     client.from('profiles')
       .select('planned_monthly_income,budget_cycle_start_day,budget_rollover_mode,goal_allocation_mode')
@@ -201,9 +202,15 @@ export async function getFinancialOverview(client, userId, period) {
       .select('id,name,financed_amount,down_payment,installment_count,monthly_payment,interest_rate,start_date,final_balloon')
       .eq('user_id', userId).eq('active', true).order('created_at'),
     client.rpc('my_group_allocation_summary'),
+    historyStart
+      ? client.from('transactions')
+        .select('amount,kind,occurred_at')
+        .eq('user_id', userId).eq('excluded_from_totals', false)
+        .gte('occurred_at', historyStart.toISOString()).lt('occurred_at', start.toISOString())
+      : Promise.resolve({ data: [], error: null }),
   ])
   throwFirstError(results)
-  const [profile, transactions, budgets, goals, accounts, recurring, loans, groupAllocation] = results
+  const [profile, transactions, budgets, goals, accounts, recurring, loans, groupAllocation, history] = results
   const rows = transactions.data || []
   const income = rows.filter((row) => row.kind === 'income')
     .reduce((sum, row) => sum + Number(row.amount), 0)
@@ -231,6 +238,50 @@ export async function getFinancialOverview(client, userId, period) {
     recurring_payments: (recurring.data || []).map(numericAmount),
     loans: (loans.data || []).map(numericLoan),
     group_allocation: groupAllocation.data,
+    historical_comparison: period === 'cycle'
+      ? cycleHistoryComparison(history.data || [], start, expense)
+      : null,
+  }
+}
+
+function shiftCycle(start, monthOffset) {
+  const shifted = new Date(start)
+  shifted.setMonth(shifted.getMonth() + monthOffset)
+  return shifted
+}
+
+export function cycleHistoryComparison(rows, currentCycleStart, currentExpense) {
+  const cycles = []
+  for (let offset = -6; offset < 0; offset += 1) {
+    const cycleStart = shiftCycle(currentCycleStart, offset)
+    const cycleEnd = shiftCycle(currentCycleStart, offset + 1)
+    const cycleRows = rows.filter((row) => {
+      const occurredAt = new Date(row.occurred_at)
+      return occurredAt >= cycleStart && occurredAt < cycleEnd
+    })
+    if (!cycleRows.length) continue
+    cycles.push({
+      start: cycleStart.toISOString(),
+      end: cycleEnd.toISOString(),
+      expense: cycleRows.filter((row) => row.kind !== 'income')
+        .reduce((sum, row) => sum + Number(row.amount), 0),
+    })
+  }
+  if (!cycles.length) {
+    return {
+      completed_cycles: [], sample_size: 0, average_expense: null,
+      current_expense: currentExpense, difference: null, difference_percentage: null,
+    }
+  }
+  const average = cycles.reduce((sum, cycle) => sum + cycle.expense, 0) / cycles.length
+  const difference = currentExpense - average
+  return {
+    completed_cycles: cycles,
+    sample_size: cycles.length,
+    average_expense: average,
+    current_expense: currentExpense,
+    difference,
+    difference_percentage: average > 0 ? difference / average * 100 : null,
   }
 }
 

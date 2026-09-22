@@ -1,17 +1,21 @@
-import { type ComponentProps, useEffect, useRef, useState } from 'react';
+import { type ComponentProps, type ReactNode, useEffect, useRef, useState } from 'react';
+import { MenuView } from '@expo/ui/community/menu';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import * as Haptics from 'expo-haptics';
 import {
   ActivityIndicator,
   Alert,
   Animated,
   FlatList,
   KeyboardAvoidingView,
-  Modal,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
 import {
@@ -32,6 +36,7 @@ import {
   listCoachConversations,
   loadCoachConversation,
   resolveCoachAction,
+  updateCoachConversation,
   type CoachConversation,
   type CoachMessage,
   type CoachPendingAction,
@@ -69,9 +74,30 @@ export default function CoachScreen() {
   const [resolvingMessageId, setResolvingMessageId] = useState<string | null>(null);
   const listRef = useRef<FlatList<CoachMessage>>(null);
   const selectionVersion = useRef(0);
+  const drawerProgress = useRef(new Animated.Value(1)).current;
+  const { width: windowWidth } = useWindowDimensions();
+  const drawerWidth = Math.min(360, windowWidth * 0.84);
+  const swipeToHistory = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => (
+      gesture.dx < -14 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.3
+    ),
+    onPanResponderRelease: (_, gesture) => {
+      if (gesture.dx < -54) setHistoryVisible(true);
+    },
+  })).current;
   const pendingMessage = [...messages].reverse().find(
     (message) => message.pendingAction && message.actionStatus === 'pending',
   );
+
+  useEffect(() => {
+    Animated.spring(drawerProgress, {
+      toValue: historyVisible ? 0 : 1,
+      damping: 24,
+      stiffness: 230,
+      mass: 0.8,
+      useNativeDriver: true,
+    }).start();
+  }, [drawerProgress, historyVisible]);
 
   useEffect(() => {
     if (!session) {
@@ -93,8 +119,11 @@ export default function CoachScreen() {
           setConversationId(null);
           return;
         }
+        const latestConversation = [...history].sort(
+          (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+        )[0];
         const loaded = await loadCoachConversation(
-          history[0].id,
+          latestConversation.id,
           session.access_token,
         );
         if (!active || version !== selectionVersion.current) return;
@@ -186,6 +215,46 @@ export default function CoachScreen() {
     }
   }
 
+  async function changeConversation(
+    selected: CoachConversation,
+    update: { operation: 'pin'; pinned: boolean } | { operation: 'rename'; title: string },
+  ) {
+    if (!session) return;
+    try {
+      await updateCoachConversation(selected.id, update, session.access_token);
+      await refreshHistory();
+    } catch (error) {
+      Alert.alert('Modifica non riuscita', errorMessage(error));
+    }
+  }
+
+  function requestRenameConversation(selected: CoachConversation) {
+    if (Platform.OS === 'ios') {
+      Alert.prompt(
+        'Rinomina chat',
+        undefined,
+        (title) => {
+          const normalized = title.trim();
+          if (normalized) void changeConversation(selected, { operation: 'rename', title: normalized });
+        },
+        'plain-text',
+        selected.title,
+      );
+      return;
+    }
+    Alert.alert('Rinomina chat', 'La rinomina è disponibile dal menu nativo su iOS.');
+  }
+
+  function handleConversationAction(selected: CoachConversation, action: string) {
+    if (action === 'pin') {
+      void changeConversation(selected, { operation: 'pin', pinned: !selected.pinned });
+    } else if (action === 'rename') {
+      requestRenameConversation(selected);
+    } else if (action === 'delete') {
+      requestDeleteConversation(selected);
+    }
+  }
+
   async function sendMessage(rawMessage = input) {
     const content = rawMessage.trim();
     if (!content || waiting || pendingMessage || !session) return;
@@ -266,6 +335,7 @@ export default function CoachScreen() {
   }
 
   return (
+    <View style={styles.flex} {...swipeToHistory.panHandlers}>
     <Screen animateFirstFocus scroll={false} style={styles.screen}>
       <PageHeader
         title="Coach"
@@ -277,11 +347,6 @@ export default function CoachScreen() {
                   icon="history"
                   label="Apri storico conversazioni"
                   onPress={() => setHistoryVisible(true)}
-                />
-                <HeaderIconButton
-                  icon="add_comment"
-                  label="Nuova conversazione"
-                  onPress={startNewConversation}
                 />
               </View>
             )}
@@ -352,17 +417,13 @@ export default function CoachScreen() {
           }
             />
 
-            <View
-              style={[
-                styles.composer,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}>
+            <ComposerGlassSurface>
           <TextInput
             accessibilityLabel="Scrivi al Coach"
             keyboardAppearance={isDark ? 'dark' : 'light'}
             value={input}
             onChangeText={setInput}
-            placeholder="Chiedi o registra qualcosa…"
+            placeholder="Chiedi a FlowndAI"
             placeholderTextColor={colors.textSecondary}
             selectionColor={colors.accent}
             multiline
@@ -383,21 +444,40 @@ export default function CoachScreen() {
             ]}>
             <Text style={styles.sendIcon}>arrow_upward</Text>
           </Pressable>
-            </View>
+            </ComposerGlassSurface>
           </KeyboardAvoidingView>
         )}
       </ScreenScrollBridge>
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setHistoryVisible(false)}
-        presentationStyle="pageSheet"
-        visible={historyVisible}>
-        <View style={[styles.historyScreen, { backgroundColor: colors.background }]}>
-          <View style={[styles.historyHeader, { borderBottomColor: colors.border }]}>
-            <View>
-              <Text style={[styles.historyTitle, { color: colors.text }]}>Conversazioni</Text>
-              <Text style={[styles.historySubtitle, { color: colors.textSecondary }]}>Ultime 10</Text>
-            </View>
+    </Screen>
+      <Animated.View
+        pointerEvents={historyVisible ? 'auto' : 'none'}
+        style={[
+          styles.drawerOverlay,
+          {
+            opacity: drawerProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+          },
+        ]}>
+        <Pressable
+          accessibilityLabel="Chiudi storico"
+          onPress={() => setHistoryVisible(false)}
+          style={styles.drawerBackdrop}
+        />
+        <Animated.View
+          style={[
+            styles.historySidebar,
+            {
+              width: drawerWidth,
+              backgroundColor: colors.background,
+              borderLeftColor: colors.border,
+              transform: [{
+                translateX: drawerProgress.interpolate({
+                  inputRange: [0, 1], outputRange: [0, drawerWidth],
+                }),
+              }],
+            },
+          ]}>
+          <View style={styles.historyHeader}>
+            <Text style={[styles.historyTitle, { color: colors.text }]}>Recenti</Text>
             <Pressable
               accessibilityLabel="Chiudi storico"
               accessibilityRole="button"
@@ -407,11 +487,11 @@ export default function CoachScreen() {
               <Text style={[styles.materialIcon, { color: colors.text }]}>close</Text>
             </Pressable>
           </View>
-          <PrimaryButton onPress={startNewConversation}>Nuova chat</PrimaryButton>
           {loadingHistory ? (
             <ActivityIndicator color={colors.accent} style={styles.historyLoading} />
           ) : (
             <FlatList
+              style={styles.historyListView}
               contentContainerStyle={styles.historyList}
               data={conversations}
               keyExtractor={(conversation) => conversation.id}
@@ -421,40 +501,60 @@ export default function CoachScreen() {
                 </Text>
               )}
               renderItem={({ item }) => (
-                <View
-                  style={[
-                    styles.historyRow,
+                <MenuView
+                  shouldOpenOnLongPress
+                  style={styles.historyMenu}
+                  actions={[
                     {
-                      backgroundColor: item.id === conversationId ? colors.accentSoft : colors.surface,
-                      borderColor: item.id === conversationId ? colors.accent : colors.border,
+                      id: 'pin',
+                      title: item.pinned ? 'Rimuovi dai fissati' : 'Fissa in alto',
+                      image: item.pinned ? 'pin.slash' : 'pin',
+                      state: item.pinned ? 'on' : 'off',
                     },
-                  ]}>
+                    { id: 'rename', title: 'Rinomina', image: 'pencil' },
+                    { id: 'delete', title: 'Elimina', image: 'trash', attributes: { destructive: true } },
+                  ]}
+                  onPressAction={(event) => handleConversationAction(item, event.nativeEvent.event)}>
                   <Pressable
                     accessibilityRole="button"
+                    delayLongPress={350}
+                    onLongPress={() => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)}
                     onPress={() => void openConversation(item.id)}
-                    style={({ pressed }) => [styles.historyRowMain, pressed && styles.pressed]}>
-                    <Text numberOfLines={2} style={[styles.historyRowTitle, { color: colors.text }]}>
-                      {item.title}
-                    </Text>
-                    <Text style={[styles.historyRowDate, { color: colors.textSecondary }]}>
-                      {formatConversationDate(item.updatedAt)}
-                    </Text>
+                    style={({ pressed }) => [
+                      styles.historyRow,
+                      {
+                        backgroundColor: item.id === conversationId ? colors.accentSoft : colors.surface,
+                        borderColor: item.id === conversationId ? colors.accent : colors.border,
+                      },
+                      pressed && styles.historyRowPressed,
+                    ]}>
+                    <View style={styles.historyRowMain}>
+                      <View style={styles.historyRowTitleLine}>
+                        {item.pinned ? (
+                          <Text style={[styles.historyPinnedIcon, { color: colors.accent }]}>push_pin</Text>
+                        ) : null}
+                        <Text numberOfLines={2} style={[styles.historyRowTitle, { color: colors.text }]}>
+                          {item.title}
+                        </Text>
+                      </View>
+                      <Text style={[styles.historyRowDate, { color: colors.textSecondary }]}>
+                        {formatConversationDate(item.updatedAt)}
+                      </Text>
+                    </View>
                   </Pressable>
-                  <Pressable
-                    accessibilityLabel={`Elimina ${item.title}`}
-                    accessibilityRole="button"
-                    hitSlop={6}
-                    onPress={() => requestDeleteConversation(item)}
-                    style={({ pressed }) => [styles.historyDelete, pressed && styles.pressed]}>
-                    <Text style={[styles.materialIcon, { color: colors.negative }]}>delete</Text>
-                  </Pressable>
-                </View>
+                </MenuView>
               )}
             />
           )}
-        </View>
-      </Modal>
-    </Screen>
+          <View style={styles.historyCtaWrap}>
+            <GlassCta
+              label="Nuova chat"
+              onPress={startNewConversation}
+            />
+          </View>
+        </Animated.View>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -476,6 +576,54 @@ function HeaderIconButton({
       onPress={onPress}
       style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}>
       <Text style={[styles.materialIcon, { color: colors.text }]}>{icon}</Text>
+    </Pressable>
+  );
+}
+
+function ComposerGlassSurface({ children }: { children: ReactNode }) {
+  const { colors, isDark } = useFlowndTheme();
+  const style = [styles.composer, { borderColor: colors.border }];
+  if (Platform.OS === 'ios' && isGlassEffectAPIAvailable()) {
+    return (
+      <GlassView
+        colorScheme={isDark ? 'dark' : 'light'}
+        glassEffectStyle="regular"
+        isInteractive
+        style={style}>
+        {children}
+      </GlassView>
+    );
+  }
+  return <View style={[style, { backgroundColor: colors.surface }]}>{children}</View>;
+}
+
+function GlassCta({ label, onPress }: { label: string; onPress: () => void }) {
+  const { colors, isDark } = useFlowndTheme();
+  const content = (
+    <>
+      <Text style={[styles.glassCtaIcon, { color: colors.text }]}>add</Text>
+      <Text style={[styles.glassCtaLabel, { color: colors.text }]}>{label}</Text>
+    </>
+  );
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [pressed && styles.glassCtaPressed]}>
+      {Platform.OS === 'ios' && isGlassEffectAPIAvailable() ? (
+        <GlassView
+          colorScheme={isDark ? 'dark' : 'light'}
+          glassEffectStyle="regular"
+          isInteractive
+          style={styles.glassCta}>
+          {content}
+        </GlassView>
+      ) : (
+        <View style={[styles.glassCta, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          {content}
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -503,6 +651,7 @@ function MessageBubble({ message }: { message: CoachMessage }) {
           },
         ]}>
         <Text
+          selectable
           style={[
             styles.messageText,
             { color: user ? colors.onAccent : colors.text },
@@ -515,12 +664,14 @@ function MessageBubble({ message }: { message: CoachMessage }) {
 }
 
 function FormattedMessageText({ content }: { content: string }) {
-  return content.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
-    const isBold = part.startsWith('**') && part.endsWith('**');
-    if (!isBold) return part;
+  const normalized = content.replace(/\\([*_])/g, '$1');
+  return normalized.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*)/g).map((part, index) => {
+    const double = part.startsWith('**') && part.endsWith('**');
+    const single = !double && part.startsWith('*') && part.endsWith('*');
+    if (!double && !single) return part;
     return (
       <Text key={`${part}-${index}`} style={styles.messageTextBold}>
-        {part.slice(2, -2)}
+        {double ? part.slice(2, -2) : part.slice(1, -1)}
       </Text>
     );
   });
@@ -866,8 +1017,8 @@ const styles = StyleSheet.create({
   composer: {
     minHeight: 54,
     maxHeight: 126,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 27,
+    borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingLeft: 13,
@@ -885,7 +1036,7 @@ const styles = StyleSheet.create({
   sendButton: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -909,32 +1060,81 @@ const styles = StyleSheet.create({
     fontSize: 21,
     lineHeight: 24,
   },
-  historyScreen: { flex: 1, paddingHorizontal: 20, paddingTop: 18 },
+  drawerOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 100,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  drawerBackdrop: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+  },
+  historySidebar: {
+    height: '100%',
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    paddingTop: 58,
+    paddingHorizontal: 16,
+    paddingBottom: 22,
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    shadowOffset: { width: -8, height: 0 },
+    elevation: 18,
+  },
   historyHeader: {
     minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    marginBottom: 16,
+    marginBottom: 10,
   },
-  historyTitle: { fontFamily: font.displaySemiBold, fontSize: 24 },
-  historySubtitle: { fontFamily: font.body, fontSize: 11, marginTop: 1 },
+  historyTitle: { fontFamily: font.displaySemiBold, fontSize: 27 },
   historyClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   historyLoading: { marginTop: 32 },
-  historyList: { paddingTop: 14, paddingBottom: 28, gap: 8, flexGrow: 1 },
+  historyListView: { flex: 1 },
+  historyList: { paddingTop: 4, paddingBottom: 18, gap: 8, flexGrow: 1 },
   historyEmpty: { fontFamily: font.body, fontSize: 13, textAlign: 'center', marginTop: 32 },
+  historyMenu: { width: '100%' },
   historyRow: {
-    minHeight: 70,
-    borderWidth: 1,
-    borderRadius: 12,
+    minHeight: 66,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
   },
+  historyRowPressed: { transform: [{ scale: 1.035 }] },
   historyRowMain: { flex: 1, alignSelf: 'stretch', justifyContent: 'center', padding: 12 },
+  historyRowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   historyRowTitle: { fontFamily: font.bodySemiBold, fontSize: 13, lineHeight: 18 },
   historyRowDate: { fontFamily: font.body, fontSize: 10, marginTop: 4 },
-  historyDelete: { width: 48, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
+  historyPinnedIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 15,
+    lineHeight: 18,
+  },
+  historyCtaWrap: { paddingTop: 10 },
+  glassCta: {
+    minHeight: 52,
+    borderRadius: 26,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 18,
+  },
+  glassCtaPressed: { transform: [{ scale: 0.97 }] },
+  glassCtaIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
+  glassCtaLabel: { fontFamily: font.bodySemiBold, fontSize: 14 },
   confirmationCard: { marginTop: 6, marginBottom: 14 },
   confirmationHeader: {
     flexDirection: 'row',

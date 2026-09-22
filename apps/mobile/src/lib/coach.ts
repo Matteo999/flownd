@@ -26,6 +26,7 @@ export type CoachMessage = {
 export type CoachConversation = {
   id: string;
   title: string;
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -122,6 +123,18 @@ export async function deleteCoachConversation(
     { method: 'DELETE' },
     { conversationId },
   );
+}
+
+export async function updateCoachConversation(
+  conversationId: string,
+  update: { operation: 'pin'; pinned: boolean } | { operation: 'rename'; title: string },
+  accessToken: string,
+) {
+  const data = await coachRequest<{ conversation: CoachConversation }>(accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({ conversationId, ...update }),
+  });
+  return data.conversation;
 }
 
 export async function resolveCoachAction(
