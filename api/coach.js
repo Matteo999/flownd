@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { randomUUID } from 'node:crypto'
 
 import {
   coachMutationToolNames,
@@ -11,6 +12,55 @@ const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MODEL_CONTEXT_MESSAGES = 20
+
+function cleanLogText(value, limit = 4000) {
+  if (value == null) return null
+  return String(value)
+    .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]')
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED_JWT]')
+    .replace(/((?:api[_-]?key|authorization|password|secret|token)\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .slice(0, limit)
+}
+
+function coachError(error, context) {
+  const normalized = error instanceof Error
+    ? error
+    : Object.assign(new Error(error?.message || String(error)), error && typeof error === 'object' ? error : {})
+  normalized.coachContext = { ...context, ...(normalized.coachContext || {}) }
+  return normalized
+}
+
+export function coachErrorLog(error, context = {}) {
+  const source = error && typeof error === 'object' ? error : { message: String(error) }
+  const tagged = source.coachContext || {}
+  const cause = source.cause && typeof source.cause === 'object' ? source.cause : null
+  return {
+    requestId: context.requestId || null,
+    method: context.method || null,
+    userId: context.userId || null,
+    conversationId: context.conversationId || null,
+    messageId: context.messageId || null,
+    phase: tagged.phase || context.phase || 'request_handler',
+    provider: tagged.provider || context.provider || null,
+    model: tagged.model || null,
+    tool: tagged.tool || null,
+    error: {
+      name: cleanLogText(source.name, 120) || 'Error',
+      message: cleanLogText(source.message, 1000) || 'Unknown error',
+      code: cleanLogText(source.code, 120),
+      status: Number(source.status || source.statusCode) || null,
+      details: cleanLogText(source.details, 1500),
+      hint: cleanLogText(source.hint, 1000),
+      stack: cleanLogText(source.stack, 4000),
+      cause: cause ? {
+        name: cleanLogText(cause.name, 120),
+        message: cleanLogText(cause.message, 1000),
+        code: cleanLogText(cause.code, 120),
+      } : null,
+    },
+  }
+}
 
 const coachInstructions = [
   'Sei il Money Coach di Flownd. Rispondi in italiano, con tono calmo, concreto e non giudicante.',
@@ -57,30 +107,63 @@ function geminiOutputText(response) {
 }
 
 async function callOpenAI(input) {
-  const response = await fetch(OPENAI_RESPONSES_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: process.env.OPENAI_COACH_MODEL || 'gpt-5.6-sol',
-      reasoning: { effort: 'low' }, instructions: coachInstructions,
-      input, tools: coachTools, tool_choice: 'auto', parallel_tool_calls: false,
-      store: false,
-    }),
-  })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data?.error?.message || 'OpenAI Responses API non disponibile')
+  const model = process.env.OPENAI_COACH_MODEL || 'gpt-5.6-sol'
+  let response
+  try {
+    response = await fetch(OPENAI_RESPONSES_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        reasoning: { effort: 'low' }, instructions: coachInstructions,
+        input, tools: coachTools, tool_choice: 'auto', parallel_tool_calls: false,
+        store: false,
+      }),
+    })
+  } catch (error) {
+    throw coachError(error, { phase: 'provider_request', provider: 'openai', model })
+  }
+  let data
+  try {
+    data = await response.json()
+  } catch (error) {
+    error.status = response.status
+    throw coachError(error, { phase: 'provider_response_parse', provider: 'openai', model })
+  }
+  if (!response.ok) {
+    const error = new Error(data?.error?.message || 'OpenAI Responses API non disponibile')
+    error.code = data?.error?.code || data?.error?.type || null
+    error.status = response.status
+    throw coachError(error, { phase: 'provider_request', provider: 'openai', model })
+  }
   return data
 }
 
 async function callGemini(contents) {
   const model = process.env.GEMINI_COACH_MODEL || 'gemini-3.6-flash'
-  const response = await fetch(`${GEMINI_GENERATE_CONTENT_URL}/${encodeURIComponent(model)}:generateContent`, {
-    method: 'POST',
-    headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ systemInstruction: { parts: [{ text: coachInstructions }] }, contents, tools: geminiCoachTools }),
-  })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data?.error?.message || 'Gemini API non disponibile')
+  let response
+  try {
+    response = await fetch(`${GEMINI_GENERATE_CONTENT_URL}/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: coachInstructions }] }, contents, tools: geminiCoachTools }),
+    })
+  } catch (error) {
+    throw coachError(error, { phase: 'provider_request', provider: 'gemini', model })
+  }
+  let data
+  try {
+    data = await response.json()
+  } catch (error) {
+    error.status = response.status
+    throw coachError(error, { phase: 'provider_response_parse', provider: 'gemini', model })
+  }
+  if (!response.ok) {
+    const error = new Error(data?.error?.message || 'Gemini API non disponibile')
+    error.code = data?.error?.status || data?.error?.code || null
+    error.status = response.status
+    throw coachError(error, { phase: 'provider_request', provider: 'gemini', model })
+  }
   return data
 }
 
@@ -162,7 +245,12 @@ async function runOpenAICoach(messages, client, userId) {
     input.push(...response.output)
     for (const call of calls) {
       const args = JSON.parse(call.arguments || '{}')
-      const result = await executeCoachReadTool(client, userId, call.name, args)
+      let result
+      try {
+        result = await executeCoachReadTool(client, userId, call.name, args)
+      } catch (error) {
+        throw coachError(error, { phase: 'read_tool', provider: 'openai', tool: call.name })
+      }
       input.push({ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result) })
     }
   }
@@ -191,7 +279,12 @@ async function runGeminiCoach(messages, client, userId) {
     contents.push(modelContent)
     const functionResponses = []
     for (const call of calls) {
-      const result = await executeCoachReadTool(client, userId, call.name, call.args || {})
+      let result
+      try {
+        result = await executeCoachReadTool(client, userId, call.name, call.args || {})
+      } catch (error) {
+        throw coachError(error, { phase: 'read_tool', provider: 'gemini', tool: call.name })
+      }
       functionResponses.push({ functionResponse: { name: call.name, response: { result }, ...(call.id ? { id: call.id } : {}) } })
     }
     contents.push({ role: 'user', parts: functionResponses })
@@ -282,16 +375,35 @@ async function handlePost(req, res, client, user) {
     conversation = data
   }
 
-  await insertUserMessage(client, user.id, conversation.id, messageId, content)
+  try {
+    await insertUserMessage(client, user.id, conversation.id, messageId, content)
+  } catch (error) {
+    throw coachError(error, { phase: 'persist_user_message', provider })
+  }
   const existingReply = await replyForMessage(client, user.id, messageId)
   if (existingReply) {
     return res.status(200).json({ conversation: publicConversation(conversation), message: publicMessage(existingReply) })
   }
-  const context = await loadMessages(client, user.id, conversation.id, MODEL_CONTEXT_MESSAGES)
-  const result = provider === 'gemini'
-    ? await runGeminiCoach(context, client, user.id)
-    : await runOpenAICoach(context, client, user.id)
-  const reply = await saveAssistantReply(client, user.id, conversation.id, messageId, result)
+  let context
+  try {
+    context = await loadMessages(client, user.id, conversation.id, MODEL_CONTEXT_MESSAGES)
+  } catch (error) {
+    throw coachError(error, { phase: 'load_model_context', provider })
+  }
+  let result
+  try {
+    result = provider === 'gemini'
+      ? await runGeminiCoach(context, client, user.id)
+      : await runOpenAICoach(context, client, user.id)
+  } catch (error) {
+    throw coachError(error, { phase: 'model_execution', provider })
+  }
+  let reply
+  try {
+    reply = await saveAssistantReply(client, user.id, conversation.id, messageId, result)
+  } catch (error) {
+    throw coachError(error, { phase: 'persist_assistant_message', provider })
+  }
   return res.status(200).json({ conversation: publicConversation(conversation), message: publicMessage(reply) })
 }
 
@@ -323,21 +435,38 @@ async function handlePatch(req, res, client) {
 }
 
 export default async function handler(req, res) {
+  const requestId = randomUUID()
   if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method)) {
     res.setHeader('Allow', 'GET, POST, PATCH, DELETE')
     return res.status(405).json({ error: 'Metodo non supportato' })
   }
-  const auth = await authenticatedClient(req)
-  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  let auth
   try {
+    auth = await authenticatedClient(req)
+    if (auth.error) return res.status(auth.status).json({ error: auth.error, requestId })
     if (req.method === 'GET') return await handleGet(req, res, auth.client, auth.user)
     if (req.method === 'POST') return await handlePost(req, res, auth.client, auth.user)
     if (req.method === 'PATCH') return await handlePatch(req, res, auth.client)
     return await handleDelete(req, res, auth.client, auth.user)
   } catch (error) {
-    if (process.env.NODE_ENV !== 'production') console.error('Flownd coach failed', error)
+    const conversationId = UUID_PATTERN.test(String(req.body?.conversationId || req.query?.conversationId || ''))
+      ? String(req.body?.conversationId || req.query?.conversationId)
+      : null
+    const messageId = UUID_PATTERN.test(String(req.body?.message?.id || req.body?.messageId || ''))
+      ? String(req.body?.message?.id || req.body?.messageId)
+      : null
+    console.error('Flownd coach failed', coachErrorLog(error, {
+      requestId,
+      method: req.method,
+      userId: auth?.user?.id || null,
+      conversationId,
+      messageId,
+      provider: coachProvider(),
+      phase: auth ? 'request_handler' : 'authentication',
+    }))
     const tooManySteps = error?.message === 'Il Coach ha richiesto troppi passaggi'
     return res.status(tooManySteps ? 422 : 500).json({
+      requestId,
       error: tooManySteps
         ? 'Il Coach ha richiesto troppi passaggi. Riprova con una domanda più diretta.'
         : 'Il Coach non è disponibile in questo momento. Riprova tra poco.',
