@@ -1,9 +1,11 @@
-import { type ComponentProps, useRef, useState } from 'react';
+import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -25,6 +27,12 @@ import {
 import { AppHeaderActions } from '@/components/app-header-actions';
 import {
   askCoach,
+  createCoachMessageId,
+  deleteCoachConversation,
+  listCoachConversations,
+  loadCoachConversation,
+  resolveCoachAction,
+  type CoachConversation,
   type CoachMessage,
   type CoachPendingAction,
 } from '@/lib/coach';
@@ -33,9 +41,13 @@ import { useApp } from '@/providers/app-provider';
 
 const welcomeMessage: CoachMessage = {
   id: 'welcome',
+  conversationId: null,
   role: 'assistant',
   content:
     'Ciao! Posso rispondere usando i tuoi dati, registrare una spesa o preparare un obiettivo. Ogni modifica resterà in attesa della tua conferma.',
+  pendingAction: null,
+  actionStatus: null,
+  createdAt: '1970-01-01T00:00:00.000Z',
 };
 
 const starters = [
@@ -46,116 +58,210 @@ const starters = [
 
 export default function CoachScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const {
-    session,
-    saving,
-    draft,
-    addTransaction,
-    createGoal,
-    updateGoal,
-    updateBudgetAmount,
-  } = useApp();
+  const { session, refreshData } = useApp();
   const [messages, setMessages] = useState<CoachMessage[]>([welcomeMessage]);
+  const [conversations, setConversations] = useState<CoachConversation[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [waiting, setWaiting] = useState(false);
-  const [pendingAction, setPendingAction] =
-    useState<CoachPendingAction | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [resolvingMessageId, setResolvingMessageId] = useState<string | null>(null);
   const listRef = useRef<FlatList<CoachMessage>>(null);
+  const selectionVersion = useRef(0);
+  const pendingMessage = [...messages].reverse().find(
+    (message) => message.pendingAction && message.actionStatus === 'pending',
+  );
 
-  async function sendMessage(rawMessage = input) {
-    const content = rawMessage.trim();
-    if (!content || waiting || pendingAction || !session) return;
-    const userMessage: CoachMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content,
+  useEffect(() => {
+    if (!session) {
+      setConversations([]);
+      setConversationId(null);
+      setMessages([welcomeMessage]);
+      setLoadingHistory(false);
+      return;
+    }
+    let active = true;
+    const version = ++selectionVersion.current;
+    setLoadingHistory(true);
+    void listCoachConversations(session.access_token)
+      .then(async (history) => {
+        if (!active || version !== selectionVersion.current) return;
+        setConversations(history);
+        if (!history[0]) {
+          setMessages([welcomeMessage]);
+          setConversationId(null);
+          return;
+        }
+        const loaded = await loadCoachConversation(
+          history[0].id,
+          session.access_token,
+        );
+        if (!active || version !== selectionVersion.current) return;
+        setConversationId(loaded.conversation.id);
+        setMessages([welcomeMessage, ...loaded.messages]);
+      })
+      .catch((error) => {
+        if (!active || version !== selectionVersion.current) return;
+        setMessages([welcomeMessage, localErrorMessage(error)]);
+      })
+      .finally(() => {
+        if (active && version === selectionVersion.current) {
+          setLoadingHistory(false);
+        }
+      });
+    return () => {
+      active = false;
     };
-    const nextMessages = [...messages, userMessage];
-    setMessages(nextMessages);
+  }, [session]);
+
+  async function refreshHistory() {
+    if (!session) return;
+    const history = await listCoachConversations(session.access_token);
+    setConversations(history);
+  }
+
+  function startNewConversation() {
+    selectionVersion.current += 1;
+    setWaiting(false);
+    setResolvingMessageId(null);
+    setConversationId(null);
+    setMessages([welcomeMessage]);
     setInput('');
-    setWaiting(true);
+    setHistoryVisible(false);
+  }
+
+  async function openConversation(selectedId: string) {
+    if (!session || selectedId === conversationId) {
+      setHistoryVisible(false);
+      return;
+    }
+    const version = ++selectionVersion.current;
+    setWaiting(false);
+    setResolvingMessageId(null);
+    setLoadingHistory(true);
     try {
-      const response = await askCoach(nextMessages, session.access_token);
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: response.message,
-        },
-      ]);
-      setPendingAction(response.pendingAction);
+      const loaded = await loadCoachConversation(selectedId, session.access_token);
+      if (version !== selectionVersion.current) return;
+      setConversationId(loaded.conversation.id);
+      setMessages([welcomeMessage, ...loaded.messages]);
+      setInput('');
+      setHistoryVisible(false);
     } catch (error) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: `error-${Date.now()}`,
-          role: 'assistant',
-          content:
-            error instanceof Error
-              ? error.message
-              : 'Il Coach non è disponibile. Riprova tra poco.',
-        },
-      ]);
+      if (version === selectionVersion.current) {
+        Alert.alert('Storico non disponibile', errorMessage(error));
+      }
     } finally {
-      setWaiting(false);
+      if (version === selectionVersion.current) setLoadingHistory(false);
     }
   }
 
-  async function confirmAction(action: CoachPendingAction) {
-    const args = action.arguments;
-    let success = false;
-    if (action.type === 'add_transaction') {
-      success = await addTransaction({
-        description: String(args.description ?? '').trim(),
-        amount: Number(args.amount),
-        category: String(args.category ?? 'Altro'),
-        occurredAt:
-          typeof args.occurred_at === 'string'
-            ? args.occurred_at
-            : new Date().toISOString(),
-        kind: 'expense',
-      });
-    }
-    if (action.type === 'create_goal') {
-      success = await createGoal({
-        name: String(args.name ?? '').trim(),
-        targetAmount: Number(args.target_amount),
-        deadline: typeof args.deadline === 'string' ? args.deadline : '',
-        savedAmount: 0,
-      });
-    }
-    if (action.type === 'update_goal') {
-      success = await updateGoal(
-        typeof args.goal_id === 'string' ? args.goal_id : draft.goal.id ?? null,
+  function requestDeleteConversation(selected: CoachConversation) {
+    Alert.alert(
+      'Eliminare la conversazione?',
+      `“${selected.title}” verrà rimossa definitivamente.`,
+      [
+        { text: 'Annulla', style: 'cancel' },
         {
-          ...(typeof args.name === 'string' ? { name: args.name } : {}),
-          ...(typeof args.target_amount === 'number'
-            ? { targetAmount: args.target_amount }
-            : {}),
-          ...(args.deadline !== null && typeof args.deadline === 'string'
-            ? { deadline: args.deadline }
-            : {}),
+          text: 'Elimina',
+          style: 'destructive',
+          onPress: () => void removeConversation(selected.id),
         },
-      );
-    }
-    if (action.type === 'update_budget') {
-      success = await updateBudgetAmount(
-        String(args.category_key),
-        Number(args.monthly_limit),
-      );
-    }
+      ],
+    );
+  }
 
-    if (success) {
-      setPendingAction(null);
+  async function removeConversation(selectedId: string) {
+    if (!session) return;
+    try {
+      await deleteCoachConversation(selectedId, session.access_token);
+      const history = conversations.filter((item) => item.id !== selectedId);
+      setConversations(history);
+      if (conversationId === selectedId) {
+        if (history[0]) await openConversation(history[0].id);
+        else startNewConversation();
+      }
+    } catch (error) {
+      Alert.alert('Eliminazione non riuscita', errorMessage(error));
+    }
+  }
+
+  async function sendMessage(rawMessage = input) {
+    const content = rawMessage.trim();
+    if (!content || waiting || pendingMessage || !session) return;
+    const selectedConversationId = conversationId;
+    const version = ++selectionVersion.current;
+    setLoadingHistory(false);
+    const userMessage: CoachMessage = {
+      id: createCoachMessageId(),
+      conversationId: selectedConversationId,
+      role: 'user',
+      content,
+      pendingAction: null,
+      actionStatus: null,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((current) => [...current, userMessage]);
+    setInput('');
+    setWaiting(true);
+    try {
+      const response = await askCoach(
+        selectedConversationId,
+        userMessage,
+        session.access_token,
+      );
+      await refreshHistory();
+      if (version !== selectionVersion.current) return;
+      setConversationId(response.conversation.id);
+      setMessages((current) => current.map((message) =>
+        message.id === userMessage.id
+          ? { ...message, conversationId: response.conversation.id }
+          : message,
+      ).concat(response.message));
+    } catch (error) {
+      if (version !== selectionVersion.current) return;
+      void refreshHistory().catch(() => undefined);
       setMessages((current) => [
         ...current,
-        {
-          id: `confirmed-${Date.now()}`,
-          role: 'assistant',
-          content: confirmationMessage(action),
-        },
+        localErrorMessage(error),
       ]);
+    } finally {
+      if (version === selectionVersion.current) setWaiting(false);
+    }
+  }
+
+  function updatePendingAction(action: CoachPendingAction) {
+    if (!pendingMessage) return;
+    setMessages((current) => current.map((message) =>
+      message.id === pendingMessage.id ? { ...message, pendingAction: action } : message,
+    ));
+  }
+
+  async function resolvePendingAction(resolution: 'confirmed' | 'cancelled') {
+    if (!pendingMessage?.pendingAction || !session) return;
+    const version = selectionVersion.current;
+    setResolvingMessageId(pendingMessage.id);
+    try {
+      const response = await resolveCoachAction(
+        pendingMessage.id,
+        resolution,
+        pendingMessage.pendingAction,
+        session.access_token,
+      );
+      if (version === selectionVersion.current) {
+        setMessages((current) => [
+          ...current.map((message) => message.id === pendingMessage.id
+            ? { ...message, actionStatus: response.actionStatus }
+            : message),
+          ...(response.message ? [response.message] : []),
+        ]);
+      }
+      if (resolution === 'confirmed') await refreshData();
+      await refreshHistory();
+    } catch (error) {
+      Alert.alert('Operazione non riuscita', errorMessage(error));
+    } finally {
+      if (version === selectionVersion.current) setResolvingMessageId(null);
     }
   }
 
@@ -163,7 +269,24 @@ export default function CoachScreen() {
     <Screen animateFirstFocus scroll={false} style={styles.screen}>
       <PageHeader
         title="Coach"
-        action={<AppHeaderActions />}
+        action={(
+          <AppHeaderActions
+            leading={(
+              <View style={styles.headerCoachActions}>
+                <HeaderIconButton
+                  icon="history"
+                  label="Apri storico conversazioni"
+                  onPress={() => setHistoryVisible(true)}
+                />
+                <HeaderIconButton
+                  icon="add_comment"
+                  label="Nuova conversazione"
+                  onPress={startNewConversation}
+                />
+              </View>
+            )}
+          />
+        )}
         collapseInPlace
       />
       <ScreenScrollBridge>
@@ -216,23 +339,13 @@ export default function CoachScreen() {
                   </Text>
                 </View>
               ) : null}
-              {pendingAction ? (
+              {pendingMessage?.pendingAction ? (
                 <ActionConfirmationCard
-                  action={pendingAction}
-                  loading={saving}
-                  onChange={setPendingAction}
-                  onCancel={() => {
-                    setPendingAction(null);
-                    setMessages((current) => [
-                      ...current,
-                      {
-                        id: `cancelled-${Date.now()}`,
-                        role: 'assistant',
-                        content: 'Va bene, non ho salvato nulla.',
-                      },
-                    ]);
-                  }}
-                  onConfirm={(action) => void confirmAction(action)}
+                  action={pendingMessage.pendingAction}
+                  loading={resolvingMessageId === pendingMessage.id}
+                  onChange={updatePendingAction}
+                  onCancel={() => void resolvePendingAction('cancelled')}
+                  onConfirm={() => void resolvePendingAction('confirmed')}
                 />
               ) : null}
             </>
@@ -254,18 +367,18 @@ export default function CoachScreen() {
             selectionColor={colors.accent}
             multiline
             maxLength={1000}
-            editable={!waiting && !pendingAction}
+            editable={!waiting && !pendingMessage}
             style={[styles.composerInput, { color: colors.text }]}
           />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Invia messaggio"
-            disabled={!input.trim() || waiting || Boolean(pendingAction)}
+            disabled={!input.trim() || waiting || Boolean(pendingMessage)}
             onPress={() => void sendMessage()}
             style={({ pressed }) => [
               styles.sendButton,
               { backgroundColor: colors.accent },
-              (!input.trim() || waiting || pendingAction) && styles.disabled,
+              (!input.trim() || waiting || pendingMessage) && styles.disabled,
               pressed && styles.pressed,
             ]}>
             <Text style={styles.sendIcon}>arrow_upward</Text>
@@ -274,7 +387,96 @@ export default function CoachScreen() {
           </KeyboardAvoidingView>
         )}
       </ScreenScrollBridge>
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setHistoryVisible(false)}
+        presentationStyle="pageSheet"
+        visible={historyVisible}>
+        <View style={[styles.historyScreen, { backgroundColor: colors.background }]}>
+          <View style={[styles.historyHeader, { borderBottomColor: colors.border }]}>
+            <View>
+              <Text style={[styles.historyTitle, { color: colors.text }]}>Conversazioni</Text>
+              <Text style={[styles.historySubtitle, { color: colors.textSecondary }]}>Ultime 10</Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Chiudi storico"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => setHistoryVisible(false)}
+              style={({ pressed }) => [styles.historyClose, pressed && styles.pressed]}>
+              <Text style={[styles.materialIcon, { color: colors.text }]}>close</Text>
+            </Pressable>
+          </View>
+          <PrimaryButton onPress={startNewConversation}>Nuova chat</PrimaryButton>
+          {loadingHistory ? (
+            <ActivityIndicator color={colors.accent} style={styles.historyLoading} />
+          ) : (
+            <FlatList
+              contentContainerStyle={styles.historyList}
+              data={conversations}
+              keyExtractor={(conversation) => conversation.id}
+              ListEmptyComponent={(
+                <Text style={[styles.historyEmpty, { color: colors.textSecondary }]}>
+                  Non ci sono ancora conversazioni salvate.
+                </Text>
+              )}
+              renderItem={({ item }) => (
+                <View
+                  style={[
+                    styles.historyRow,
+                    {
+                      backgroundColor: item.id === conversationId ? colors.accentSoft : colors.surface,
+                      borderColor: item.id === conversationId ? colors.accent : colors.border,
+                    },
+                  ]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => void openConversation(item.id)}
+                    style={({ pressed }) => [styles.historyRowMain, pressed && styles.pressed]}>
+                    <Text numberOfLines={2} style={[styles.historyRowTitle, { color: colors.text }]}>
+                      {item.title}
+                    </Text>
+                    <Text style={[styles.historyRowDate, { color: colors.textSecondary }]}>
+                      {formatConversationDate(item.updatedAt)}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel={`Elimina ${item.title}`}
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    onPress={() => requestDeleteConversation(item)}
+                    style={({ pressed }) => [styles.historyDelete, pressed && styles.pressed]}>
+                    <Text style={[styles.materialIcon, { color: colors.negative }]}>delete</Text>
+                  </Pressable>
+                </View>
+              )}
+            />
+          )}
+        </View>
+      </Modal>
     </Screen>
+  );
+}
+
+function HeaderIconButton({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: string;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors } = useFlowndTheme();
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      hitSlop={6}
+      onPress={onPress}
+      style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}>
+      <Text style={[styles.materialIcon, { color: colors.text }]}>{icon}</Text>
+    </Pressable>
   );
 }
 
@@ -586,11 +788,33 @@ function actionIsValid(action: CoachPendingAction) {
   );
 }
 
-function confirmationMessage(action: CoachPendingAction) {
-  if (action.type === 'add_transaction') return 'Spesa salvata nella Timeline.';
-  if (action.type === 'create_goal') return 'Obiettivo creato.';
-  if (action.type === 'update_goal') return 'Obiettivo aggiornato.';
-  return 'Budget aggiornato.';
+function errorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : 'Il Coach non è disponibile. Riprova tra poco.';
+}
+
+function localErrorMessage(error: unknown): CoachMessage {
+  return {
+    id: `local-error-${Date.now()}-${Math.random()}`,
+    conversationId: null,
+    role: 'assistant',
+    content: errorMessage(error),
+    pendingAction: null,
+    actionStatus: null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function formatConversationDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('it-IT', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }
 
 const styles = StyleSheet.create({
@@ -673,6 +897,44 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.42 },
   pressed: { opacity: 0.68 },
+  headerCoachActions: { flexDirection: 'row', alignItems: 'center' },
+  headerIconButton: {
+    width: 34,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  materialIcon: {
+    fontFamily: 'MaterialSymbols_400Regular',
+    fontSize: 21,
+    lineHeight: 24,
+  },
+  historyScreen: { flex: 1, paddingHorizontal: 20, paddingTop: 18 },
+  historyHeader: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginBottom: 16,
+  },
+  historyTitle: { fontFamily: font.displaySemiBold, fontSize: 24 },
+  historySubtitle: { fontFamily: font.body, fontSize: 11, marginTop: 1 },
+  historyClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  historyLoading: { marginTop: 32 },
+  historyList: { paddingTop: 14, paddingBottom: 28, gap: 8, flexGrow: 1 },
+  historyEmpty: { fontFamily: font.body, fontSize: 13, textAlign: 'center', marginTop: 32 },
+  historyRow: {
+    minHeight: 70,
+    borderWidth: 1,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  historyRowMain: { flex: 1, alignSelf: 'stretch', justifyContent: 'center', padding: 12 },
+  historyRowTitle: { fontFamily: font.bodySemiBold, fontSize: 13, lineHeight: 18 },
+  historyRowDate: { fontFamily: font.body, fontSize: 10, marginTop: 4 },
+  historyDelete: { width: 48, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
   confirmationCard: { marginTop: 6, marginBottom: 14 },
   confirmationHeader: {
     flexDirection: 'row',

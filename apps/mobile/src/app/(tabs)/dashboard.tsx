@@ -8,6 +8,8 @@ import {
   useTransition,
 } from 'react';
 import {
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -29,7 +31,6 @@ import {
   PrimaryButton,
   ProgressBar,
   Screen,
-  StickyScrollHeader,
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
@@ -57,6 +58,7 @@ import {
   fetchFamilyDashboardSummary,
   fetchFamilyGroups,
   getActiveFamilyGroupId,
+  setActiveFamilyGroupId,
 } from '@/lib/family';
 import { useApp } from '@/providers/app-provider';
 import { frequencyLabels } from '@/lib/recurring-payments';
@@ -93,6 +95,11 @@ export default function DashboardScreen() {
   } = useApp();
   const [dashboardScope, setDashboardScope] =
     useState<'personal' | 'groups'>('personal');
+  const [dashboardAtTop, setDashboardAtTop] = useState(true);
+  const [dashboardPageHeights, setDashboardPageHeights] = useState({
+    personal: 0,
+    groups: 0,
+  });
   const [familySummaries, setFamilySummaries] =
     useState<FamilyDashboardSummary[]>([]);
   const [familyGroupIndex, setFamilyGroupIndex] = useState(0);
@@ -299,6 +306,7 @@ export default function DashboardScreen() {
   const dashboardSwipe = useMemo(
     () =>
       Gesture.Pan()
+        .enabled(dashboardAtTop)
         .activeOffsetX([-12, 12])
         .failOffsetY([-16, 16])
         .onStart(() => {
@@ -322,7 +330,7 @@ export default function DashboardScreen() {
           });
           runOnJS(setDashboardScope)(nextPage === 1 ? 'groups' : 'personal');
         }),
-    [activePage, gestureStartX, pageTranslateX, pageWidth],
+    [activePage, dashboardAtTop, gestureStartX, pageTranslateX, pageWidth],
   );
   /* eslint-enable react-hooks/immutability */
   const dashboardTrackStyle = useAnimatedStyle(() => ({
@@ -338,10 +346,19 @@ export default function DashboardScreen() {
       transform: [{ translateX: progress * tabWidth }],
     };
   });
+  const handleDashboardScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const nextAtTop = event.nativeEvent.contentOffset.y <= 1;
+      setDashboardAtTop((current) => current === nextAtTop ? current : nextAtTop);
+    },
+    [],
+  );
+  const activeDashboardPageHeight = dashboardPageHeights[dashboardScope];
 
   return (
     <Screen
       animateFirstFocus
+      onScroll={handleDashboardScroll}
       floatingActionPosition="free"
       floatingAction={
         <DraggableTransactionFab
@@ -375,9 +392,8 @@ export default function DashboardScreen() {
           />
         }
       />
-      <StickyScrollHeader
+      <View
         accessibilityRole="tablist"
-        matchCompactHeaderBackground
         style={[
           styles.dashboardTabs,
           {
@@ -420,7 +436,7 @@ export default function DashboardScreen() {
             dashboardTabIndicatorStyle,
           ]}
         />
-      </StickyScrollHeader>
+      </View>
 
       <GestureDetector gesture={dashboardSwipe}>
         <View
@@ -430,7 +446,10 @@ export default function DashboardScreen() {
               setDashboardPageWidth(measuredWidth);
             }
           }}
-          style={styles.dashboardPagesViewport}>
+          style={[
+            styles.dashboardPagesViewport,
+            activeDashboardPageHeight > 0 && { height: activeDashboardPageHeight },
+          ]}>
           <Animated.View
             style={[
               styles.dashboardPagesTrack,
@@ -440,7 +459,52 @@ export default function DashboardScreen() {
             {(['personal', 'groups'] as const).map((renderedScope) => (
               <View
                 key={renderedScope}
+                onLayout={(event) => {
+                  const measuredHeight = event.nativeEvent.layout.height;
+                  setDashboardPageHeights((current) => (
+                    Math.abs(current[renderedScope] - measuredHeight) <= 0.5
+                      ? current
+                      : { ...current, [renderedScope]: measuredHeight }
+                  ));
+                }}
                 style={[styles.dashboardMainView, { width: dashboardPageWidth }]}>
+
+      {renderedScope === 'groups' && familySummaries.length > 1 ? (
+        <View style={styles.groupChips}>
+          {familySummaries.map((summary, index) => {
+            const selected = index === familyGroupIndex;
+            return (
+              <Pressable
+                key={summary.groupId}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                onPress={() => {
+                  setFamilyGroupIndex(index);
+                  if (session?.user.id) {
+                    void setActiveFamilyGroupId(session.user.id, summary.groupId);
+                  }
+                }}
+                style={({ pressed }) => [
+                  styles.groupChip,
+                  {
+                    backgroundColor: selected ? colors.accent : colors.sunken,
+                    borderColor: selected ? colors.accent : colors.border,
+                  },
+                  pressed && styles.dashboardTabPressed,
+                ]}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.groupChipLabel,
+                    { color: selected ? colors.onAccent : colors.textSecondary },
+                  ]}>
+                  {summary.groupName}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
 
       <Card
         style={[
@@ -975,11 +1039,11 @@ export default function DashboardScreen() {
                 <View key={series.id} style={styles.recurrenceRow}>
                   <View style={styles.flex}>
                     <Text numberOfLines={1} style={[styles.recurrenceName, { color: colors.text }]}>{series.name}</Text>
-                    <Text style={[styles.recurrenceMeta, { color: colors.textSecondary }]}> 
+                    <Text style={[styles.recurrenceMeta, { color: colors.textSecondary }]}>
                       {series.status === 'paused' ? 'In pausa' : frequencyLabels[series.frequency]}
                     </Text>
                   </View>
-                  <Text style={[styles.recurrenceAmount, { color: series.direction === 'income' ? colors.positive : colors.text }]}> 
+                  <Text style={[styles.recurrenceAmount, { color: series.direction === 'income' ? colors.positive : colors.text }]}>
                     {amountsVisible
                       ? `${series.direction === 'income' ? '+' : '−'} ${formatEuro(series.amount)}`
                       : HIDDEN_AMOUNT}
@@ -1436,8 +1500,6 @@ const styles = StyleSheet.create({
     marginHorizontal: -20,
     marginTop: 2,
     marginBottom: 14,
-    zIndex: 25,
-    elevation: 7,
   },
   dashboardTab: {
     flex: 1,
@@ -1467,6 +1529,22 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   dashboardMainView: { flexShrink: 0, paddingHorizontal: 20 },
+  groupChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  groupChip: {
+    minHeight: 32,
+    maxWidth: 150,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 13,
+  },
+  groupChipLabel: { fontFamily: font.bodySemiBold, fontSize: 11 },
   overviewCard: { marginBottom: 12, padding: 11, overflow: 'hidden' },
   overviewContent: { height: 138 },
   overviewPage: {
