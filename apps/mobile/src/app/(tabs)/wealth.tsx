@@ -24,7 +24,7 @@ import {
   type OpenBankingConnection,
   syncBankConnection,
 } from '@/lib/open-banking';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function WealthScreen() {
   const { colors } = useFlowndTheme();
@@ -35,7 +35,14 @@ export default function WealthScreen() {
     planTier,
     session,
     refreshData,
-  } = useApp();
+  } = useAppState(
+    'financialAccounts',
+    'transactions',
+    'amountsVisible',
+    'planTier',
+    'session',
+    'refreshData',
+  );
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [connections, setConnections] = useState<OpenBankingConnection[]>([]);
@@ -121,7 +128,7 @@ export default function WealthScreen() {
   }
 
   return (
-    <Screen animateFirstFocus>
+    <Screen animateFirstFocus onRefresh={refreshData}>
       <PageHeader title="Patrimonio" action={<AppHeaderActions />} />
 
       <Card
@@ -657,7 +664,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingRight: 5,
   },
-  chartAxisText: { fontFamily: font.data, fontSize: 8 },
+  chartAxisText: { fontFamily: font.data, fontSize: 9 },
   chartSelectionGuide: { position: 'absolute', width: 2, opacity: 0.25 },
   chartSelectedPoint: {
     position: 'absolute',
@@ -689,7 +696,7 @@ const styles = StyleSheet.create({
   },
   chartLabel: {
     fontFamily: font.bodyMedium,
-    fontSize: 8,
+    fontSize: 10,
     textAlign: 'center',
   },
   chartLabelSelected: { fontFamily: font.bodySemiBold },
@@ -707,7 +714,7 @@ const styles = StyleSheet.create({
   },
   materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 20 },
   accountName: { fontFamily: font.bodySemiBold, fontSize: 13 },
-  accountMeta: { fontFamily: font.body, fontSize: 9, marginTop: 2 },
+  accountMeta: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
   accountBalance: { fontFamily: font.dataMedium, fontSize: 12 },
   skeletonName: { height: 12, borderRadius: 6 },
   skeletonMeta: { width: '32%', height: 8, borderRadius: 4, marginTop: 6 },

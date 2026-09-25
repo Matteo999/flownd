@@ -11,6 +11,8 @@ import {
 } from './_recurring-payments.js'
 import { authenticateRequest } from './eb/_supabase.js'
 
+const ACTIVITY_DEBOUNCE_MS = 3_000
+
 // HOBBY_CONSOLIDATION(pro-split:recurring-payments)
 // Con Vercel Pro questa action torna nell'entrypoint /api/recurring-payments.
 async function recurringRefreshHandler(req, res) {
@@ -18,6 +20,18 @@ async function recurringRefreshHandler(req, res) {
   const { service, user } = await authenticateRequest(req)
   const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
   const reason = body.reason === 'startup' ? 'startup' : 'activity'
+  if (reason === 'activity') {
+    // Debounce per utente: al massimo una detection su attività ogni pochi secondi.
+    const now = new Date()
+    const threshold = new Date(now.getTime() - ACTIVITY_DEBOUNCE_MS).toISOString()
+    const { data: claimed, error: claimError } = await service.from('profiles')
+      .update({ recurring_detection_activity_at: now.toISOString() })
+      .eq('id', user.id)
+      .or(`recurring_detection_activity_at.is.null,recurring_detection_activity_at.lt.${threshold}`)
+      .select('id')
+    if (claimError) throw claimError
+    if (!claimed?.length) return res.status(200).json({ detected: 0, skipped: true })
+  }
   let profile = null
   if (reason === 'startup') {
     const { data, error: profileError } = await service.from('profiles')

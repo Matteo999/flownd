@@ -35,11 +35,12 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { AppHeaderActions } from '@/components/app-header-actions';
+import { parseEuroAmount } from '@/lib/amount';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import { financialCycleForDate } from '@/lib/financial-cycle';
 import type { Goal } from '@/lib/goals';
 import { formatDateItalian, formatEuro } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 const goalColors = [
   '#18A8D8',
@@ -83,7 +84,20 @@ export default function GoalsScreen() {
     budgetCycleStartDay,
     transactions,
     transferFreeSavingsToGoal,
-  } = useApp();
+    refreshData,
+  } = useAppState(
+    'refreshData',
+    'goals',
+    'completedGoals',
+    'loans',
+    'amountsVisible',
+    'saving',
+    'deleteGoal',
+    'goalContributions',
+    'budgetCycleStartDay',
+    'transactions',
+    'transferFreeSavingsToGoal',
+  );
   const [completedOpen, setCompletedOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferGoalId, setTransferGoalId] = useState('');
@@ -132,7 +146,7 @@ export default function GoalsScreen() {
   const selectedTransferGoal = transferTargets.find(
     (goal) => goal.id === transferGoalId,
   );
-  const parsedTransferAmount = Number(transferAmount.replace(',', '.')) || 0;
+  const parsedTransferAmount = parseEuroAmount(transferAmount);
   const maxTransferAmount = Math.min(
     freeSavings?.savedAmount ?? 0,
     selectedTransferGoal
@@ -318,6 +332,7 @@ export default function GoalsScreen() {
   return (
     <Screen
       animateFirstFocus
+      onRefresh={refreshData}
       scrollEnabled={!dragActive}
       floatingActionPosition="free"
       floatingAction={dragActive ? (

@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import {
+  BackButton,
   Card,
   Field,
   PageHeader,
@@ -27,7 +28,7 @@ import {
   budgetCategoryIcon,
   budgetGroups,
 } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 function isBudgetGroup(value: string | undefined): value is BudgetGroupKey {
   return value === 'needs' || value === 'wants' || value === 'savings';
@@ -44,7 +45,14 @@ export default function BudgetSubcategoryScreen() {
     clearError,
     createBudgetSubcategory,
     deleteBudgetSubcategory,
-  } = useApp();
+  } = useAppState(
+    'draft',
+    'saving',
+    'error',
+    'clearError',
+    'createBudgetSubcategory',
+    'deleteBudgetSubcategory',
+  );
   const sourceChildren = useMemo(
     () => draft.budgets.filter(
       (item) => item.selected && !item.isMacro && item.parentId === parent,
@@ -278,24 +286,9 @@ function AddButton({ onPress }: { onPress: () => void }) {
   );
 }
 
-function BackButton() {
-  const { colors } = useFlowndTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Indietro"
-      hitSlop={8}
-      onPress={() => router.back()}
-      style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-      <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-    </Pressable>
-  );
-}
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  backButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 25 },
   addButton: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   addIcon: { color: '#FFFFFF', fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
   intro: { fontFamily: font.body, fontSize: 13, lineHeight: 19, marginBottom: 16 },
@@ -305,7 +298,7 @@ const styles = StyleSheet.create({
   categoryIconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   categoryIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 20 },
   categoryName: { fontFamily: font.bodySemiBold, fontSize: 12 },
-  categoryCaption: { fontFamily: font.body, fontSize: 9, marginTop: 2 },
+  categoryCaption: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
   rowActionIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 19 },
   nestedList: { marginTop: 11, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, gap: 5 },
   nestedRow: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 4 },
@@ -323,5 +316,4 @@ const styles = StyleSheet.create({
   sheetTitle: { fontFamily: font.bodySemiBold, fontSize: 17 },
   sheetSubtitle: { fontFamily: font.body, fontSize: 10, marginTop: 3 },
   closeIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
-  pressed: { opacity: 0.68 },
 });

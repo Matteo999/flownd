@@ -8,8 +8,10 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 
 import {
@@ -17,8 +19,6 @@ import {
   BudgetGroupKey,
   categoryToBudgetGroup,
   ExpenseDraft,
-  IncomeBandId,
-  incomeReferenceForBand,
   initialDraft,
   materializeBudgetAmounts,
   OnboardingDraft,
@@ -32,11 +32,21 @@ import {
   type Loan,
   type LoanDraft,
 } from '@/lib/goals';
+import { clearFamilyCaches } from '@/lib/family';
 import { supabase } from '@/lib/supabase';
+import {
+  type CoachInsight,
+  type FinancialAccount,
+  type GoalContributionSummary,
+  fetchCoreUserData,
+  fetchSecondaryUserData,
+  normalizeTransactionDraft,
+  transactionInsertPayload,
+} from '@/lib/user-data';
+import { type AppStore, createAppStore } from '@/providers/app-store';
 import {
   GENERIC_OPERATION_ERROR,
   reportClientError,
-  transactionFingerprint,
 } from '@/lib/transaction-import';
 import {
   incomeTreatmentForCategory,
@@ -66,38 +76,17 @@ export type TransactionUpdate = {
   groupId?: string | null;
 };
 
-export type FinancialAccount = {
-  id: string;
-  name: string;
-  balance: number;
-  previousMonthBalance: number | null;
-  source: 'open_banking' | 'manual';
-  accountKind: 'bank' | 'manual_bank' | 'cash_wallet';
-  balanceAsOf: string | null;
-  openingBalance: number;
-  openingBalanceAsOf: string | null;
-  lastSyncedAt: string | null;
-  institutionName: string | null;
-  currency: string;
-};
+export type {
+  CoachInsight,
+  FinancialAccount,
+  GoalContributionSummary,
+} from '@/lib/user-data';
 
 export type ManualFinancialAccountDraft = {
   name: string;
   balance: number;
   accountKind: 'manual_bank' | 'cash_wallet';
   balanceAsOf: string;
-};
-
-export type CoachInsight = {
-  id: string;
-  title: string;
-  body: string;
-};
-
-export type GoalContributionSummary = {
-  goalId: string | null;
-  amount: number;
-  createdAt: string;
 };
 
 function isTransientBudgetSaveError(error: { message?: string; details?: string }) {
@@ -154,6 +143,7 @@ type AppContextValue = {
   updateDraft: (next: Partial<OnboardingDraft>) => void;
   completeOnboarding: () => Promise<boolean>;
   addTransaction: (transaction: ExpenseDraft) => Promise<boolean>;
+  importTransactions: (transactions: ExpenseDraft[]) => Promise<boolean>;
   updateTransaction: (
     transactionId: string,
     transaction: TransactionUpdate,
@@ -223,54 +213,15 @@ type AppContextValue = {
   dismissFirstVisit: () => void;
   toggleAmountsVisible: () => Promise<void>;
   clearError: () => void;
-  refreshData: () => Promise<void>;
+  // maxAgeMs: salta la ricarica se ne è già partita una negli ultimi maxAgeMs.
+  refreshData: (options?: { maxAgeMs?: number }) => Promise<void>;
   retryProfile: () => Promise<void>;
 };
 
-const AppContext = createContext<AppContextValue | null>(null);
+const AppContext = createContext<AppStore<AppContextValue> | null>(null);
 
-type TransactionHistoryRow = {
-  id: string;
-  description: string;
-  amount: number | string;
-  category: string;
-  occurred_at: string;
-  occurred_time: string | null;
-  occurred_time_source: string | null;
-  source: string;
-  kind: string | null;
-  financial_account_id: string | null;
-  bank_status: string | null;
-  excluded_from_totals: boolean | null;
-  internal_transfer: boolean | null;
-  excluded_from_budget: boolean | null;
-  income_type: string | null;
-  raw_description: string | null;
-  merchant_name: string | null;
-  counterparty_name: string | null;
-  import_memo: string | null;
-  import_reference: string | null;
-  import_confidence: number | string | null;
-  recurring_payment_id: string | null;
-  recurring_occurrence_id: string | null;
-};
-
-async function fetchTransactionHistory(userId: string) {
-  const rows: TransactionHistoryRow[] = [];
-  const pageSize = 1000;
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('id,description,amount,category,occurred_at,occurred_time,occurred_time_source,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type,raw_description,merchant_name,counterparty_name,import_memo,import_reference,import_confidence,recurring_payment_id,recurring_occurrence_id')
-      .eq('user_id', userId)
-      .order('occurred_at', { ascending: false })
-      .range(from, from + pageSize - 1);
-    if (error) return { data: null, error };
-    rows.push(...((data ?? []) as TransactionHistoryRow[]));
-    if (!data || data.length < pageSize) break;
-  }
-  return { data: rows, error: null };
-}
+const FOREGROUND_REFRESH_MS = 60_000;
+const IMPORT_BATCH_SIZE = 500;
 
 export function AppProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
@@ -323,319 +274,101 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
   }, [privacyKey]);
 
-  const hydrateUserData = useCallback(async (userId: string) => {
-    const contributionHistoryStart = new Date();
-    contributionHistoryStart.setFullYear(contributionHistoryStart.getFullYear() - 1);
-    contributionHistoryStart.setHours(0, 0, 0, 0);
-    const [
-      budgetsResult,
-      goalsResult,
-      completedGoalsResult,
-      transactionResult,
-      goalSettingsResult,
-      loansResult,
-      goalNoticeResult,
-      goalContributionsResult,
-      groupAllocationResult,
-      groupTransactionLinksResult,
-    ] = await Promise.all([
-      supabase
-        .from('budget_categories')
-        .select('category_key,name,emoji,monthly_limit,allocation_percentage,parent_key,parent_category_key,budget_enabled,is_macro')
-        .eq('user_id', userId)
-        .order('created_at'),
-      supabase
-        .from('goals')
-        .select('id,name,target_amount,saved_amount,deadline_label,monthly_contribution,allocation_percentage,priority,status')
-        .eq('user_id', userId)
-        .is('group_id', null)
-        .eq('active', true)
-        .order('priority')
-        .order('created_at'),
-      supabase
-        .from('goals')
-        .select('id,name,target_amount,saved_amount,deadline_label,monthly_contribution,allocation_percentage,priority,status')
-        .eq('user_id', userId)
-        .is('group_id', null)
-        .eq('active', false)
-        .eq('status', 'completed')
-        .is('deleted_at', null)
-        .order('completed_at', { ascending: false }),
-      fetchTransactionHistory(userId),
-      supabase
-        .from('profiles')
-        .select('goal_allocation_mode,plan_tier,budget_cycle_start_day,budget_rollover_mode,planned_monthly_income,income_band')
-        .eq('id', userId)
-        .single(),
-      supabase
-        .from('loans')
-        .select('id,name,financed_amount,down_payment,installment_count,monthly_payment,interest_rate,start_date,final_balloon')
-        .eq('user_id', userId)
-        .eq('active', true)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('goal_notifications')
-        .select('id,title,body')
-        .eq('user_id', userId)
-        .is('read_at', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from('goal_contributions')
-        .select('goal_id,amount,occurred_at')
-        .eq('user_id', userId)
-        .is('group_id', null)
-        .gte('occurred_at', contributionHistoryStart.toISOString())
-        .order('occurred_at', { ascending: false }),
-      supabase.rpc('my_group_allocation_summary'),
-      supabase.rpc('my_group_transaction_links'),
-    ]);
-
-    if (
-      budgetsResult.error ||
-      goalsResult.error ||
-      completedGoalsResult.error ||
-      transactionResult.error ||
-      goalSettingsResult.error ||
-      loansResult.error ||
-      goalNoticeResult.error ||
-      goalContributionsResult.error
-    ) {
-      if (activeUserId.current !== userId) return;
+  const loadUserData = useCallback(async (userId: string) => {
+    const core = await fetchCoreUserData(userId);
+    if (activeUserId.current !== userId) return;
+    if (!core) {
       setError('Il profilo è pronto, ma alcuni dati non sono ancora disponibili.');
       return;
     }
-
-    if (__DEV__ && groupAllocationResult.error) {
-      console.warn(
-        'Flownd group allocation is unavailable; personal budget will use the full amount.',
-        groupAllocationResult.error,
-      );
-    }
-    if (__DEV__ && groupTransactionLinksResult.error) {
-      console.warn(
-        'Flownd group transaction links are unavailable; personal transactions remain visible.',
-        groupTransactionLinksResult.error,
-      );
-    }
-
-    if (activeUserId.current !== userId) return;
-    const groupTransactionIds = new Map(
-      ((groupTransactionLinksResult.data ?? []) as {
-        transaction_id: string;
-        group_id: string;
-      }[]).map((item) => [item.transaction_id, item.group_id]),
-    );
-    const monthlyTransactions = (transactionResult.data ?? []).map((item) => ({
-      id: item.id,
-      description: item.description,
-      amount: Number(item.amount),
-      category: item.category,
-      occurredAt: item.occurred_at,
-      occurredTime: item.occurred_time,
-      occurredTimeSource: item.occurred_time_source as ExpenseDraft['occurredTimeSource'],
-      source: item.source,
-      kind: (item.kind ?? 'expense') as ExpenseDraft['kind'],
-      financialAccountId: item.financial_account_id,
-      bankStatus: item.bank_status,
-      excludedFromTotals: Boolean(item.excluded_from_totals),
-      internalTransfer: Boolean(item.internal_transfer),
-      excludedFromBudget: Boolean(item.excluded_from_budget) || groupTransactionIds.has(item.id),
-      groupId: groupTransactionIds.get(item.id) ?? null,
-      incomeType: item.income_type as ExpenseDraft['incomeType'],
-      rawDescription: item.raw_description,
-      merchantName: item.merchant_name,
-      counterpartyName: item.counterparty_name,
-      memo: item.import_memo,
-      bankReference: item.import_reference,
-      importConfidence:
-          item.import_confidence == null ? null : Number(item.import_confidence),
-      recurringPaymentId: item.recurring_payment_id,
-      recurringOccurrenceId: item.recurring_occurrence_id,
-      isRecurring: Boolean(item.recurring_payment_id),
-    }));
-    const incomeBand = goalSettingsResult.data.income_band as IncomeBandId | null;
-    const plannedMonthlyIncome = Number(
-      goalSettingsResult.data.planned_monthly_income
-      ?? incomeReferenceForBand(incomeBand),
-    );
-    const hydratedBudgets: BudgetCategory[] = (budgetsResult.data ?? []).map(
-      (item) => ({
-        id: item.category_key,
-        name: item.name,
-        emoji: item.emoji ?? '◦',
-        amount: Number(item.monthly_limit),
-        percentage: Number(item.allocation_percentage),
-        selected: true,
-        parentId: item.parent_key as BudgetGroupKey | undefined,
-        parentCategoryId: item.parent_category_key,
-        budgetEnabled: item.budget_enabled !== false,
-        isMacro: Boolean(item.is_macro),
-      }),
-    );
-    const hydratedAllocation = (group: BudgetGroupKey) =>
-      hydratedBudgets.find((item) => item.isMacro && item.parentId === group)
-        ?.percentage;
-    const hydratedGoals: Goal[] = (goalsResult.data ?? []).map((goal) => ({
-      id: goal.id,
-      name: goal.name,
-      targetAmount: Number(goal.target_amount),
-      savedAmount: Number(goal.saved_amount),
-      deadline: goal.deadline_label ?? '',
-      monthlyContribution: Number(goal.monthly_contribution),
-      allocationPercentage: Number(goal.allocation_percentage),
-      priority: Number(goal.priority),
-      status: goal.status as Goal['status'],
-    }));
-    const hydratedCompletedGoals: Goal[] = (completedGoalsResult.data ?? []).map(
-      (goal) => ({
-        id: goal.id,
-        name: goal.name,
-        targetAmount: Number(goal.target_amount),
-        savedAmount: Number(goal.saved_amount),
-        deadline: goal.deadline_label ?? '',
-        monthlyContribution: Number(goal.monthly_contribution),
-        allocationPercentage: Number(goal.allocation_percentage),
-        priority: Number(goal.priority),
-        status: goal.status as Goal['status'],
-      }),
-    );
-    setTransactions(monthlyTransactions);
-    setGoals(hydratedGoals);
-    setCompletedGoals(hydratedCompletedGoals);
-    setGoalContributions(
-      (goalContributionsResult.data ?? []).map((contribution) => ({
-        goalId: contribution.goal_id,
-        amount: Number(contribution.amount),
-        createdAt: contribution.occurred_at,
-      })),
-    );
-    setGoalAllocationModeState(
-      goalSettingsResult.data.goal_allocation_mode as GoalAllocationMode,
-    );
-    setPlanTier(goalSettingsResult.data.plan_tier as 'free' | 'pro' | 'max');
-    setBudgetCycleStartDay(
-      Number(goalSettingsResult.data.budget_cycle_start_day) || 1,
-    );
-    setBudgetRolloverMode(
-      goalSettingsResult.data.budget_rollover_mode === 'carry'
-        ? 'carry'
-        : 'savings',
-    );
-    setLoans(
-      (loansResult.data ?? []).map((loan) => ({
-        id: loan.id,
-        name: loan.name,
-        financedAmount: Number(loan.financed_amount),
-        downPayment: Number(loan.down_payment),
-        installmentCount: Number(loan.installment_count),
-        monthlyPayment: Number(loan.monthly_payment),
-        interestRate:
-          loan.interest_rate == null ? null : Number(loan.interest_rate),
-        startDate: loan.start_date,
-        finalBalloon:
-          loan.final_balloon == null ? null : Number(loan.final_balloon),
-      })),
-    );
-    setGoalNotice(goalNoticeResult.data ?? null);
-    const groupAllocation = groupAllocationResult.error
-      ? null
-      : groupAllocationResult.data as Record<string, unknown> | null;
-    setGroupMonthlyAllocation(Number(groupAllocation?.allocatedToGroups ?? 0));
-    setPreviousGroupMonthlyAllocation(Number(groupAllocation?.previousAllocatedToGroups ?? 0));
-    setGroupPersonalCarryIn(Number(groupAllocation?.personalCarryIn ?? 0));
+    setTransactions(core.transactions);
+    setGoals(core.goals);
+    setCompletedGoals(core.completedGoals);
+    setGoalContributions(core.goalContributions);
+    setGoalAllocationModeState(core.goalAllocationMode);
+    setPlanTier(core.planTier);
+    setBudgetCycleStartDay(core.budgetCycleStartDay);
+    setBudgetRolloverMode(core.budgetRolloverMode);
+    setLoans(core.loans);
+    setGoalNotice(core.goalNotice);
+    setGroupMonthlyAllocation(core.groupMonthlyAllocation);
+    setPreviousGroupMonthlyAllocation(core.previousGroupMonthlyAllocation);
+    setGroupPersonalCarryIn(core.groupPersonalCarryIn);
     setDraft((current) => ({
       ...current,
-      incomeBand,
-      monthlyReference: plannedMonthlyIncome,
-      allocation: hydratedBudgets.length
+      incomeBand: core.incomeBand,
+      monthlyReference: core.plannedMonthlyIncome,
+      allocation: core.budgets.length
         ? {
-            needs: hydratedAllocation('needs') ?? current.allocation.needs,
-            wants: hydratedAllocation('wants') ?? current.allocation.wants,
-            savings: hydratedAllocation('savings') ?? current.allocation.savings,
+            needs: core.allocation.needs ?? current.allocation.needs,
+            wants: core.allocation.wants ?? current.allocation.wants,
+            savings: core.allocation.savings ?? current.allocation.savings,
           }
         : current.allocation,
-      budgets: hydratedBudgets.length ? hydratedBudgets : current.budgets,
-      goal: hydratedGoals[0] ?? current.goal,
+      budgets: core.budgets.length ? core.budgets : current.budgets,
+      goal: core.goals[0] ?? current.goal,
       expense:
-        monthlyTransactions.find((transaction) => transaction.kind !== 'income')
+        core.transactions.find((transaction) => transaction.kind !== 'income')
         ?? current.expense,
     }));
 
-    const [accountsResult, paymentsResult, insightResult] = await Promise.all([
-      supabase
-        .from('financial_accounts')
-        .select('id,name,current_balance,opening_balance,opening_balance_as_of,previous_month_balance,source,account_kind,balance_as_of,last_synced_at,institution_name,currency')
-        .eq('user_id', userId)
-        .eq('active', true)
-        .order('created_at'),
-      supabase
-        .from('recurring_payments')
-        .select('id,name,amount,next_due_on,series_type,direction,origin,status,frequency,category,anchor_on,financial_account_id,settlement_mode,loan_id')
-        .eq('user_id', userId)
-        .in('status', ['active', 'paused'])
-        .order('next_due_on'),
-      supabase
-        .from('coach_insights')
-        .select('id,title,body')
-        .eq('user_id', userId)
-        .eq('active', true)
-        .order('priority', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
-
+    const secondary = await fetchSecondaryUserData(userId);
     if (activeUserId.current !== userId) return;
-    setFinancialAccounts(
-      (accountsResult.data ?? []).map((account) => ({
-        id: account.id,
-        name: account.name,
-        balance: Number(account.current_balance),
-        previousMonthBalance:
-          account.previous_month_balance == null
-            ? null
-            : Number(account.previous_month_balance),
-        source: account.source as FinancialAccount['source'],
-        accountKind: account.account_kind as FinancialAccount['accountKind'],
-        balanceAsOf: account.balance_as_of,
-        openingBalance: Number(account.opening_balance ?? 0),
-        openingBalanceAsOf: account.opening_balance_as_of,
-        lastSyncedAt: account.last_synced_at,
-        institutionName: account.institution_name,
-        currency: account.currency,
-      })),
-    );
-    const hydratedRecurringPayments: RecurringSeries[] = (paymentsResult.data ?? []).map((payment) => ({
-      id: payment.id,
-      name: payment.name,
-      amount: Number(payment.amount),
-      direction: payment.direction as RecurringSeries['direction'],
-      origin: payment.origin as RecurringSeries['origin'],
-      status: payment.status as RecurringSeries['status'],
-      frequency: payment.frequency as RecurringSeries['frequency'],
-      category: payment.category,
-      anchorOn: payment.anchor_on,
-      nextDueOn: payment.next_due_on,
-      financialAccountId: payment.financial_account_id,
-      settlementMode: payment.settlement_mode as RecurringSeries['settlementMode'],
-      loanId: payment.loan_id,
-    }));
-    setRecurringPayments(hydratedRecurringPayments);
-    setCoachInsight(
-      insightResult.data
-        ? {
-            id: insightResult.data.id,
-            title: insightResult.data.title,
-            body: insightResult.data.body,
-          }
-        : null,
-    );
+    setFinancialAccounts(secondary.financialAccounts);
+    setRecurringPayments(secondary.recurringPayments);
+    setCoachInsight(secondary.coachInsight);
   }, []);
+
+  // Una sola ricarica alla volta: le richieste che arrivano mentre una è in
+  // corso vengono accorpate in un'unica ricarica successiva.
+  const hydrateInFlight = useRef<{
+    promise: Promise<void>;
+    startedAt: number;
+    userId: string;
+  } | null>(null);
+  const hydrateQueued = useRef(false);
+  const lastHydrateStartedAt = useRef(0);
+
+  const hydrateUserData = useCallback(
+    (userId: string, options: { unlessFreshSince?: number } = {}) => {
+      const since = options.unlessFreshSince;
+      // Una ricarica in corso per un altro utente (logout/login) non va riusata.
+      const inFlight = hydrateInFlight.current?.userId === userId
+        ? hydrateInFlight.current
+        : null;
+      if (since != null) {
+        // Evento esterno (realtime, foreground): basta una ricarica iniziata dopo di esso.
+        if (lastHydrateStartedAt.current >= since && !inFlight && !hydrateInFlight.current) {
+          return Promise.resolve();
+        }
+        if (inFlight && inFlight.startedAt >= since) return inFlight.promise;
+      }
+      if (inFlight) {
+        hydrateQueued.current = true;
+        return inFlight.promise;
+      }
+      const run = async () => {
+        do {
+          hydrateQueued.current = false;
+          const startedAt = Date.now();
+          if (hydrateInFlight.current === entry) entry.startedAt = startedAt;
+          await loadUserData(userId);
+          lastHydrateStartedAt.current = startedAt;
+        } while (hydrateQueued.current && activeUserId.current === userId);
+      };
+      const entry = { promise: Promise.resolve(), startedAt: Date.now(), userId };
+      hydrateInFlight.current = entry;
+      entry.promise = run().finally(() => {
+        if (hydrateInFlight.current === entry) hydrateInFlight.current = null;
+      });
+      return entry.promise;
+    },
+    [loadUserData],
+  );
 
   const readProfile = useCallback(async (nextSession: Session | null) => {
     if (!nextSession) {
+      clearFamilyCaches();
       recurringStartupRefreshUserId.current = null;
       setOnboardingComplete(false);
       setProfileUnavailable(false);
@@ -695,7 +428,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       ) {
         recurringStartupRefreshUserId.current = nextSession.user.id;
         void refreshRecurringDetection(nextSession.access_token, { reason: 'startup' })
-          .then(() => hydrateUserData(nextSession.user.id))
+          .then((result) => {
+            if (result.detected > 0) return hydrateUserData(nextSession.user.id);
+          })
           .catch((recurringError) => {
             recurringStartupRefreshUserId.current = null;
             if (__DEV__) console.error('Flownd recurring startup detection failed', recurringError);
@@ -752,12 +487,19 @@ export function AppProvider({ children }: PropsWithChildren) {
     const userId = session?.user.id;
     if (!userId || !onboardingComplete) return;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let firstPendingEventAt: number | null = null;
+    // Gli eventi realtime arrivano a raffica durante una sync bancaria o subito
+    // dopo una modifica fatta dall'app: li accorpiamo e saltiamo la ricarica se
+    // ne è già partita una dopo il primo evento.
     const scheduleRefresh = () => {
+      firstPendingEventAt ??= Date.now();
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
-        void hydrateUserData(userId);
-      }, 180);
+        const since = firstPendingEventAt ?? Date.now();
+        firstPendingEventAt = null;
+        void hydrateUserData(userId, { unlessFreshSince: since });
+      }, 600);
     };
     const channel = supabase
       .channel(`app-data:${userId}`)
@@ -797,7 +539,11 @@ export function AppProvider({ children }: PropsWithChildren) {
       )
       .subscribe();
     const appStateSubscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') scheduleRefresh();
+      // In background il realtime si disconnette: al ritorno ricarichiamo, ma
+      // non più di una volta al minuto.
+      if (state === 'active') {
+        void hydrateUserData(userId, { unlessFreshSince: Date.now() - FOREGROUND_REFRESH_MS });
+      }
     });
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer);
@@ -878,16 +624,8 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     setSaving(true);
     setError(null);
-    const occurredAt = transaction.occurredAt ?? new Date().toISOString();
-    const kind = transaction.kind ?? 'expense';
-    const source = ['file_import', 'ai_scan'].includes(transaction.source ?? '')
-      ? transaction.source
-      : 'manual';
-    const category = normalizeTransactionCategory(transaction.category, kind);
-    const incomeTreatment =
-      kind === 'income' || category === 'Giroconto'
-        ? incomeTreatmentForCategory(category)
-        : null;
+    const { occurredAt, kind, source, category, incomeTreatment } =
+      normalizeTransactionDraft(transaction);
     const manualAccount = transaction.financialAccountId
       ? financialAccounts.find(
           (account) =>
@@ -960,44 +698,14 @@ export function AppProvider({ children }: PropsWithChildren) {
         setDraft((current) => ({ ...current, expense: recordedTransaction }));
       }
       void refreshRecurringDetection(session.access_token, { transactionId: String(transactionId) })
-        .then(() => hydrateUserData(session.user.id))
+        .then((result) => {
+          if (result.detected > 0) return hydrateUserData(session.user.id);
+        })
         .catch(() => undefined);
       return true;
     }
 
-    const insertPayload = {
-        user_id: session.user.id,
-        description: transaction.description.trim(),
-        amount: transaction.amount,
-        category,
-        source,
-        kind,
-        income_type: incomeTreatment?.incomeType ?? null,
-        excluded_from_budget: incomeTreatment?.excludedFromBudget ?? false,
-        internal_transfer: incomeTreatment?.incomeType === 'internal_transfer',
-        excluded_from_totals: incomeTreatment?.incomeType === 'internal_transfer',
-        occurred_at: occurredAt,
-        occurred_time: transaction.occurredTime ?? null,
-        occurred_time_source: transaction.occurredTimeSource ?? null,
-        financial_account_id: null,
-        ...(source !== 'manual'
-          ? {
-              import_fingerprint: transaction.forceImportDuplicate
-                ? null
-                : transactionFingerprint({
-                    ...transaction,
-                    occurredAt,
-                    kind,
-                  }),
-              raw_description: transaction.rawDescription ?? transaction.description,
-              merchant_name: transaction.merchantName ?? null,
-              counterparty_name: transaction.counterpartyName ?? null,
-              import_memo: transaction.memo ?? null,
-              import_reference: transaction.bankReference ?? null,
-              import_confidence: transaction.importConfidence ?? null,
-            }
-          : {}),
-      };
+    const insertPayload = transactionInsertPayload(session.user.id, transaction);
     const insertTransaction = () => supabase
       .from('transactions')
       .insert(insertPayload)
@@ -1054,8 +762,52 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
     setTransactions((current) => [recordedTransaction, ...current]);
     void refreshRecurringDetection(session.access_token, { transactionId: String(data.id) })
-      .then(() => hydrateUserData(session.user.id))
+      .then((result) => {
+        if (result.detected > 0) return hydrateUserData(session.user.id);
+      })
       .catch(() => undefined);
+    return true;
+  }
+
+  // Import file/scansione IA: un'unica RPC per le righe senza conto manuale o
+  // gruppo, poi una sola detection ricorrenze e una sola ricarica dei dati.
+  // Le righe con conto manuale o gruppo passano dal salvataggio singolo.
+  async function importTransactions(items: ExpenseDraft[]) {
+    if (!session) {
+      setError('La sessione è scaduta. Accedi di nuovo.');
+      return false;
+    }
+    const bulk = items.filter((item) => !item.financialAccountId && !item.groupId);
+    const individual = items.filter((item) => item.financialAccountId || item.groupId);
+    setSaving(true);
+    setError(null);
+    if (bulk.length) {
+      const rows = bulk.map((item) => transactionInsertPayload(session.user.id, item));
+      for (let index = 0; index < rows.length; index += IMPORT_BATCH_SIZE) {
+        const { error: importError } = await supabase.rpc('import_transactions', {
+          p_rows: rows.slice(index, index + IMPORT_BATCH_SIZE),
+        });
+        if (importError) {
+          setSaving(false);
+          if (__DEV__) console.error('Flownd bulk import failed', importError);
+          setError('Non siamo riusciti a salvare tutte le transazioni importate. Riprova.');
+          await hydrateUserData(session.user.id);
+          return false;
+        }
+      }
+    }
+    setSaving(false);
+    for (const item of individual) {
+      if (!(await addTransaction(item))) return false;
+    }
+    await hydrateUserData(session.user.id);
+    if (bulk.length) {
+      void refreshRecurringDetection(session.access_token)
+        .then((result) => {
+          if (result.detected > 0) return hydrateUserData(session.user.id);
+        })
+        .catch(() => undefined);
+    }
     return true;
   }
 
@@ -1111,38 +863,22 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   async function updateRecurringPayment(id: string, draft: RecurringSeriesDraft) {
     if (!session || draft.amount <= 0 || !draft.name.trim()) return false;
-    const account = draft.financialAccountId
-      ? financialAccounts.find((item) => item.id === draft.financialAccountId)
-      : null;
     setSaving(true);
     setError(null);
-    const { error: occurrenceCleanupError } = await supabase
-      .from('recurring_payment_occurrences')
-      .delete()
-      .eq('recurring_payment_id', id)
-      .eq('user_id', session.user.id)
-      .eq('status', 'projected');
-    if (occurrenceCleanupError) {
-      setSaving(false);
-      setError('Non siamo riusciti ad aggiornare la prossima scadenza.');
-      return false;
-    }
-    const { error: updateError } = await supabase.from('recurring_payments').update({
-      name: draft.name.trim(),
-      amount: draft.amount,
-      direction: draft.direction,
-      frequency: draft.frequency,
-      category: draft.category,
-      anchor_on: draft.nextDueOn,
-      next_due_on: draft.nextDueOn,
-      next_due_at: `${draft.nextDueOn}T12:00:00.000Z`,
-      financial_account_id: draft.financialAccountId,
-      settlement_mode: account?.source === 'open_banking' ? 'bank_match' : 'manual_post',
-      updated_at: new Date().toISOString(),
-    }).eq('id', id).eq('user_id', session.user.id);
-    if (!updateError) await supabase.rpc('ensure_recurring_occurrence', { p_series_id: id });
+    // Pulizia occorrenze previste, aggiornamento e rigenerazione in un'unica transazione.
+    const { error: updateError } = await supabase.rpc('update_recurring_payment', {
+      p_series_id: id,
+      p_name: draft.name.trim(),
+      p_amount: draft.amount,
+      p_direction: draft.direction,
+      p_frequency: draft.frequency,
+      p_category: draft.category,
+      p_next_due_on: draft.nextDueOn,
+      p_financial_account_id: draft.financialAccountId,
+    });
     setSaving(false);
     if (updateError) {
+      if (__DEV__) console.error('Flownd recurring payment update failed', updateError);
       setError('Non siamo riusciti ad aggiornare la ricorrenza.');
       return false;
     }
@@ -1153,16 +889,14 @@ export function AppProvider({ children }: PropsWithChildren) {
   async function setRecurringPaymentStatus(id: string, status: RecurringStatus) {
     if (!session) return false;
     setSaving(true);
-    const { error: updateError } = await supabase.from('recurring_payments').update({
-      status,
-      active: status === 'active',
-      updated_at: new Date().toISOString(),
-    }).eq('id', id).eq('user_id', session.user.id);
-    if (!updateError && status === 'active') {
-      await supabase.rpc('ensure_recurring_occurrence', { p_series_id: id });
-    }
+    setError(null);
+    const { error: updateError } = await supabase.rpc('set_recurring_payment_status', {
+      p_series_id: id,
+      p_status: status,
+    });
     setSaving(false);
     if (updateError) {
+      if (__DEV__) console.error('Flownd recurring payment status failed', updateError);
       setError('Non siamo riusciti a cambiare lo stato della ricorrenza.');
       return false;
     }
@@ -2395,9 +2129,13 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
   }
 
-  const refreshData = useCallback(async () => {
+  const refreshData = useCallback(async (options: { maxAgeMs?: number } = {}) => {
     const userId = session?.user.id;
-    if (userId) await hydrateUserData(userId);
+    if (!userId) return;
+    await hydrateUserData(
+      userId,
+      options.maxAgeMs != null ? { unlessFreshSince: Date.now() - options.maxAgeMs } : {},
+    );
   }, [hydrateUserData, session?.user.id]);
 
   const retryProfile = useCallback(async () => {
@@ -2447,6 +2185,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     updateDraft: (next) => setDraft((current) => ({ ...current, ...next })),
     completeOnboarding,
     addTransaction,
+    importTransactions,
     createRecurringPayment,
     createRecurringFromTransaction,
     updateRecurringPayment,
@@ -2483,11 +2222,46 @@ export function AppProvider({ children }: PropsWithChildren) {
     retryProfile,
   };
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  const [store] = useState(() => createAppStore(value));
+  useLayoutEffect(() => {
+    store.set(value);
+  });
+
+  return <AppContext.Provider value={store}>{children}</AppContext.Provider>;
 }
 
+function useAppStore() {
+  const store = useContext(AppContext);
+  if (!store) throw new Error('useApp deve essere usato dentro AppProvider');
+  return store;
+}
+
+// Tutto lo stato: il componente si aggiorna a ogni cambiamento. Preferire
+// useAppState nei componenti sempre montati (tab, header, FAB).
 export function useApp() {
-  const value = useContext(AppContext);
-  if (!value) throw new Error('useApp deve essere usato dentro AppProvider');
-  return value;
+  const store = useAppStore();
+  return useSyncExternalStore(store.subscribe, store.get);
+}
+
+// Solo i campi indicati: il componente si aggiorna quando cambia uno di essi.
+// Le azioni sono stabili e non causano render.
+export function useAppState<K extends keyof AppContextValue>(
+  ...keys: K[]
+): Pick<AppContextValue, K> {
+  const store = useAppStore();
+  const cache = useRef<Pick<AppContextValue, K> | null>(null);
+  const getSnapshot = () => {
+    const full = store.get();
+    const previous = cache.current;
+    if (previous && keys.every((key) => Object.is(previous[key], full[key]))) {
+      return previous;
+    }
+    const next = {} as Pick<AppContextValue, K>;
+    keys.forEach((key) => {
+      next[key] = full[key];
+    });
+    cache.current = next;
+    return next;
+  };
+  return useSyncExternalStore(store.subscribe, getSnapshot);
 }

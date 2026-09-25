@@ -60,7 +60,7 @@ import {
   getActiveFamilyGroupId,
   setActiveFamilyGroupId,
 } from '@/lib/family';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 import { frequencyLabels } from '@/lib/recurring-payments';
 
 const periodLabels: { id: DashboardPeriod; label: string }[] = [
@@ -92,7 +92,29 @@ export default function DashboardScreen() {
     firstDashboardVisit,
     dismissFirstVisit,
     toggleAmountsVisible,
-  } = useApp();
+    refreshData,
+  } = useAppState(
+    'refreshData',
+    'draft',
+    'session',
+    'goals',
+    'transactions',
+    'goalContributions',
+    'financialAccounts',
+    'planTier',
+    'recurringPayments',
+    'coachInsight',
+    'amountsVisible',
+    'budgetCycleStartDay',
+    'budgetRolloverMode',
+    'grossBudgetMonthlyIncome',
+    'groupMonthlyAllocation',
+    'previousGroupMonthlyAllocation',
+    'budgetMonthlyIncome',
+    'firstDashboardVisit',
+    'dismissFirstVisit',
+    'toggleAmountsVisible',
+  );
   const [dashboardScope, setDashboardScope] =
     useState<'personal' | 'groups'>('personal');
   const [dashboardAtTop, setDashboardAtTop] = useState(true);
@@ -358,6 +380,7 @@ export default function DashboardScreen() {
   return (
     <Screen
       animateFirstFocus
+      onRefresh={refreshData}
       onScroll={handleDashboardScroll}
       floatingActionPosition="free"
       floatingAction={

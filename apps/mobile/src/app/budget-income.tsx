@@ -1,14 +1,13 @@
-import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Card, PageHeader, Screen, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
+import { BackButton, Card, PageHeader, Screen, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
 import {
   financialCycleForDate,
   incomeCandidatesForFinancialCycle,
 } from '@/lib/financial-cycle';
 import { formatEuro, incomeBands } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function BudgetIncomeScreen() {
   const { colors } = useFlowndTheme();
@@ -19,7 +18,14 @@ export default function BudgetIncomeScreen() {
     budgetMonthlyIncome,
     error,
     setTransactionBudgetInclusion,
-  } = useApp();
+  } = useAppState(
+    'draft',
+    'transactions',
+    'budgetCycleStartDay',
+    'budgetMonthlyIncome',
+    'error',
+    'setTransactionBudgetInclusion',
+  );
   const cycle = useMemo(
     () => financialCycleForDate(new Date(), budgetCycleStartDay, transactions),
     [budgetCycleStartDay, transactions],
@@ -95,22 +101,12 @@ export default function BudgetIncomeScreen() {
   );
 }
 
-function BackButton() {
-  const { colors } = useFlowndTheme();
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel="Indietro" hitSlop={8} onPress={() => router.back()} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-      <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-    </Pressable>
-  );
-}
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  backButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 25 },
   intro: { fontFamily: font.body, fontSize: 13, lineHeight: 19, marginBottom: 16 },
   totalCard: { marginBottom: 16 },
-  totalLabel: { fontFamily: font.bodySemiBold, fontSize: 9, letterSpacing: 0.8 },
+  totalLabel: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 0.8 },
   total: { fontFamily: font.dataMedium, fontSize: 28, marginTop: 5 },
   totalCaption: { fontFamily: font.body, fontSize: 11, marginTop: 4 },
   list: { gap: 8 },

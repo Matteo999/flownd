@@ -15,11 +15,11 @@ import {
 } from '@/components/flownd-ui';
 import { MIN_PASSWORD_LENGTH } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function ResetPasswordScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const { session, loading } = useApp();
+  const { session, loading } = useAppState('session', 'loading');
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [saving, setSaving] = useState(false);

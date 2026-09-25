@@ -20,7 +20,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { TransactionDateField } from '@/components/transaction-date-field';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -34,7 +34,7 @@ function parsedDate(value: string | undefined, fallback: Date) {
 export default function TimelineFiltersScreen() {
   const { colors, isDark } = useFlowndTheme();
   const insets = useSafeAreaInsets();
-  const { transactions } = useApp();
+  const { transactions } = useAppState('transactions');
   const params = useLocalSearchParams<{
     query?: string | string[];
     categories?: string | string[];

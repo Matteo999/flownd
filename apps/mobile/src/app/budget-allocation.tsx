@@ -3,7 +3,7 @@ import { router, type Href } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Card, PageHeader, ProgressBar, Screen, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
+import { BackButton, Card, PageHeader, ProgressBar, Screen, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
 import {
   type BudgetCategory,
   categoryToBudgetGroup,
@@ -13,7 +13,7 @@ import {
   updateAllocation,
 } from '@/lib/onboarding';
 import { financialCycleForDate, transactionsForFinancialCycle } from '@/lib/financial-cycle';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function BudgetAllocationScreen() {
   const { colors } = useFlowndTheme();
@@ -25,7 +25,15 @@ export default function BudgetAllocationScreen() {
     budgetMonthlyIncome,
     error,
     saveBudgetAllocations,
-  } = useApp();
+  } = useAppState(
+    'draft',
+    'transactions',
+    'goalContributions',
+    'budgetCycleStartDay',
+    'budgetMonthlyIncome',
+    'error',
+    'saveBudgetAllocations',
+  );
   const [budgets, setBudgets] = useState<BudgetCategory[]>(() =>
     draft.budgets.filter((item) => item.selected),
   );
@@ -199,19 +207,9 @@ function mergeSelectedBudgets(current: BudgetCategory[], source: BudgetCategory[
   ];
 }
 
-function BackButton() {
-  const { colors } = useFlowndTheme();
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel="Indietro" hitSlop={8} onPress={() => router.back()} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-      <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-    </Pressable>
-  );
-}
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  backButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 25 },
   intro: { fontFamily: font.body, fontSize: 13, lineHeight: 19, marginBottom: 16 },
   list: { gap: 12 },
   top: { flexDirection: 'row', alignItems: 'center', gap: 10 },

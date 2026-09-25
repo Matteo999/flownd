@@ -39,6 +39,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { AppHeaderActions } from '@/components/app-header-actions';
+import { parseEuroAmount } from '@/lib/amount';
 import {
   askCoach,
   createCoachMessageId,
@@ -52,7 +53,7 @@ import {
   type CoachPendingAction,
 } from '@/lib/coach';
 import { formatEuro } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 const welcomeMessage: CoachMessage = {
   id: 'welcome',
@@ -75,7 +76,7 @@ const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
 export default function CoachScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const { session, refreshData } = useApp();
+  const { session, refreshData } = useAppState('session', 'refreshData');
   const [messages, setMessages] = useState<CoachMessage[]>([welcomeMessage]);
   const [conversations, setConversations] = useState<CoachConversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -856,7 +857,7 @@ function ActionEditor({
           value={String(action.arguments.amount ?? '')}
           keyboardType="decimal-pad"
           onChangeText={(value) =>
-            onChange('amount', Number(value.replace(',', '.')) || 0)
+            onChange('amount', parseEuroAmount(value))
           }
         />
         <CompactField
@@ -880,7 +881,7 @@ function ActionEditor({
           value={String(action.arguments.target_amount ?? '')}
           keyboardType="decimal-pad"
           onChangeText={(value) =>
-            onChange('target_amount', Number(value.replace(',', '.')) || 0)
+            onChange('target_amount', parseEuroAmount(value))
           }
         />
         <CompactField
@@ -904,7 +905,7 @@ function ActionEditor({
         value={String(action.arguments.monthly_limit ?? '')}
         keyboardType="decimal-pad"
         onChangeText={(value) =>
-          onChange('monthly_limit', Number(value.replace(',', '.')) || 0)
+          onChange('monthly_limit', parseEuroAmount(value))
         }
       />
     </View>
@@ -1251,7 +1252,7 @@ const styles = StyleSheet.create({
   },
   confirmationEyebrow: {
     fontFamily: font.bodySemiBold,
-    fontSize: 9,
+    fontSize: 10,
     letterSpacing: 0.9,
   },
   confirmationTitle: {

@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 
+import { apiRequest } from '@/lib/api';
 import type { ExpenseDraft } from '@/lib/onboarding';
 import { supabase } from '@/lib/supabase';
 
@@ -23,36 +24,15 @@ export type ImportedTransaction = Pick<
 export const GENERIC_OPERATION_ERROR =
   'Si è verificato un errore. Abbiamo inviato il resoconto agli sviluppatori.';
 
-function endpoint(path: string) {
-  const configured = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
-  if (configured) return `${configured}${path}`;
-  return Platform.OS === 'web' ? path : null;
-}
+// Upload file/immagine e attesa della risposta IA: più lento delle altre API.
+const AI_REQUEST_TIMEOUT_MS = 90_000;
 
 async function post<T>(path: string, accessToken: string, body: object) {
-  const url = endpoint(path);
-  if (!url) throw new Error('API URL missing');
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
+  return apiRequest<T>(path, accessToken, {
+    body,
+    timeoutMs: AI_REQUEST_TIMEOUT_MS,
+    fallbackError: GENERIC_OPERATION_ERROR,
   });
-  const responseBody = await response.text();
-  let data: T & { error?: string; code?: string };
-  try {
-    data = JSON.parse(responseBody) as T & { error?: string; code?: string };
-  } catch {
-    throw new Error(
-      `Invalid API response (${response.status}, ${response.headers.get('content-type') ?? 'no content type'}): ${responseBody.slice(0, 180)}`,
-    );
-  }
-  if (!response.ok) {
-    throw new Error(`API ${path} failed (${response.status}, ${data.code ?? 'no code'}): ${data.error ?? 'no message'}`);
-  }
-  return data;
 }
 
 export async function reportClientError(
@@ -63,21 +43,16 @@ export async function reportClientError(
   const message = reason instanceof Error ? reason.message : String(reason);
   const stack = reason instanceof Error ? reason.stack : undefined;
   if (__DEV__) console.error(`[Flownd:${context}]`, reason);
-  const url = endpoint('/api/transaction-tools?action=error');
-  if (!url || !accessToken) return;
+  if (!accessToken) return;
   try {
-    await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    await apiRequest('/api/transaction-tools?action=error', accessToken, {
+      body: {
         context: context.slice(0, 80),
         message: message.slice(0, 1000),
         stack: stack?.slice(0, 4000),
         platform: Platform.OS,
-      }),
+      },
+      timeoutMs: 10_000,
     });
   } catch {
     // Il resoconto non deve mai generare un secondo errore visibile.

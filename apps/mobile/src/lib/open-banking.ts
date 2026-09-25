@@ -1,6 +1,4 @@
-import { Platform } from 'react-native';
-
-import { supabase } from '@/lib/supabase';
+import { apiRequest } from '@/lib/api';
 
 export type OpenBankingBank = {
   name: string;
@@ -40,47 +38,16 @@ export type OpenBankingConnectionDetail = OpenBankingConnection & {
   pendingTransactions: number;
 };
 
-type ApiErrorBody = { error?: string; code?: string };
-
-function apiEndpoint(path: string) {
-  const configured = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
-  if (configured) return `${configured}/api/eb/${path}`;
-  if (Platform.OS === 'web') return `/api/eb/${path}`;
-  throw new Error('Configura EXPO_PUBLIC_API_URL per collegare una banca.');
-}
-
 async function ebRequest<T>(
   path: string,
   accessToken: string,
-  options: RequestInit = {},
+  options: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown; timeoutMs?: number } = {},
 ) {
-  const request = (token: string) =>
-    fetch(apiEndpoint(path), {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-        ...options.headers,
-      },
-    });
-  let response = await request(accessToken);
-  if (response.status === 401) {
-    const { data, error } = await supabase.auth.refreshSession();
-    const refreshedToken = data.session?.access_token;
-    if (!error && refreshedToken) response = await request(refreshedToken);
-  }
-  const text = await response.text();
-  let body: (T & ApiErrorBody) | null = null;
-  try {
-    body = text ? (JSON.parse(text) as T & ApiErrorBody) : null;
-  } catch {
-    body = null;
-  }
-  if (!response.ok) {
-    throw new Error(body?.error || 'Open Banking non è disponibile.');
-  }
-  if (!body) throw new Error('Il backend Open Banking ha risposto in modo non valido.');
-  return body;
+  return apiRequest<T>(`/api/eb/${path}`, accessToken, {
+    ...options,
+    fallbackError: 'Open Banking non è disponibile.',
+    missingConfigError: 'Configura EXPO_PUBLIC_API_URL per collegare una banca.',
+  });
 }
 
 export async function listItalianBanks(accessToken: string) {
@@ -98,11 +65,11 @@ export async function beginBankAuthorization(
 ) {
   return ebRequest<{ authorizationUrl: string }>('auth', accessToken, {
     method: 'POST',
-    body: JSON.stringify({
+    body: {
       bankName: bank.name,
       bankCountry: bank.country,
       returnUrl,
-    }),
+    },
   });
 }
 
@@ -115,7 +82,9 @@ export async function syncBankConnection(accessToken: string, connectionId: stri
     internalTransfers: number;
   }>('sync', accessToken, {
     method: 'POST',
-    body: JSON.stringify({ connectionId }),
+    body: { connectionId },
+    // La sincronizzazione scarica saldi e movimenti da tutti i conti collegati.
+    timeoutMs: 120_000,
   });
 }
 

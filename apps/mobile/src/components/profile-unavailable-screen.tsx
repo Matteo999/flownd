@@ -4,13 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BrandLogo } from '@/components/brand-logo';
 import { PrimaryButton, SecondaryButton, font, useFlowndTheme } from '@/components/flownd-ui';
 import { signOutLocally } from '@/lib/auth';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 // Mostrata quando l'utente è autenticato ma il profilo non si carica
 // (offline, backend non raggiungibile). Evita di rimandarlo all'onboarding.
 export function ProfileUnavailableScreen() {
   const { colors } = useFlowndTheme();
-  const { error, retryProfile } = useApp();
+  const { error, retryProfile } = useAppState('error', 'retryProfile');
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

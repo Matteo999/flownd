@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
+  BackButton,
   Card,
   PageHeader,
   Screen,
@@ -19,12 +20,17 @@ import {
   formatFinancialCycle,
   incomeCandidatesForFinancialCycle,
 } from '@/lib/financial-cycle';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function BudgetScreen() {
   const { colors } = useFlowndTheme();
-  const { draft, transactions, recurringPayments, budgetCycleStartDay, budgetMonthlyIncome } =
-    useApp();
+  const { draft, transactions, recurringPayments, budgetCycleStartDay, budgetMonthlyIncome } = useAppState(
+    'draft',
+    'transactions',
+    'recurringPayments',
+    'budgetCycleStartDay',
+    'budgetMonthlyIncome',
+  );
   const cycle = useMemo(
     () => financialCycleForDate(new Date(), budgetCycleStartDay, transactions),
     [budgetCycleStartDay, transactions],
@@ -52,17 +58,7 @@ export default function BudgetScreen() {
       <PageHeader
         title="Budget"
         leading={
-          <Pressable
-            accessibilityLabel="Indietro"
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.backButton,
-              pressed && styles.pressed,
-            ]}>
-            <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-          </Pressable>
+          <BackButton />
         }
       />
       <Text style={[styles.intro, { color: colors.textSecondary }]}>
@@ -140,7 +136,6 @@ function BudgetMenuCard({ icon, title, caption, value, route }: {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  backButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 25 },
   intro: { fontFamily: font.body, fontSize: 13, lineHeight: 19, marginBottom: 20 },
   list: { gap: 12 },

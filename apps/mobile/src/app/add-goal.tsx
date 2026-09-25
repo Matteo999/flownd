@@ -21,8 +21,9 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { GoalDateField } from '@/components/goal-date-field';
+import { parseEuroAmount } from '@/lib/amount';
 import { formatEuro, monthsUntil } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function AddGoalScreen() {
   const { colors, isDark } = useFlowndTheme();
@@ -43,7 +44,18 @@ export default function AddGoalScreen() {
     goalAllocationMode,
     budgetMonthlyIncome,
     draft,
-  } = useApp();
+  } = useAppState(
+    'createGoal',
+    'updateGoal',
+    'deleteGoal',
+    'saving',
+    'error',
+    'clearError',
+    'goals',
+    'goalAllocationMode',
+    'budgetMonthlyIncome',
+    'draft',
+  );
   const existingGoal = goals.find((goal) => goal.id === params.goalId);
   const isFreeSavings = existingGoal?.status === 'free_savings';
   const [name, setName] = useState(existingGoal?.name ?? params.name ?? '');
@@ -53,7 +65,7 @@ export default function AddGoalScreen() {
   const [deadline, setDeadline] = useState(
     existingGoal?.deadline ?? params.deadline ?? '',
   );
-  const targetAmount = Number(target.replace(',', '.')) || 0;
+  const targetAmount = parseEuroAmount(target);
   const monthlyNeedFor = (
     amount: number,
     savedAmount: number,

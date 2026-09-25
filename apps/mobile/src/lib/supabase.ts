@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
+
+import { secureSessionStorage } from '@/lib/secure-session-storage';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseKey =
@@ -17,7 +19,9 @@ const serverStorage = {
 };
 
 const authStorage =
-  Platform.OS === 'web' && typeof window === 'undefined' ? serverStorage : AsyncStorage;
+  Platform.OS === 'web'
+    ? typeof window === 'undefined' ? serverStorage : AsyncStorage
+    : secureSessionStorage;
 
 export const supabase = createClient(
   supabaseUrl ?? 'https://flownd-config-missing.invalid',
@@ -32,3 +36,12 @@ export const supabase = createClient(
   },
   },
 );
+
+// Su mobile il timer di refresh va sospeso in background e riattivato quando
+// l'app torna in primo piano, altrimenti il token può arrivare scaduto alle API.
+if (Platform.OS !== 'web') {
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') void supabase.auth.startAutoRefresh();
+    else void supabase.auth.stopAutoRefresh();
+  });
+}

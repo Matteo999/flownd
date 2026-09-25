@@ -33,6 +33,7 @@ import {
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { parseDecimalInput } from '@/lib/amount';
 import {
   createGroupInvite,
   deleteFamilyGroup,
@@ -51,14 +52,18 @@ import {
 } from '@/lib/family';
 import { contributionAmounts } from '@/lib/group-finance';
 import { type BudgetAllocation, updateAllocation } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 type SettingsSection = 'budget' | 'sharing' | 'members';
 
 export default function GroupSettingsScreen() {
   const { colors } = useFlowndTheme();
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
-  const { session, grossBudgetMonthlyIncome, refreshData } = useApp();
+  const { session, grossBudgetMonthlyIncome, refreshData } = useAppState(
+    'session',
+    'grossBudgetMonthlyIncome',
+    'refreshData',
+  );
   const cachedGroups = peekFamilyGroups(session?.user.id) ?? [];
   const cachedGroup = cachedGroups.find((item) => item.id === groupId) ?? null;
   const [allGroups, setAllGroups] = useState<FamilyGroup[]>(cachedGroups);
@@ -342,7 +347,7 @@ function BudgetSettings({
   const maxContributionPercentage = Math.max(0, 100 - allocatedElsewherePercentage);
   const allocatedElsewhereAmount = monthlyIncome * allocatedElsewherePercentage / 100;
   const maxContributionAmount = Math.max(0, monthlyIncome - allocatedElsewhereAmount);
-  const parsedValue = Number(fieldValue.replace(',', '.'));
+  const parsedValue = parseDecimalInput(fieldValue);
   const previewAmount = mode === 'fixed'
     ? Math.max(0, value)
     : contributionAmounts(monthlyIncome, value).group;
@@ -922,8 +927,8 @@ const styles = StyleSheet.create({
   availabilityNote: { fontFamily: font.bodyMedium, fontSize: 10, lineHeight: 15, marginTop: 5 },
   allocationBlock: { marginTop: 20, gap: 8 },
   allocationRow: { gap: 2 },
-  subsectionTitle: { fontFamily: font.bodySemiBold, fontSize: 9, letterSpacing: 0.9, opacity: 0.58, marginBottom: 4 },
-  inlineNote: { fontFamily: font.body, fontSize: 9, lineHeight: 14, opacity: 0.58, marginTop: -7, marginBottom: 3 },
+  subsectionTitle: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 0.9, opacity: 0.58, marginBottom: 4 },
+  inlineNote: { fontFamily: font.body, fontSize: 10, lineHeight: 14, opacity: 0.58, marginTop: -7, marginBottom: 3 },
   goalsBlock: { marginTop: 16 },
   inviteBox: { padding: 12, borderRadius: 14, gap: 10, marginBottom: 10 },
   memberList: { gap: 2 },

@@ -1,8 +1,9 @@
 import { router, type Href } from 'expo-router';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
+  BackButton,
   Card,
   PageHeader,
   Screen,
@@ -11,8 +12,13 @@ import {
 } from '@/components/flownd-ui';
 import { UserAvatar } from '@/components/app-header-actions';
 import type { ThemePreference } from '@/constants/flownd-theme';
+import {
+  hydrateAppLockPreference,
+  setAppLockEnabled,
+  useAppLockEnabled,
+} from '@/lib/app-lock';
 import { deleteAccount, signOutLocally } from '@/lib/auth';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 const themeOptions: {
   id: ThemePreference;
@@ -35,8 +41,34 @@ export default function ProfileScreen() {
     planTier,
     amountsVisible,
     toggleAmountsVisible,
-  } = useApp();
+  } = useAppState(
+    'session',
+    'planTier',
+    'amountsVisible',
+    'toggleAmountsVisible',
+  );
   const [deleting, setDeleting] = useState(false);
+  const appLockEnabled = useAppLockEnabled();
+  const [appLockUpdating, setAppLockUpdating] = useState(false);
+
+  useEffect(() => {
+    void hydrateAppLockPreference();
+  }, []);
+
+  async function toggleAppLock() {
+    if (appLockUpdating) return;
+    setAppLockUpdating(true);
+    try {
+      await setAppLockEnabled(!appLockEnabled);
+    } catch (reason) {
+      Alert.alert(
+        'Blocco non disponibile',
+        reason instanceof Error ? reason.message : 'Riprova tra poco.',
+      );
+    } finally {
+      setAppLockUpdating(false);
+    }
+  }
 
   async function performAccountDeletion() {
     setDeleting(true);
@@ -87,14 +119,7 @@ export default function ProfileScreen() {
       <PageHeader
         title="Profilo"
         leading={
-          <Pressable
-            accessibilityLabel="Indietro"
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-            <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-          </Pressable>
+          <BackButton />
         }
       />
 
@@ -185,30 +210,23 @@ export default function ProfileScreen() {
               ? 'Gli importi sono mostrati nelle schermate principali'
               : 'Gli importi sensibili sono nascosti'
           }
-          trailing={
-            <View
-              style={[
-                styles.switchTrack,
-                {
-                  backgroundColor: amountsVisible
-                    ? colors.accent
-                    : colors.sunken,
-                },
-              ]}>
-              <View
-                style={[
-                  styles.switchThumb,
-                  {
-                    backgroundColor: colors.surface,
-                    transform: [{ translateX: amountsVisible ? 18 : 0 }],
-                  },
-                ]}
-              />
-            </View>
-          }
+          trailing={<SwitchVisual on={amountsVisible} />}
           accessibilityRole="switch"
           accessibilityState={{ checked: amountsVisible }}
           onPress={() => void toggleAmountsVisible()}
+        />
+        <ProfileRow
+          icon={appLockEnabled ? 'lock' : 'lock_open'}
+          label="Blocca Flownd"
+          caption={
+            appLockEnabled
+              ? 'Face ID, impronta o codice all’apertura e dopo 30 secondi in background'
+              : 'Richiedi lo sblocco del dispositivo per aprire l’app'
+          }
+          trailing={<SwitchVisual on={appLockEnabled} />}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: appLockEnabled, busy: appLockUpdating }}
+          onPress={() => void toggleAppLock()}
         />
       </View>
 
@@ -247,6 +265,21 @@ export default function ProfileScreen() {
   );
 }
 
+function SwitchVisual({ on }: { on: boolean }) {
+  const { colors } = useFlowndTheme();
+  return (
+    <View
+      style={[styles.switchTrack, { backgroundColor: on ? colors.accent : colors.sunken }]}>
+      <View
+        style={[
+          styles.switchThumb,
+          { backgroundColor: colors.surface, transform: [{ translateX: on ? 18 : 0 }] },
+        ]}
+      />
+    </View>
+  );
+}
+
 function ProfileRow({
   icon,
   label,
@@ -262,7 +295,7 @@ function ProfileRow({
   trailing?: ReactNode;
   onPress: () => void;
   accessibilityRole?: 'button' | 'switch';
-  accessibilityState?: { checked: boolean };
+  accessibilityState?: { checked: boolean; busy?: boolean };
 }) {
   const { colors } = useFlowndTheme();
   return (
@@ -293,12 +326,6 @@ function ProfileRow({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  backButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   identity: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   email: { fontFamily: font.bodySemiBold, fontSize: 14 },
   caption: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 2 },

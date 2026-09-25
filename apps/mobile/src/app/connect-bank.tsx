@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
+  BackButton,
   Card,
   Field,
   PrimaryButton,
@@ -19,11 +20,11 @@ import {
   type OpenBankingBank,
   syncBankConnection,
 } from '@/lib/open-banking';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function ConnectBankScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const { session, planTier, refreshData } = useApp();
+  const { session, planTier, refreshData } = useAppState('session', 'planTier', 'refreshData');
   const [banks, setBanks] = useState<OpenBankingBank[]>([]);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<OpenBankingBank | null>(null);
@@ -99,13 +100,7 @@ export default function ConnectBankScreen() {
     <Screen>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Torna indietro"
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.back, pressed && styles.pressed]}>
-          <Text style={[styles.backIcon, { color: colors.text }]}>arrow_back</Text>
-        </Pressable>
+        <BackButton />
         <Text style={[styles.title, { color: colors.text }]}>Collega una banca</Text>
         <View style={styles.headerSpacer} />
       </View>
@@ -172,8 +167,6 @@ export default function ConnectBankScreen() {
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  backIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 23 },
   title: { flex: 1, textAlign: 'center', fontFamily: font.displaySemiBold, fontSize: 19 },
   headerSpacer: { width: 40 },
   cardTitle: { fontFamily: font.bodySemiBold, fontSize: 15 },

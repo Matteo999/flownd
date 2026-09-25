@@ -4,13 +4,14 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card, Field, PrimaryButton, Screen, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
+import { parseDecimalInput, parseEuroAmount } from '@/lib/amount';
 import { transactionsForPeriod } from '@/lib/dashboard';
 import { calculateMonthlyPayment, loanSustainability, type LoanDraft } from '@/lib/goals';
 import { categoryToBudgetGroup, formatEuro } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 function numberValue(value: string) {
-  return Number(value.replace(',', '.')) || 0;
+  return parseEuroAmount(value);
 }
 
 export default function AddLoanScreen() {
@@ -23,7 +24,15 @@ export default function AddLoanScreen() {
     error,
     budgetMonthlyIncome,
     financialAccounts,
-  } = useApp();
+  } = useAppState(
+    'draft',
+    'transactions',
+    'createLoan',
+    'saving',
+    'error',
+    'budgetMonthlyIncome',
+    'financialAccounts',
+  );
   const [name, setName] = useState('');
   const [financed, setFinanced] = useState('');
   const [downPayment, setDownPayment] = useState('0');
@@ -38,7 +47,7 @@ export default function AddLoanScreen() {
     financedAmount: numberValue(financed),
     downPayment: numberValue(downPayment),
     installmentCount: Math.round(numberValue(installments)),
-    interestRate: interest ? numberValue(interest) : null,
+    interestRate: interest ? parseDecimalInput(interest, { allowThousands: false }) || 0 : null,
     startDate,
     finalBalloon: balloon ? numberValue(balloon) : null,
     monthlyPayment: manualPayment ? numberValue(manualPayment) : undefined,

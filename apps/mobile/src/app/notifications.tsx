@@ -12,13 +12,13 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { Card, PrimaryButton, Screen, font, useFlowndTheme } from '@/components/flownd-ui';
+import { BackButton, Card, PrimaryButton, Screen, font, useFlowndTheme } from '@/components/flownd-ui';
 import { supabase } from '@/lib/supabase';
 import {
   deleteTransactionImportJob,
   reportClientError,
 } from '@/lib/transaction-import';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 type NotificationItem = {
   id: string;
@@ -40,7 +40,11 @@ function deleteThresholdHaptic() {
 
 export default function NotificationsScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const { session, dismissGoalNotice, goals } = useApp();
+  const { session, dismissGoalNotice, goals } = useAppState(
+    'session',
+    'dismissGoalNotice',
+    'goals',
+  );
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -196,12 +200,7 @@ export default function NotificationsScreen() {
     <Screen>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={styles.header}>
-        <Pressable
-          accessibilityLabel="Indietro"
-          onPress={() => router.back()}
-          style={[styles.back, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-          <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-        </Pressable>
+        <BackButton variant="surface" />
         <Text style={[styles.headerTitle, { color: colors.text }]}>Notifiche</Text>
         {items.length ? (
           <Pressable
@@ -439,14 +438,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 24,
   },
-  back: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   materialIcon: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 21,
@@ -476,7 +467,7 @@ const styles = StyleSheet.create({
   title: { flex: 1, fontFamily: font.bodySemiBold, fontSize: 13 },
   unreadDot: { width: 7, height: 7, borderRadius: 4 },
   body: { fontFamily: font.body, fontSize: 11, lineHeight: 17, marginTop: 3 },
-  date: { fontFamily: font.data, fontSize: 9, marginTop: 7 },
+  date: { fontFamily: font.data, fontSize: 10, marginTop: 7 },
   swipeDelete: {
     position: 'absolute',
     top: 0,

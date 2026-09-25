@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 
+import { parseEuroAmount } from '@/lib/amount';
 import {
   Card,
   Field,
@@ -21,7 +22,7 @@ import {
 } from '@/components/flownd-ui';
 import { TransactionDateField } from '@/components/transaction-date-field';
 import type { ManualFinancialAccountDraft } from '@/providers/app-provider';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 const accountKinds: {
   id: ManualFinancialAccountDraft['accountKind'];
@@ -48,13 +49,18 @@ const accountKinds: {
 
 export default function AddManualAccountScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const { createManualFinancialAccount, saving, error, clearError } = useApp();
+  const { createManualFinancialAccount, saving, error, clearError } = useAppState(
+    'createManualFinancialAccount',
+    'saving',
+    'error',
+    'clearError',
+  );
   const [accountKind, setAccountKind] =
     useState<ManualFinancialAccountDraft['accountKind']>('cash_wallet');
   const [name, setName] = useState('Portafoglio');
   const [balance, setBalance] = useState('');
   const [balanceAsOf, setBalanceAsOf] = useState(() => new Date());
-  const numericBalance = Number(balance.replace(',', '.')) || 0;
+  const numericBalance = parseEuroAmount(balance);
   const invalidCashBalance = accountKind === 'cash_wallet' && numericBalance < 0;
 
   return (

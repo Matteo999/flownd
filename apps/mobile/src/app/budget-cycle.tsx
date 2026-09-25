@@ -14,7 +14,7 @@ import {
   financialCycleForDate,
   formatFinancialCycle,
 } from '@/lib/financial-cycle';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 const days = Array.from({ length: 28 }, (_, index) => index + 1);
 const rolloverOptions: {
@@ -44,7 +44,15 @@ export default function BudgetCycleScreen() {
     error,
     clearError,
     transactions,
-  } = useApp();
+  } = useAppState(
+    'budgetCycleStartDay',
+    'budgetRolloverMode',
+    'updateBudgetCycleSettings',
+    'saving',
+    'error',
+    'clearError',
+    'transactions',
+  );
   const [startDay, setStartDay] = useState(budgetCycleStartDay);
   const [rolloverMode, setRolloverMode] =
     useState<BudgetRolloverMode>(budgetRolloverMode);
@@ -224,7 +232,7 @@ const styles = StyleSheet.create({
   },
   dayText: { fontFamily: font.dataMedium, fontSize: 11 },
   preview: { borderRadius: 12, padding: 14, marginTop: 12 },
-  previewLabel: { fontFamily: font.bodySemiBold, fontSize: 9, letterSpacing: 0.8 },
+  previewLabel: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 0.8 },
   previewValue: { fontFamily: font.dataMedium, fontSize: 14, marginTop: 4, textTransform: 'capitalize' },
   options: { gap: 8 },
   option: {

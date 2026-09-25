@@ -22,7 +22,8 @@
     "test:deployment": "node --test api/_deployment-shape.test.js",
     "test:coach": "node --test api/_coach.test.js",
     "test:group-finance": "node --test apps/mobile/src/lib/group-finance.test.mjs",
-    "preview:web": "npm run preview --workspace @flownd/web"
+    "preview:web": "npm run preview --workspace @flownd/web",
+    "test:mobile": "node --test apps/mobile/src/lib/*.test.mjs apps/mobile/src/providers/*.test.mjs"
   },
   "devDependencies": {
     "expo-router": "~57.0.22",

@@ -30,6 +30,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { TransactionDateField } from '@/components/transaction-date-field';
+import { parseEuroAmount } from '@/lib/amount';
 import { type ExpenseDraft, formatDateItalian, formatEuro } from '@/lib/onboarding';
 import {
   analyzeTransactionFile,
@@ -45,7 +46,7 @@ import {
   suggestPersonalizedTransactionCategory,
   suggestTransactionCategory,
 } from '@/lib/transaction-categories';
-import { type FinancialAccount, useApp } from '@/providers/app-provider';
+import { type FinancialAccount, useAppState } from '@/providers/app-provider';
 
 type ImportMode = 'file' | 'ai';
 
@@ -71,7 +72,7 @@ export default function TransactionImportScreen() {
   const jobId = firstParam(params.jobId);
   const mode: ImportMode = requestedMode === 'ai' ? 'ai' : 'file';
   const {
-    addTransaction,
+    importTransactions,
     clearError,
     error,
     financialAccounts,
@@ -79,7 +80,16 @@ export default function TransactionImportScreen() {
     saving,
     session,
     transactions,
-  } = useApp();
+  } = useAppState(
+    'importTransactions',
+    'clearError',
+    'error',
+    'financialAccounts',
+    'planTier',
+    'saving',
+    'session',
+    'transactions',
+  );
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [queuedJobId, setQueuedJobId] = useState<string | null>(null);
@@ -386,19 +396,19 @@ export default function TransactionImportScreen() {
     const userId = session?.user.id;
     router.dismissAll();
     void (async () => {
-      for (const { item, forceImportDuplicate } of pending) {
-        const saved = await addTransaction({
+      const saved = await importTransactions(
+        pending.map(({ item, forceImportDuplicate }) => ({
           ...item,
           forceImportDuplicate,
           category:
             item.category ??
             suggestTransactionCategory(item.description, item.kind ?? 'expense'),
           source: mode === 'ai' ? 'ai_scan' : 'file_import',
-        });
-        if (!saved) {
-          await reportClientError(accessToken, 'transaction_import_save', new Error('addTransaction returned false'));
-          return;
-        }
+        })),
+      );
+      if (!saved) {
+        await reportClientError(accessToken, 'transaction_import_save', new Error('importTransactions returned false'));
+        return;
       }
       if (activeJobId && userId) {
         try {
@@ -761,7 +771,7 @@ function CandidateEditor({
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
   const selectedAccount = manualAccounts.find((account) => account.id === selectedAccountId);
-  const numericAmount = Number(amount.replace(',', '.')) || 0;
+  const numericAmount = parseEuroAmount(amount);
   const insufficientCash = Boolean(
     selectedAccount?.accountKind === 'cash_wallet'
       && kind === 'expense'

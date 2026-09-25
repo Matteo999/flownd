@@ -4,7 +4,7 @@ import { type ReactNode, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { font, useFlowndTheme } from '@/components/flownd-ui';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export function AppHeaderActions({
   leading,
@@ -14,7 +14,7 @@ export function AppHeaderActions({
   showNotifications?: boolean;
 }) {
   const { colors } = useFlowndTheme();
-  const { goalNotice } = useApp();
+  const { goalNotice } = useAppState('goalNotice');
 
   return (
     <View style={styles.actions}>
@@ -52,7 +52,7 @@ export function AppHeaderActions({
 
 export function UserAvatar({ size = 40 }: { size?: number }) {
   const { colors } = useFlowndTheme();
-  const { session } = useApp();
+  const { session } = useAppState('session');
   const [imageFailed, setImageFailed] = useState(false);
   const metadata = session?.user.user_metadata;
   const avatarUrl =

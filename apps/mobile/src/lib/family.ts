@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
 
+import { apiRequest } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 
 export type SharingAccess = 'none' | 'view' | 'edit';
@@ -156,6 +156,13 @@ type AccessDraft = {
 
 const groupsMemoryCache = new Map<string, FamilyGroup[]>();
 const groupDetailMemoryCache = new Map<string, FamilyGroupDetail>();
+
+// Chiamata al logout: il dettaglio gruppo (saldi, contributi) non deve restare
+// in memoria per l'utente successivo sullo stesso dispositivo.
+export function clearFamilyCaches() {
+  groupsMemoryCache.clear();
+  groupDetailMemoryCache.clear();
+}
 
 export function peekFamilyGroups(userId?: string) {
   if (!userId) return null;
@@ -535,24 +542,13 @@ export async function createGroupInvite(
   if (error) throw error;
   if (!accessToken) return { emailSent: false };
 
-  const configuredApi = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
-  const endpoint = configuredApi
-    ? `${configuredApi}/api/transaction-tools?action=group-invite`
-    : Platform.OS === 'web'
-      ? '/api/transaction-tools?action=group-invite'
-      : null;
-  if (!endpoint) return { emailSent: false };
   try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ inviteId: invite.id }),
-    });
-    const body = await response.json() as { emailSent?: boolean };
-    return { emailSent: response.ok && body.emailSent === true };
+    const body = await apiRequest<{ emailSent?: boolean }>(
+      '/api/transaction-tools?action=group-invite',
+      accessToken,
+      { body: { inviteId: invite.id } },
+    );
+    return { emailSent: body.emailSent === true };
   } catch {
     return { emailSent: false };
   }
