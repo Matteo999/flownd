@@ -1,13 +1,23 @@
-import { type ComponentProps, type ReactNode, useEffect, useRef, useState } from 'react';
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { MenuView } from '@expo/ui/community/menu';
+import { BlurView } from 'expo-blur';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import {
   ActivityIndicator,
   Alert,
   Animated,
+  Easing,
   FlatList,
-  KeyboardAvoidingView,
+  Keyboard,
   PanResponder,
   Platform,
   Pressable,
@@ -61,6 +71,8 @@ const starters = [
   'Ho speso 20 € al bar',
 ];
 
+const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
+
 export default function CoachScreen() {
   const { colors, isDark } = useFlowndTheme();
   const { session, refreshData } = useApp();
@@ -74,30 +86,80 @@ export default function CoachScreen() {
   const [resolvingMessageId, setResolvingMessageId] = useState<string | null>(null);
   const listRef = useRef<FlatList<CoachMessage>>(null);
   const selectionVersion = useRef(0);
-  const drawerProgress = useRef(new Animated.Value(1)).current;
-  const { width: windowWidth } = useWindowDimensions();
+  const drawerProgress = useRef(new Animated.Value(0)).current;
+  const keyboardLift = useRef(new Animated.Value(0)).current;
+  const drawerGestureStart = useRef(0);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const drawerWidth = Math.min(360, windowWidth * 0.84);
-  const swipeToHistory = useRef(PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gesture) => (
-      gesture.dx < -14 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.3
-    ),
-    onPanResponderRelease: (_, gesture) => {
-      if (gesture.dx < -54) setHistoryVisible(true);
+  const animateDrawer = useCallback((open: boolean) => {
+    if (open) setHistoryVisible(true);
+    Animated.spring(drawerProgress, {
+      toValue: open ? 1 : 0,
+      damping: 24,
+      stiffness: 230,
+      mass: 0.8,
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (finished && !open) setHistoryVisible(false);
+    });
+  }, [drawerProgress]);
+  const swipeToHistory = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => {
+      const horizontal = Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.25;
+      return horizontal && (historyVisible ? gesture.dx < -10 : gesture.dx > 10);
     },
-  })).current;
+    onPanResponderGrant: () => {
+      drawerGestureStart.current = historyVisible ? 1 : 0;
+      setHistoryVisible(true);
+      drawerProgress.stopAnimation();
+    },
+    onPanResponderMove: (_, gesture) => {
+      const progress = drawerGestureStart.current + gesture.dx / drawerWidth;
+      drawerProgress.setValue(Math.max(0, Math.min(1, progress)));
+    },
+    onPanResponderRelease: (_, gesture) => {
+      const projected = drawerGestureStart.current + (
+        gesture.dx + gesture.vx * drawerWidth * 0.16
+      ) / drawerWidth;
+      animateDrawer(projected > 0.42);
+    },
+    onPanResponderTerminate: () => animateDrawer(historyVisible),
+  }), [animateDrawer, drawerProgress, drawerWidth, historyVisible]);
   const pendingMessage = [...messages].reverse().find(
     (message) => message.pendingAction && message.actionStatus === 'pending',
   );
 
   useEffect(() => {
-    Animated.spring(drawerProgress, {
-      toValue: historyVisible ? 0 : 1,
-      damping: 24,
-      stiffness: 230,
-      mass: 0.8,
-      useNativeDriver: true,
-    }).start();
-  }, [drawerProgress, historyVisible]);
+    const animateForKeyboard = (event: Parameters<typeof Keyboard.scheduleLayoutAnimation>[0]) => {
+      if (Platform.OS === 'ios') Keyboard.scheduleLayoutAnimation(event);
+      const keyboardHeight = Math.max(0, windowHeight - event.endCoordinates.screenY);
+      const overlap = Math.max(0, keyboardHeight - 92 + 4);
+      Animated.timing(keyboardLift, {
+        toValue: overlap,
+        duration: Platform.OS === 'ios' ? Math.max(120, event.duration || 250) : 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    };
+    const frameSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow',
+      animateForKeyboard,
+    );
+    const hideSubscription = Platform.OS === 'ios'
+      ? null
+      : Keyboard.addListener('keyboardDidHide', () => {
+        Animated.timing(keyboardLift, {
+          toValue: 0,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }).start();
+      });
+    return () => {
+      frameSubscription.remove();
+      hideSubscription?.remove();
+    };
+  }, [keyboardLift, windowHeight]);
 
   useEffect(() => {
     if (!session) {
@@ -157,12 +219,12 @@ export default function CoachScreen() {
     setConversationId(null);
     setMessages([welcomeMessage]);
     setInput('');
-    setHistoryVisible(false);
+    animateDrawer(false);
   }
 
   async function openConversation(selectedId: string) {
     if (!session || selectedId === conversationId) {
-      setHistoryVisible(false);
+      animateDrawer(false);
       return;
     }
     const version = ++selectionVersion.current;
@@ -175,7 +237,7 @@ export default function CoachScreen() {
       setConversationId(loaded.conversation.id);
       setMessages([welcomeMessage, ...loaded.messages]);
       setInput('');
-      setHistoryVisible(false);
+      animateDrawer(false);
     } catch (error) {
       if (version === selectionVersion.current) {
         Alert.alert('Storico non disponibile', errorMessage(error));
@@ -336,30 +398,33 @@ export default function CoachScreen() {
 
   return (
     <View style={styles.flex} {...swipeToHistory.panHandlers}>
-    <Screen animateFirstFocus scroll={false} style={styles.screen}>
+    <Animated.View
+      style={[
+        styles.mainDrawerView,
+        {
+          backgroundColor: colors.background,
+          borderRadius: drawerProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 26] }),
+          transform: [
+            { translateX: drawerProgress.interpolate({ inputRange: [0, 1], outputRange: [0, drawerWidth] }) },
+            { scale: drawerProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.965] }) },
+          ],
+        },
+      ]}>
+    <Screen
+      animateFirstFocus
+      scroll={false}
+      style={styles.screen}>
       <PageHeader
         title="Coach"
+        leading={<DrawerMenuButton onPress={() => animateDrawer(true)} />}
         action={(
-          <AppHeaderActions
-            leading={(
-              <View style={styles.headerCoachActions}>
-                <HeaderIconButton
-                  icon="history"
-                  label="Apri storico conversazioni"
-                  onPress={() => setHistoryVisible(true)}
-                />
-              </View>
-            )}
-          />
+          <AppHeaderActions />
         )}
         collapseInPlace
       />
       <ScreenScrollBridge>
         {(onScroll) => (
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={88}
-            style={styles.keyboardView}>
+          <Animated.View style={[styles.keyboardView, { paddingBottom: keyboardLift }]}>
             <Animated.FlatList
           ref={listRef}
           data={messages}
@@ -368,6 +433,8 @@ export default function CoachScreen() {
           onContentSizeChange={() =>
             listRef.current?.scrollToEnd({ animated: true })
           }
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           onScroll={onScroll}
           scrollEventThrottle={16}
@@ -445,44 +512,46 @@ export default function CoachScreen() {
             <Text style={styles.sendIcon}>arrow_upward</Text>
           </Pressable>
             </ComposerGlassSurface>
-          </KeyboardAvoidingView>
+          </Animated.View>
         )}
       </ScreenScrollBridge>
     </Screen>
-      <Animated.View
-        pointerEvents={historyVisible ? 'auto' : 'none'}
-        style={[
-          styles.drawerOverlay,
-          {
-            opacity: drawerProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-          },
-        ]}>
+      {historyVisible ? (
         <Pressable
           accessibilityLabel="Chiudi storico"
-          onPress={() => setHistoryVisible(false)}
-          style={styles.drawerBackdrop}
+          onPress={() => animateDrawer(false)}
+          style={styles.drawerMainDismiss}
         />
-        <Animated.View
+      ) : null}
+    </Animated.View>
+      <View
+        pointerEvents={historyVisible ? 'auto' : 'none'}
+        style={styles.drawerOverlay}>
+        <View
           style={[
             styles.historySidebar,
             {
               width: drawerWidth,
-              backgroundColor: colors.background,
-              borderLeftColor: colors.border,
-              transform: [{
-                translateX: drawerProgress.interpolate({
-                  inputRange: [0, 1], outputRange: [0, drawerWidth],
-                }),
-              }],
+              backgroundColor: isDark ? '#000000' : '#FFFFFF',
+              borderRightColor: colors.border,
             },
           ]}>
+          <Animated.View
+            style={[
+              styles.historyAnimatedContent,
+              {
+                transform: [{
+                  scale: drawerProgress.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }),
+                }],
+              },
+            ]}>
           <View style={styles.historyHeader}>
             <Text style={[styles.historyTitle, { color: colors.text }]}>Recenti</Text>
             <Pressable
               accessibilityLabel="Chiudi storico"
               accessibilityRole="button"
               hitSlop={8}
-              onPress={() => setHistoryVisible(false)}
+              onPress={() => animateDrawer(false)}
               style={({ pressed }) => [styles.historyClose, pressed && styles.pressed]}>
               <Text style={[styles.materialIcon, { color: colors.text }]}>close</Text>
             </Pressable>
@@ -520,20 +589,18 @@ export default function CoachScreen() {
                     delayLongPress={350}
                     onLongPress={() => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)}
                     onPress={() => void openConversation(item.id)}
-                    style={({ pressed }) => [
-                      styles.historyRow,
-                      {
-                        backgroundColor: item.id === conversationId ? colors.accentSoft : colors.surface,
-                        borderColor: item.id === conversationId ? colors.accent : colors.border,
-                      },
-                      pressed && styles.historyRowPressed,
-                    ]}>
+                    style={styles.historyRow}>
                     <View style={styles.historyRowMain}>
                       <View style={styles.historyRowTitleLine}>
                         {item.pinned ? (
                           <Text style={[styles.historyPinnedIcon, { color: colors.accent }]}>push_pin</Text>
                         ) : null}
-                        <Text numberOfLines={2} style={[styles.historyRowTitle, { color: colors.text }]}>
+                        <Text
+                          numberOfLines={2}
+                          style={[
+                            styles.historyRowTitle,
+                            { color: item.id === conversationId ? colors.accent : colors.text },
+                          ]}>
                           {item.title}
                         </Text>
                       </View>
@@ -546,36 +613,43 @@ export default function CoachScreen() {
               )}
             />
           )}
+          <AnimatedBlurView
+            intensity={32}
+            pointerEvents="none"
+            tint={isDark ? 'dark' : 'light'}
+            style={[
+              styles.drawerBlur,
+              {
+                opacity: drawerProgress.interpolate({
+                  inputRange: [0, 0.72, 1], outputRange: [1, 0.32, 0],
+                }),
+              },
+            ]}
+          />
+          </Animated.View>
           <View style={styles.historyCtaWrap}>
             <GlassCta
               label="Nuova chat"
               onPress={startNewConversation}
             />
           </View>
-        </Animated.View>
-      </Animated.View>
+        </View>
+      </View>
     </View>
   );
 }
 
-function HeaderIconButton({
-  icon,
-  label,
-  onPress,
-}: {
-  icon: string;
-  label: string;
-  onPress: () => void;
-}) {
+function DrawerMenuButton({ onPress }: { onPress: () => void }) {
   const { colors } = useFlowndTheme();
   return (
     <Pressable
-      accessibilityLabel={label}
+      accessibilityLabel="Apri storico conversazioni"
       accessibilityRole="button"
       hitSlop={6}
       onPress={onPress}
-      style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}>
-      <Text style={[styles.materialIcon, { color: colors.text }]}>{icon}</Text>
+      style={({ pressed }) => [styles.drawerMenuButton, pressed && styles.pressed]}>
+      <View style={[styles.drawerMenuLineLong, { backgroundColor: colors.text }]} />
+      <View style={[styles.drawerMenuLineShort, { backgroundColor: colors.text }]} />
     </Pressable>
   );
 }
@@ -971,6 +1045,20 @@ function formatConversationDate(value: string) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   screen: { paddingBottom: 92 },
+  mainDrawerView: {
+    flex: 1,
+    zIndex: 2,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+  },
+  drawerMainDismiss: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
   keyboardView: { flex: 1 },
   messages: { flexGrow: 1, paddingBottom: 14 },
   messageRow: {
@@ -1015,28 +1103,30 @@ const styles = StyleSheet.create({
   },
   waitingText: { fontFamily: font.body, fontSize: 12 },
   composer: {
-    minHeight: 54,
-    maxHeight: 126,
-    borderRadius: 27,
+    minHeight: 46,
+    maxHeight: 112,
+    borderRadius: 23,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingLeft: 13,
-    paddingRight: 6,
-    paddingVertical: 6,
+    alignItems: 'center',
+    paddingLeft: 14,
+    paddingRight: 5,
+    paddingVertical: 4,
   },
   composerInput: {
     flex: 1,
-    maxHeight: 108,
+    minHeight: 36,
+    maxHeight: 96,
     fontFamily: font.body,
     fontSize: 14,
-    lineHeight: 20,
-    paddingVertical: 9,
+    lineHeight: 18,
+    paddingVertical: 8,
+    textAlignVertical: 'center',
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1048,13 +1138,15 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.42 },
   pressed: { opacity: 0.68 },
-  headerCoachActions: { flexDirection: 'row', alignItems: 'center' },
-  headerIconButton: {
-    width: 34,
-    height: 38,
+  drawerMenuButton: {
+    width: 38,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 5,
   },
+  drawerMenuLineLong: { width: 20, height: 2, borderRadius: 1 },
+  drawerMenuLineShort: { width: 13, height: 2, borderRadius: 1, marginRight: 7 },
   materialIcon: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 21,
@@ -1066,30 +1158,24 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    zIndex: 100,
+    zIndex: 1,
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  drawerBackdrop: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    justifyContent: 'flex-start',
   },
   historySidebar: {
     height: '100%',
-    borderLeftWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    borderRightWidth: StyleSheet.hairlineWidth,
     paddingTop: 58,
     paddingHorizontal: 16,
-    paddingBottom: 22,
+    paddingBottom: 104,
     shadowColor: '#000000',
     shadowOpacity: 0.2,
     shadowRadius: 24,
-    shadowOffset: { width: -8, height: 0 },
+    shadowOffset: { width: 8, height: 0 },
     elevation: 18,
   },
+  historyAnimatedContent: { flex: 1, width: '100%' },
   historyHeader: {
     minHeight: 58,
     flexDirection: 'row',
@@ -1100,19 +1186,22 @@ const styles = StyleSheet.create({
   historyTitle: { fontFamily: font.displaySemiBold, fontSize: 27 },
   historyClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   historyLoading: { marginTop: 32 },
-  historyListView: { flex: 1 },
+  historyListView: { flex: 1, width: '100%' },
   historyList: { paddingTop: 4, paddingBottom: 18, gap: 8, flexGrow: 1 },
   historyEmpty: { fontFamily: font.body, fontSize: 13, textAlign: 'center', marginTop: 32 },
   historyMenu: { width: '100%' },
   historyRow: {
-    minHeight: 66,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
+    width: '100%',
+    minHeight: 60,
+    justifyContent: 'center',
   },
-  historyRowPressed: { transform: [{ scale: 1.035 }] },
-  historyRowMain: { flex: 1, alignSelf: 'stretch', justifyContent: 'center', padding: 12 },
+  historyRowMain: {
+    flex: 1,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 9,
+  },
   historyRowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   historyRowTitle: { fontFamily: font.bodySemiBold, fontSize: 13, lineHeight: 18 },
   historyRowDate: { fontFamily: font.body, fontSize: 10, marginTop: 4 },
@@ -1121,7 +1210,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 18,
   },
-  historyCtaWrap: { paddingTop: 10 },
+  historyCtaWrap: { zIndex: 5, paddingTop: 10 },
   glassCta: {
     minHeight: 52,
     borderRadius: 26,
@@ -1135,6 +1224,13 @@ const styles = StyleSheet.create({
   glassCtaPressed: { transform: [{ scale: 0.97 }] },
   glassCtaIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
   glassCtaLabel: { fontFamily: font.bodySemiBold, fontSize: 14 },
+  drawerBlur: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
   confirmationCard: { marginTop: 6, marginBottom: 14 },
   confirmationHeader: {
     flexDirection: 'row',

@@ -66,6 +66,7 @@ function RootNavigation() {
           <Stack.Screen name="login" />
           <Stack.Screen name="register" />
           <Stack.Screen name="auth/callback" />
+          <Stack.Screen name="reset-password" options={{ gestureEnabled: false }} />
           <Stack.Screen
             name="add-transaction"
             options={{

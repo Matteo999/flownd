@@ -16,6 +16,7 @@ import {
   uiStyles,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { MIN_PASSWORD_LENGTH } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { useApp } from '@/providers/app-provider';
 
@@ -62,8 +63,8 @@ export default function RegisterScreen() {
       setError('Inserisci un indirizzo email valido.');
       return;
     }
-    if (password.length < 6) {
-      setError('La password deve contenere almeno 6 caratteri.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`La password deve contenere almeno ${MIN_PASSWORD_LENGTH} caratteri.`);
       return;
     }
     if (password !== passwordConfirmation) {
@@ -176,7 +177,7 @@ export default function RegisterScreen() {
               />
               <Field
                 label="Password"
-                placeholder="Almeno 6 caratteri"
+                placeholder={`Almeno ${MIN_PASSWORD_LENGTH} caratteri`}
                 secureTextEntry
                 autoCapitalize="none"
                 autoCorrect={false}
