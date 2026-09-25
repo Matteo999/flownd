@@ -1,6 +1,6 @@
 import { router, type Href } from 'expo-router';
-import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { type ReactNode, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   Card,
@@ -11,7 +11,7 @@ import {
 } from '@/components/flownd-ui';
 import { UserAvatar } from '@/components/app-header-actions';
 import type { ThemePreference } from '@/constants/flownd-theme';
-import { supabase } from '@/lib/supabase';
+import { deleteAccount, signOutLocally } from '@/lib/auth';
 import { useApp } from '@/providers/app-provider';
 
 const themeOptions: {
@@ -36,6 +36,51 @@ export default function ProfileScreen() {
     amountsVisible,
     toggleAmountsVisible,
   } = useApp();
+  const [deleting, setDeleting] = useState(false);
+
+  async function performAccountDeletion() {
+    setDeleting(true);
+    try {
+      await deleteAccount();
+      router.replace('/onboarding?transition=back' as Href);
+    } catch (reason) {
+      Alert.alert(
+        'Eliminazione non riuscita',
+        reason instanceof Error
+          ? reason.message
+          : 'Non siamo riusciti a eliminare l’account. Riprova tra poco.',
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function confirmAccountDeletion() {
+    Alert.alert(
+      'Eliminare l’account?',
+      'Cancelleremo in modo definitivo transazioni, budget, obiettivi, conversazioni con il Coach e i gruppi di cui sei proprietario. I collegamenti bancari verranno revocati.',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Continua',
+          style: 'destructive',
+          onPress: () =>
+            Alert.alert(
+              'Confermi l’eliminazione?',
+              'Questa operazione non può essere annullata.',
+              [
+                { text: 'Annulla', style: 'cancel' },
+                {
+                  text: 'Elimina account',
+                  style: 'destructive',
+                  onPress: () => void performAccountDeletion(),
+                },
+              ],
+            ),
+        },
+      ],
+    );
+  }
 
   return (
     <Screen>
@@ -170,11 +215,10 @@ export default function ProfileScreen() {
       <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ACCOUNT</Text>
       <Pressable
         accessibilityRole="button"
+        disabled={deleting}
         onPress={async () => {
-          const { error } = await supabase.auth.signOut();
-          if (!error) {
-            router.replace('/onboarding?transition=back' as Href);
-          }
+          await signOutLocally();
+          router.replace('/onboarding?transition=back' as Href);
         }}
         style={({ pressed }) => [
           styles.signOut,
@@ -183,6 +227,21 @@ export default function ProfileScreen() {
         ]}>
         <Text style={[styles.signOutIcon, { color: colors.negative }]}>logout</Text>
         <Text style={[styles.signOutText, { color: colors.negative }]}>Esci da Flownd</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityHint="Elimina definitivamente il tuo account e tutti i dati"
+        accessibilityState={{ disabled: deleting, busy: deleting }}
+        disabled={deleting}
+        onPress={confirmAccountDeletion}
+        style={({ pressed }) => [styles.deleteAccount, pressed && styles.pressed]}>
+        {deleting ? (
+          <ActivityIndicator color={colors.negative} />
+        ) : (
+          <Text style={[styles.deleteAccountText, { color: colors.textSecondary }]}>
+            Elimina account
+          </Text>
+        )}
       </Pressable>
     </Screen>
   );
@@ -263,5 +322,7 @@ const styles = StyleSheet.create({
   signOut: { minHeight: 54, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   signOutIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 19 },
   signOutText: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  deleteAccount: { minHeight: 48, marginTop: 8, alignItems: 'center', justifyContent: 'center' },
+  deleteAccountText: { fontFamily: font.bodySemiBold, fontSize: 13, textDecorationLine: 'underline' },
   pressed: { opacity: 0.7 },
 });

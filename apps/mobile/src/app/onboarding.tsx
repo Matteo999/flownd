@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 
 import { BrandLogo } from '@/components/brand-logo';
+import { ProfileUnavailableScreen } from '@/components/profile-unavailable-screen';
 import { GoalDateField } from '@/components/goal-date-field';
 import {
   Card,
@@ -78,6 +79,7 @@ function OnboardingFlow({ resumeSummary }: { resumeSummary: boolean }) {
     session,
     saving,
     onboardingComplete,
+    profileUnavailable,
     draft,
     error,
     updateDraft,
@@ -163,6 +165,9 @@ function OnboardingFlow({ resumeSummary }: { resumeSummary: boolean }) {
     previousBalanceAllocation.current = activeBalanceAllocation.current;
   }
 
+  if (session && profileUnavailable) {
+    return <ProfileUnavailableScreen />;
+  }
   if (onboardingComplete) {
     return <Redirect href={'/dashboard' as Href} />;
   }

@@ -128,6 +128,7 @@ type AppContextValue = {
   loading: boolean;
   saving: boolean;
   onboardingComplete: boolean;
+  profileUnavailable: boolean;
   firstDashboardVisit: boolean;
   draft: OnboardingDraft;
   transactions: ExpenseDraft[];
@@ -223,6 +224,7 @@ type AppContextValue = {
   toggleAmountsVisible: () => Promise<void>;
   clearError: () => void;
   refreshData: () => Promise<void>;
+  retryProfile: () => Promise<void>;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -275,6 +277,9 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
+  // True quando la sessione esiste ma il profilo non è leggibile (rete, backend):
+  // in quel caso non sappiamo se l'onboarding è completo e non reindirizziamo.
+  const [profileUnavailable, setProfileUnavailable] = useState(false);
   const [firstDashboardVisit, setFirstDashboardVisit] = useState(false);
   const [draft, setDraft] = useState<OnboardingDraft>(initialDraft);
   const [transactions, setTransactions] = useState<ExpenseDraft[]>([]);
@@ -633,6 +638,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (!nextSession) {
       recurringStartupRefreshUserId.current = null;
       setOnboardingComplete(false);
+      setProfileUnavailable(false);
       setFirstDashboardVisit(false);
       setDraft(initialDraft);
       setTransactions([]);
@@ -670,9 +676,10 @@ export function AppProvider({ children }: PropsWithChildren) {
           ? 'Il database Flownd non è ancora configurato su Supabase.'
           : 'Non riesco a verificare il profilo. Riprova tra poco.',
       );
-      setOnboardingComplete(false);
+      setProfileUnavailable(true);
       return;
     }
+    setProfileUnavailable(false);
     const completed = Boolean(data?.onboarding_completed);
     setOnboardingComplete(completed);
     await hydratePrivacyPreference(nextSession.user.id);
@@ -699,23 +706,28 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!mounted) return;
-      let initialSession = data.session;
-      if (
-        initialSession?.expires_at
-        && initialSession.expires_at <= Math.floor(Date.now() / 1000) + 60
-      ) {
-        const refreshed = await supabase.auth.refreshSession();
-        if (!refreshed.error) initialSession = refreshed.data.session;
+    void (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!mounted) return;
+        let initialSession = data.session;
+        if (
+          initialSession?.expires_at
+          && initialSession.expires_at <= Math.floor(Date.now() / 1000) + 60
+        ) {
+          const refreshed = await supabase.auth.refreshSession();
+          if (!refreshed.error) initialSession = refreshed.data.session;
+        }
+        activeUserId.current = initialSession?.user.id ?? null;
+        setSession(initialSession);
+        await readProfile(initialSession);
+      } catch (startupError) {
+        if (__DEV__) console.error('Flownd startup failed', startupError);
+        setProfileUnavailable(true);
+      } finally {
+        if (mounted) setLoading(false);
       }
-      activeUserId.current = initialSession?.user.id ?? null;
-      setSession(initialSession);
-      await readProfile(initialSession);
-      if (mounted) {
-        setLoading(false);
-      }
-    });
+    })();
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       activeUserId.current = nextSession?.user.id ?? null;
@@ -2388,11 +2400,28 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (userId) await hydrateUserData(userId);
   }, [hydrateUserData, session?.user.id]);
 
+  const retryProfile = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await supabase.auth.getSession();
+      activeUserId.current = data.session?.user.id ?? null;
+      setSession(data.session);
+      await readProfile(data.session);
+    } catch (retryError) {
+      if (__DEV__) console.error('Flownd profile retry failed', retryError);
+      setProfileUnavailable(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [readProfile]);
+
   const value: AppContextValue = {
     session,
     loading,
     saving,
     onboardingComplete,
+    profileUnavailable,
     firstDashboardVisit,
     draft,
     transactions,
@@ -2451,6 +2480,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     toggleAmountsVisible,
     clearError: () => setError(null),
     refreshData,
+    retryProfile,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

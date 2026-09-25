@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
+import accountDeleteHandler from './_account-delete.js'
 import clientErrorHandler from './_client-error.js'
 import groupInvitesHandler from './_group-invites.js'
 import transactionImportHandler from './_transaction-import.js'
@@ -72,6 +73,7 @@ async function recurringRefreshHandler(req, res) {
 }
 
 const handlers = {
+  'account-delete': accountDeleteHandler,
   error: clientErrorHandler,
   'group-invite': groupInvitesHandler,
   import: transactionImportHandler,

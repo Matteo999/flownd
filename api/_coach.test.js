@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { coachTools, cycleHistoryComparison, geminiCoachTools } from './_coach-data.js'
-import { coachErrorLog, conversationTitle } from './coach.js'
+import { coachErrorLog, coachQuotaLimits, conversationTitle } from './coach.js'
 
 const expectedTools = [
   'get_financial_overview',
@@ -101,4 +101,14 @@ test('la migrazione applica limiti, RLS e risoluzione atomica', async () => {
   )
   assert.match(management, /add column if not exists is_pinned boolean/)
   assert.match(management, /order by older\.is_pinned desc, older\.updated_at desc/)
+})
+
+test('quota Coach per piano con override da ambiente', () => {
+  assert.deepEqual(coachQuotaLimits('free', {}), { daily: 10, minute: 6 })
+  assert.deepEqual(coachQuotaLimits('max', {}), { daily: 150, minute: 6 })
+  assert.deepEqual(coachQuotaLimits('sconosciuto', {}), { daily: 10, minute: 6 })
+  assert.deepEqual(
+    coachQuotaLimits('pro', { COACH_DAILY_LIMIT_PRO: '80', COACH_MINUTE_LIMIT: '0' }),
+    { daily: 80, minute: 6 },
+  )
 })

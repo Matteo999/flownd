@@ -18,6 +18,7 @@ import {
   uiStyles,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { completeAuthFromUrl } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { useApp } from '@/providers/app-provider';
 
@@ -36,6 +37,8 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState<LoginLoading>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
 
   if (loading) {
     return <LoadingScreen label="Verifichiamo il tuo account…" />;
@@ -48,32 +51,6 @@ export default function LoginScreen() {
   }
   if (session) {
     return <Redirect href={'/onboarding' as Href} />;
-  }
-
-  async function processAuthUrl(url: string) {
-    const parsed = Linking.parse(url);
-    const code =
-      typeof parsed.queryParams?.code === 'string'
-        ? parsed.queryParams.code
-        : null;
-    if (code) {
-      const { error: exchangeError } =
-        await supabase.auth.exchangeCodeForSession(code);
-      if (exchangeError) throw exchangeError;
-      return;
-    }
-
-    const hash = url.includes('#') ? url.split('#')[1] : '';
-    const hashParams = new URLSearchParams(hash);
-    const accessToken = hashParams.get('access_token');
-    const refreshToken = hashParams.get('refresh_token');
-    if (accessToken && refreshToken) {
-      const { error: sessionError } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-      if (sessionError) throw sessionError;
-    }
   }
 
   async function signInSocial(provider: Provider) {
@@ -94,7 +71,7 @@ export default function LoginScreen() {
         data.url,
         redirectTo,
       );
-      if (result.type === 'success') await processAuthUrl(result.url);
+      if (result.type === 'success') await completeAuthFromUrl(result.url);
     } catch {
       setError(
         `Accesso con ${provider === 'facebook' ? 'Facebook' : provider === 'google' ? 'Google' : 'Apple'} non riuscito. Controlla la configurazione e riprova.`,
@@ -125,6 +102,34 @@ export default function LoginScreen() {
     if (signInError) {
       setError('Email o password non corrette.');
     }
+  }
+
+  async function requestPasswordReset() {
+    const normalizedEmail = email.trim().toLowerCase();
+    setNotice(null);
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      setError('Inserisci l’email del tuo account per ricevere il link.');
+      return;
+    }
+    setResetLoading(true);
+    setError(null);
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+      normalizedEmail,
+      {
+        redirectTo: Linking.createURL('auth/callback', {
+          queryParams: { type: 'recovery' },
+        }),
+      },
+    );
+    setResetLoading(false);
+    if (resetError) {
+      setError('Non siamo riusciti a inviare il link. Riprova tra poco.');
+      return;
+    }
+    // Messaggio identico per email esistenti e non: evita l’enumerazione degli account.
+    setNotice(
+      `Se ${normalizedEmail} è registrata, riceverai un link per scegliere una nuova password.`,
+    );
   }
 
   const registerHref = (
@@ -177,6 +182,7 @@ export default function LoginScreen() {
             onPress={() => {
               setEmailExpanded((current) => !current);
               setError(null);
+              setNotice(null);
             }}
           />
           {emailExpanded ? (
@@ -199,6 +205,23 @@ export default function LoginScreen() {
                 value={password}
                 onChangeText={setPassword}
               />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: resetLoading, busy: resetLoading }}
+                disabled={resetLoading}
+                hitSlop={8}
+                onPress={requestPasswordReset}
+                style={({ pressed }) => [styles.forgotButton, pressed && styles.pressed]}>
+                <Text style={[styles.forgotText, { color: colors.accent }]}>
+                  {resetLoading ? 'Invio in corso…' : 'Password dimenticata?'}
+                </Text>
+              </Pressable>
+              {error ? (
+                <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text>
+              ) : null}
+              {notice ? (
+                <Text style={[styles.notice, { color: colors.textSecondary }]}>{notice}</Text>
+              ) : null}
               <PrimaryButton
                 onPress={signInWithEmail}
                 loading={authLoading === 'email'}>
@@ -237,7 +260,7 @@ export default function LoginScreen() {
           />
         </View>
 
-        {error ? (
+        {error && !emailExpanded ? (
           <Text style={[uiStyles.error, { color: colors.negative }]}>{error}</Text>
         ) : null}
 
@@ -273,6 +296,9 @@ const styles = StyleSheet.create({
   title: { textAlign: 'center' },
   methods: { gap: 9, marginTop: 24 },
   emailCard: { paddingTop: 2 },
+  forgotButton: { alignSelf: 'flex-end', minHeight: 44, justifyContent: 'center' },
+  forgotText: { fontFamily: font.bodySemiBold, fontSize: 13 },
+  notice: { fontFamily: font.body, fontSize: 13, lineHeight: 19 },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
