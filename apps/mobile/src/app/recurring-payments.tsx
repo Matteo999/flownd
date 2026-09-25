@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView,
@@ -6,10 +6,18 @@ import {
 } from 'react-native';
 
 import {
-  Card, Field, PrimaryButton, Screen, SecondaryButton,
-  font, uiStyles, useFlowndTheme,
+  BackButton,
+  Card,
+  Field,
+  PrimaryButton,
+  Screen,
+  SecondaryButton,
+  font,
+  uiStyles,
+  useFlowndTheme,
 } from '@/components/flownd-ui';
-import { formatEuro } from '@/lib/onboarding';
+import { parseEuroAmount } from '@/lib/amount';
+import { type ExpenseDraft, formatEuro } from '@/lib/onboarding';
 import {
   frequencyLabels, nextFutureRecurringDate, significantUpcomingPayments, type RecurringFrequency,
   type RecurringSeries, type RecurringSeriesDraft,
@@ -17,7 +25,7 @@ import {
 import {
   expenseTransactionCategories, incomeTransactionCategories, transactionCategories,
 } from '@/lib/transaction-categories';
-import { useApp } from '@/providers/app-provider';
+import { type FinancialAccount, useAppState } from '@/providers/app-provider';
 
 const frequencies = Object.keys(frequencyLabels) as RecurringFrequency[];
 const categoryOptions = [...new Set<string>(transactionCategories)];
@@ -25,7 +33,7 @@ const incomeCategorySet = new Set<string>(incomeTransactionCategories);
 const expenseCategorySet = new Set<string>(expenseTransactionCategories);
 
 function asAmount(value: string) {
-  return Number(value.replace(',', '.')) || 0;
+  return parseEuroAmount(value);
 }
 
 export default function RecurringPaymentsScreen() {
@@ -37,7 +45,19 @@ export default function RecurringPaymentsScreen() {
     recurringPayments, financialAccounts, budgetMonthlyIncome, saving, error,
     transactions, createRecurringPayment, createRecurringFromTransaction,
     updateRecurringPayment, setRecurringPaymentStatus, deleteRecurringPayment,
-  } = useApp();
+  } = useAppState(
+    'recurringPayments',
+    'financialAccounts',
+    'budgetMonthlyIncome',
+    'saving',
+    'error',
+    'transactions',
+    'createRecurringPayment',
+    'createRecurringFromTransaction',
+    'updateRecurringPayment',
+    'setRecurringPaymentStatus',
+    'deleteRecurringPayment',
+  );
   const visible = useMemo(
     () => params.upcoming === 'significant'
       ? significantUpcomingPayments(
@@ -135,8 +155,8 @@ export default function RecurringPaymentsScreen() {
 
 function RecurringEditor({ series, seed, accounts, saving, error, onCancel, onSave }: {
   series: RecurringSeries | null;
-  seed?: ReturnType<typeof useApp>['transactions'][number];
-  accounts: ReturnType<typeof useApp>['financialAccounts'];
+  seed?: ExpenseDraft;
+  accounts: FinancialAccount[];
   saving: boolean;
   error: string | null;
   onCancel: () => void;
@@ -275,24 +295,13 @@ function RecurringHeader({ onAdd }: { onAdd: () => void }) {
   const { colors } = useFlowndTheme();
   return (
     <View style={styles.header}>
-      <BackButton />
+      <BackButton variant="surface" />
       <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.text }]}>Ricorrenze</Text>
       <AddButton onPress={onAdd} />
     </View>
   );
 }
 
-function BackButton() {
-  const { colors } = useFlowndTheme();
-  return (
-    <Pressable
-      accessibilityRole="button" accessibilityLabel="Indietro" hitSlop={8}
-      onPress={() => router.back()}
-      style={({ pressed }) => [styles.backButton, { backgroundColor: colors.surface, borderColor: colors.border }, pressed && styles.pressed]}>
-      <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-    </Pressable>
-  );
-}
 
 function AddButton({ onPress }: { onPress: () => void }) {
   const { colors } = useFlowndTheme();
@@ -308,7 +317,6 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 24 },
   headerTitle: { flex: 1, textAlign: 'center', fontFamily: font.bodySemiBold, fontSize: 14 },
   materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 25 },
-  backButton: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   addButton: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   addIcon: { color: '#FFFFFF', fontFamily: 'MaterialSymbols_400Regular', fontSize: 21, lineHeight: 24 },
   pressed: { opacity: 0.68 },

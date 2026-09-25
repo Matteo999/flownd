@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
+  BackButton,
   Card,
   PrimaryButton,
   Screen,
@@ -13,23 +14,18 @@ import {
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import { addMonthsToDate, type Loan } from '@/lib/goals';
 import { formatEuro } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function FinancingScreen() {
   const { colors, isDark } = useFlowndTheme();
-  const { loans, amountsVisible } = useApp();
+  const { loans, amountsVisible } = useAppState('loans', 'amountsVisible');
   const monthlyTotal = loans.reduce((sum, loan) => sum + loan.monthlyPayment, 0);
 
   return (
     <Screen>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={styles.header}>
-        <Pressable
-          accessibilityLabel="Indietro"
-          onPress={() => router.back()}
-          style={[styles.close, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-          <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-        </Pressable>
+        <BackButton variant="surface" />
         <Text style={[styles.headerTitle, { color: colors.text }]}>Finanziamenti</Text>
         <View style={styles.headerSpacer} />
       </View>
@@ -117,14 +113,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 26,
   },
-  close: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   materialIcon: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 21,
@@ -148,7 +136,7 @@ const styles = StyleSheet.create({
   loanName: { fontFamily: font.bodySemiBold, fontSize: 14 },
   loanMeta: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
   loanPayment: { fontFamily: font.dataMedium, fontSize: 13 },
-  loanMonth: { fontFamily: font.body, fontSize: 9 },
+  loanMonth: { fontFamily: font.body, fontSize: 10 },
   balloon: {
     borderTopWidth: StyleSheet.hairlineWidth,
     marginTop: 12,

@@ -16,6 +16,7 @@ import {
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { parseDecimalInput } from '@/lib/amount';
 import {
   acceptGroupInvite,
   createFamilyGroup,
@@ -43,7 +44,7 @@ import {
   setMyGroupPrivacy,
   updateGroupMemberAccess,
 } from '@/lib/family';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 import { contributionAmounts } from '@/lib/group-finance';
 import { type BudgetAllocation, updateAllocation } from '@/lib/onboarding';
 
@@ -69,7 +70,12 @@ const initialInviteAccess: InviteAccess = {
 
 export default function FamilyScreen() {
   const { colors } = useFlowndTheme();
-  const { session, financialAccounts, grossBudgetMonthlyIncome, refreshData } = useApp();
+  const { session, financialAccounts, grossBudgetMonthlyIncome, refreshData } = useAppState(
+    'session',
+    'financialAccounts',
+    'grossBudgetMonthlyIncome',
+    'refreshData',
+  );
   const initialCachedGroups = peekFamilyGroups(session?.user.id);
   const [groups, setGroups] = useState<FamilyGroup[]>(() => initialCachedGroups ?? []);
   const [receivedInvites, setReceivedInvites] = useState<GroupInvite[]>([]);
@@ -1280,7 +1286,7 @@ function ContributionPicker({
   const displayedValue = scheduledPercentage ?? value;
   const preview = contributionAmounts(monthlyIncome, displayedValue);
   const [customValue, setCustomValue] = useState(String(displayedValue));
-  const parsedCustomValue = Number(customValue.replace(',', '.'));
+  const parsedCustomValue = parseDecimalInput(customValue);
   return (
     <View style={styles.privacyBlock}>
       <View style={styles.dataRow}>
@@ -1758,10 +1764,10 @@ const styles = StyleSheet.create({
   memberAvatar: { width: 48, height: 48, borderRadius: 24 },
   memberAvatarFallback: { borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   memberAvatarInitials: { fontFamily: font.displayBold, fontSize: 15 },
-  memberAvatarName: { fontFamily: font.bodyMedium, fontSize: 9, marginTop: 4, maxWidth: 56 },
+  memberAvatarName: { fontFamily: font.bodyMedium, fontSize: 10, marginTop: 4, maxWidth: 56 },
   summaryCard: { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 13 },
   summaryValue: { fontFamily: font.dataMedium, fontSize: 19, marginTop: 3 },
-  summaryLabel: { fontFamily: font.bodyMedium, fontSize: 9, marginTop: 1 },
+  summaryLabel: { fontFamily: font.bodyMedium, fontSize: 10, marginTop: 1 },
   dataRow: { minHeight: 35, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   sharedTransactionRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12 },
   dataLabel: { flex: 1, fontFamily: font.bodyMedium, fontSize: 12 },

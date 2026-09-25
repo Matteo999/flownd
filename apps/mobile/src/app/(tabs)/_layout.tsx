@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 
 import { LoadingScreen, font, useFlowndTheme } from '@/components/flownd-ui';
 import { ProfileUnavailableScreen } from '@/components/profile-unavailable-screen';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 const tabItems = [
   {
@@ -41,7 +41,12 @@ const tabItems = [
 
 export default function TabsLayout() {
   const { colors, isDark } = useFlowndTheme();
-  const { loading, onboardingComplete, profileUnavailable, session } = useApp();
+  const { loading, onboardingComplete, profileUnavailable, session } = useAppState(
+    'loading',
+    'onboardingComplete',
+    'profileUnavailable',
+    'session',
+  );
 
   if (loading) return <LoadingScreen label="Carichiamo i tuoi dati…" />;
   if (session && profileUnavailable) return <ProfileUnavailableScreen />;

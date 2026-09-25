@@ -1,6 +1,5 @@
 import * as Linking from 'expo-linking';
-import { Platform } from 'react-native';
-
+import { apiRequest } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 
 // Flusso PKCE: i link di ritorno contengono solo un `code` monouso, che vale
@@ -30,38 +29,19 @@ export async function completeAuthFromUrl(url: string) {
 // questo limite per non bloccare account creati con la regola precedente.
 export const MIN_PASSWORD_LENGTH = 8;
 
-function apiUrl(path: string) {
-  const configured = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
-  if (configured) return `${configured}${path}`;
-  return Platform.OS === 'web' ? path : null;
-}
-
 // Elimina definitivamente l'account: il backend revoca i consensi bancari e
 // cancella l'utente da Supabase Auth (i dati applicativi seguono in cascata).
 export async function deleteAccount() {
-  const url = apiUrl('/api/transaction-tools?action=account-delete');
-  if (!url) throw new Error('Configura EXPO_PUBLIC_API_URL per eliminare l’account.');
-  const { data } = await supabase.auth.getSession();
-  const accessToken = data.session?.access_token;
-  if (!accessToken) throw new Error('La sessione è scaduta. Accedi di nuovo.');
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
+  await apiRequest<{ deleted: boolean }>(
+    '/api/transaction-tools?action=account-delete',
+    null,
+    {
+      body: { confirm: true },
+      timeoutMs: 45_000,
+      fallbackError: 'Non siamo riusciti a eliminare l’account. Riprova tra poco.',
+      missingConfigError: 'Configura EXPO_PUBLIC_API_URL per eliminare l’account.',
     },
-    body: JSON.stringify({ confirm: true }),
-  });
-  if (!response.ok) {
-    let message = 'Non siamo riusciti a eliminare l’account. Riprova tra poco.';
-    try {
-      const body = (await response.json()) as { error?: string };
-      if (body.error) message = body.error;
-    } catch {
-      // Risposta non JSON: resta il messaggio generico.
-    }
-    throw new Error(message);
-  }
+  );
   await signOutLocally();
 }
 

@@ -3,6 +3,7 @@ import {
   forwardRef,
   PropsWithChildren,
   ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -18,6 +19,7 @@ import {
   type NativeSyntheticEvent,
   Platform,
   Pressable,
+  RefreshControl,
   StyleProp,
   StyleSheet,
   Text,
@@ -27,7 +29,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { useIsFocused } from 'expo-router';
+import { type Href, router, useIsFocused } from 'expo-router';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import MaskedView from '@react-native-masked-view/masked-view';
 import {
@@ -88,6 +90,7 @@ export function Screen({
   fixedHeader,
   onScroll: onScreenScroll,
   transparentHeaderOnScroll = false,
+  onRefresh,
 }: PropsWithChildren<{
   scroll?: boolean;
   scrollEnabled?: boolean;
@@ -99,8 +102,20 @@ export function Screen({
   fixedHeader?: ReactNode;
   onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   transparentHeaderOnScroll?: boolean;
+  // Abilita il pull-to-refresh sulla ScrollView della schermata.
+  onRefresh?: () => Promise<unknown>;
 }>) {
   const { colors, isDark } = useFlowndTheme();
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = useCallback(async () => {
+    if (!onRefresh) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const [scrollY] = useState(() => new Animated.Value(0));
@@ -212,6 +227,16 @@ export function Screen({
             onScroll={handleScroll}
             scrollEnabled={scrollEnabled}
             scrollEventThrottle={16}
+            refreshControl={
+              onRefresh ? (
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={refresh}
+                  tintColor={colors.accent}
+                  colors={[colors.accent]}
+                />
+              ) : undefined
+            }
             contentContainerStyle={styles.scroll}>
             {content}
           </Animated.ScrollView>
@@ -399,6 +424,8 @@ export function PrimaryButton({ children, onPress, disabled, loading, compact }:
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={typeof children === 'string' ? children : undefined}
+      accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       disabled={disabled || loading}
       onPress={onPress}
       style={({ pressed }) => [
@@ -421,6 +448,8 @@ export function GradientButton({ children, onPress, disabled, loading, compact, 
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={typeof children === 'string' ? children : undefined}
+      accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       disabled={disabled || loading}
       onPress={onPress}
       style={({ pressed }) => [
@@ -452,6 +481,7 @@ export function SecondaryButton({ children, onPress, disabled, compact }: Button
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -507,6 +537,44 @@ export function Card({
       ]}>
       {children}
     </View>
+  );
+}
+
+// Pulsante indietro standard (icona 40pt + hitSlop). Senza cronologia torna
+// alla dashboard invece di non fare nulla.
+export function BackButton({
+  onPress,
+  variant = 'plain',
+  label = 'Torna indietro',
+}: {
+  onPress?: () => void;
+  variant?: 'plain' | 'surface';
+  label?: string;
+}) {
+  const { colors } = useFlowndTheme();
+  const handlePress =
+    onPress ??
+    (() => {
+      if (router.canGoBack()) router.back();
+      else router.replace('/dashboard' as Href);
+    });
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={8}
+      onPress={handlePress}
+      style={({ pressed }) => [
+        styles.backIconButton,
+        variant === 'surface' && {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderWidth: 1,
+        },
+        pressed && styles.pressed,
+      ]}>
+      <Text style={[styles.backIconGlyph, { color: colors.text }]}>arrow_back</Text>
+    </Pressable>
   );
 }
 
@@ -719,7 +787,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     marginTop: 14,
   },
-  compactButton: { minHeight: 42, marginTop: 0 },
+  compactButton: { minHeight: 44, marginTop: 0 },
   gradientPressable: { minHeight: 52, marginTop: 18, borderRadius: radius.control, overflow: 'hidden' },
   compactGradientPressable: { minHeight: 72, marginTop: 0 },
   gradient: { flex: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 },
@@ -731,6 +799,14 @@ const styles = StyleSheet.create({
   secondaryText: { fontFamily: font.bodySemiBold, fontSize: 15 },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
+  backIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backIconGlyph: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 25 },
   fieldWrap: { marginTop: 16 },
   fieldLabel: { fontFamily: font.bodyMedium, fontSize: 13, marginBottom: 7 },
   field: {

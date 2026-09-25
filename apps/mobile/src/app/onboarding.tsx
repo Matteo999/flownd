@@ -27,6 +27,7 @@ import {
   uiStyles,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { parseEuroAmount } from '@/lib/amount';
 import {
   BudgetAllocation,
   categorizeExpense,
@@ -35,7 +36,7 @@ import {
   incomeBands,
   monthsUntil,
 } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 type AllocationKey = keyof BudgetAllocation;
 
@@ -85,7 +86,17 @@ function OnboardingFlow({ resumeSummary }: { resumeSummary: boolean }) {
     updateDraft,
     completeOnboarding,
     clearError,
-  } = useApp();
+  } = useAppState(
+    'session',
+    'saving',
+    'onboardingComplete',
+    'profileUnavailable',
+    'draft',
+    'error',
+    'updateDraft',
+    'completeOnboarding',
+    'clearError',
+  );
   const [step, setStep] = useState(() => (resumeSummary ? 6 : 1));
   const [targetInput, setTargetInput] = useState(() =>
     formatGroupedInteger(draft.goal.targetAmount),
@@ -455,7 +466,7 @@ function OnboardingFlow({ resumeSummary }: { resumeSummary: boolean }) {
                   updateDraft({
                     expense: {
                       ...draft.expense,
-                      amount: Number(value.replace(',', '.')) || 0,
+                      amount: parseEuroAmount(value),
                       category,
                     },
                   })

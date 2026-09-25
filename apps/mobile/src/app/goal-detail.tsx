@@ -17,6 +17,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import {
+  BackButton,
   Card,
   PrimaryButton,
   ProgressBar,
@@ -29,7 +30,7 @@ import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import { financialCycleForDate } from '@/lib/financial-cycle';
 import { formatDateItalian, formatEuro, monthsUntil } from '@/lib/onboarding';
 import { supabase } from '@/lib/supabase';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 type Contribution = {
   id: string;
@@ -58,7 +59,15 @@ export default function GoalDetailScreen() {
     deleteGoalContribution,
     budgetCycleStartDay,
     transactions,
-  } = useApp();
+  } = useAppState(
+    'session',
+    'goals',
+    'amountsVisible',
+    'completeGoal',
+    'deleteGoalContribution',
+    'budgetCycleStartDay',
+    'transactions',
+  );
   const goal = goals.find((item) => item.id === goalId);
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(Boolean(goalId && session));
@@ -402,12 +411,7 @@ function DetailHeader({ title, onEdit }: { title: string; onEdit?: () => void })
   const { colors } = useFlowndTheme();
   return (
     <View style={styles.header}>
-      <Pressable
-        accessibilityLabel="Indietro"
-        onPress={() => router.back()}
-        style={[styles.close, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-        <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-      </Pressable>
+      <BackButton variant="surface" />
       <Text numberOfLines={1} style={[styles.headerTitle, { color: colors.text }]}> 
         {title}
       </Text>
@@ -440,14 +444,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
     marginBottom: 24,
-  },
-  close: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: {
     flex: 1,
@@ -486,7 +482,7 @@ const styles = StyleSheet.create({
   },
   monthlyPlanLabel: {
     fontFamily: font.bodySemiBold,
-    fontSize: 8,
+    fontSize: 10,
     letterSpacing: 0.55,
   },
   monthlyPlanAmount: { fontFamily: font.dataMedium, fontSize: 14, marginTop: 2 },

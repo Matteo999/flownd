@@ -12,6 +12,7 @@
       "bundleIdentifier": "com.mlmdev.flownd"
     },
     "android": {
+      "package": "com.mlmdev.flownd",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "../../assets/F_donut.png",
@@ -44,6 +45,13 @@
             "backgroundColor": "#0F1712",
             "image": "../../assets/F_donut.png"
           }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Flownd usa Face ID per proteggere l’accesso ai tuoi dati finanziari."
         }
       ]
     ],

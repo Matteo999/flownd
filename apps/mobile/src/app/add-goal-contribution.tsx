@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card, Field, PrimaryButton, Screen, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
+import { parseEuroAmount } from '@/lib/amount';
 import { financialCycleForDate } from '@/lib/financial-cycle';
 import { formatEuro } from '@/lib/onboarding';
 
@@ -21,12 +22,23 @@ export default function AddGoalContributionScreen() {
     saving,
     error,
     transactions,
-  } = useApp();
+  } = useAppState(
+    'goals',
+    'draft',
+    'goalContributions',
+    'budgetCycleStartDay',
+    'budgetMonthlyIncome',
+    'goalAllocationMode',
+    'addGoalContribution',
+    'saving',
+    'error',
+    'transactions',
+  );
   const params = useLocalSearchParams<{ goalId?: string }>();
   const openedGoal = goals.find((goal) => goal.id === params.goalId);
   const [amount, setAmount] = useState('');
   const [goalId, setGoalId] = useState<string | null>(openedGoal?.id ?? null);
-  const numericAmount = Number(amount.replace(',', '.')) || 0;
+  const numericAmount = parseEuroAmount(amount);
   const cycle = financialCycleForDate(
     new Date(),
     budgetCycleStartDay,
@@ -132,7 +144,7 @@ const styles = StyleSheet.create({
   optionText: { flex: 1, fontFamily: font.bodyMedium, fontSize: 13 },
   radio: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
   savingsCard: { marginTop: 16 },
-  savingsLabel: { fontFamily: font.bodySemiBold, fontSize: 9, letterSpacing: 0.9 },
+  savingsLabel: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 0.9 },
   savingsValue: { fontFamily: font.dataMedium, fontSize: 24, marginTop: 5 },
   savingsCopy: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 2 },
   extraCopy: { fontFamily: font.bodyMedium, fontSize: 10, lineHeight: 15, marginTop: 8 },

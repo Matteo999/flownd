@@ -3,10 +3,10 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Animated, Easing, StyleSheet } from 'react-native';
 
 import { BrandLogo } from '@/components/brand-logo';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export function AnimatedLaunchOverlay() {
-  const { loading } = useApp();
+  const { loading } = useAppState('loading');
   const [visible, setVisible] = useState(true);
   const [opacity] = useState(() => new Animated.Value(1));
   const [logoOpacity] = useState(() => new Animated.Value(1));

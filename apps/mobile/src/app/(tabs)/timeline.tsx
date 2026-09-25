@@ -52,6 +52,7 @@ import {
   NUMERIC_KEYBOARD_ACCESSORY_ID,
   NumericKeyboardAccessory,
 } from '@/components/numeric-keyboard-accessory';
+import { parseEuroAmount } from '@/lib/amount';
 import {
   HIDDEN_AMOUNT,
   type DashboardPeriod,
@@ -77,7 +78,7 @@ import {
   summarizeTransactions,
   type TimelineGroup,
 } from '@/lib/timeline';
-import { type TransactionUpdate, useApp } from '@/providers/app-provider';
+import { type TransactionUpdate, useAppState } from '@/providers/app-provider';
 
 const periods: { id: DashboardPeriod; label: string }[] = [
   { id: 'week', label: 'Settimana' },
@@ -308,7 +309,24 @@ export default function TimelineScreen() {
     error,
     clearError,
     refreshData,
-  } = useApp();
+  } = useAppState(
+    'session',
+    'transactions',
+    'financialAccounts',
+    'recurringPayments',
+    'amountsVisible',
+    'planTier',
+    'categorizeTransactions',
+    'updateTransaction',
+    'createRecurringFromTransaction',
+    'updateRecurringPayment',
+    'deleteTransaction',
+    'unlinkTransactionFromRecurring',
+    'saving',
+    'error',
+    'clearError',
+    'refreshData',
+  );
   const paramCategory = Array.isArray(params.category)
     ? params.category[0]
     : params.category;
@@ -355,7 +373,8 @@ export default function TimelineScreen() {
   useFocusEffect(
     useCallback(() => {
       // Rilegge i movimenti al ritorno dai form/import, anche con tab native congelate.
-      void refreshData();
+      // Le modifiche fatte dall'app aggiornano già i dati: evitiamo ricariche ravvicinate.
+      void refreshData({ maxAgeMs: 30_000 });
       if (userId) {
         void fetchFamilyGroups(userId)
           .then(setFamilyGroups)
@@ -2067,7 +2086,7 @@ function EditTransactionModal({
     [groups, selectedGroupId],
   );
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
-  const numericAmount = Number(amount.replace(',', '.')) || 0;
+  const numericAmount = parseEuroAmount(amount);
   const [sheetTranslateY] = useState(() => new Animated.Value(480));
   const [sheetHeight] = useState(() => new Animated.Value(0));
   const [backdropOpacity] = useState(() => new Animated.Value(0));
@@ -2787,7 +2806,7 @@ const styles = StyleSheet.create({
   },
   filterModalLabel: {
     fontFamily: font.bodySemiBold,
-    fontSize: 9,
+    fontSize: 10,
     letterSpacing: 0.9,
     marginTop: 14,
     marginBottom: 8,
@@ -2896,7 +2915,7 @@ const styles = StyleSheet.create({
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendDot: { width: 7, height: 7, borderRadius: 4 },
-  legendText: { fontFamily: font.body, fontSize: 9 },
+  legendText: { fontFamily: font.body, fontSize: 10 },
   plot: {
     height: 124,
     flexDirection: 'row',
@@ -2914,7 +2933,7 @@ const styles = StyleSheet.create({
   bar: { width: 5, minHeight: 2, borderRadius: 2 },
   binLabel: {
     fontFamily: font.data,
-    fontSize: 8,
+    fontSize: 10,
     textAlign: 'center',
     marginTop: 5,
   },
@@ -2999,8 +3018,8 @@ const styles = StyleSheet.create({
   },
   category: { fontFamily: font.bodyMedium, fontSize: 10 },
   groupBadge: { borderRadius: 7, paddingHorizontal: 6, paddingVertical: 2 },
-  groupBadgeText: { fontFamily: font.bodySemiBold, fontSize: 8 },
-  transactionDate: { fontFamily: font.data, fontSize: 9 },
+  groupBadgeText: { fontFamily: font.bodySemiBold, fontSize: 10 },
+  transactionDate: { fontFamily: font.data, fontSize: 10 },
   amount: { fontFamily: font.dataMedium, fontSize: 11 },
   empty: { alignItems: 'center', paddingVertical: 28 },
   emptyIcon: {
@@ -3289,7 +3308,7 @@ const styles = StyleSheet.create({
   },
   sheetEyebrow: {
     fontFamily: font.bodySemiBold,
-    fontSize: 9,
+    fontSize: 10,
     letterSpacing: 1,
   },
   sheetTitle: {

@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
+  BackButton,
   Card,
   Field,
   PageHeader,
@@ -12,9 +13,10 @@ import {
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
+import { parseEuroAmount } from '@/lib/amount';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import { formatEuro } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function ManualAccountScreen() {
   const { colors } = useFlowndTheme();
@@ -29,7 +31,16 @@ export default function ManualAccountScreen() {
     clearError,
     updateManualFinancialAccountOpeningBalance,
     deleteManualFinancialAccount,
-  } = useApp();
+  } = useAppState(
+    'financialAccounts',
+    'transactions',
+    'amountsVisible',
+    'saving',
+    'error',
+    'clearError',
+    'updateManualFinancialAccountOpeningBalance',
+    'deleteManualFinancialAccount',
+  );
   const account = financialAccounts.find(
     (item) => item.id === accountId && item.source === 'manual',
   );
@@ -44,7 +55,7 @@ export default function ManualAccountScreen() {
         .slice(0, 12),
     [accountId, transactions],
   );
-  const numericBalance = Number(balance.replace(',', '.')) || 0;
+  const numericBalance = parseEuroAmount(balance);
 
   if (!account) {
     return (
@@ -247,19 +258,6 @@ export default function ManualAccountScreen() {
   );
 }
 
-function BackButton({ onPress }: { onPress: () => void }) {
-  const { colors } = useFlowndTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Indietro"
-      hitSlop={8}
-      onPress={onPress}
-      style={({ pressed }) => [styles.back, pressed && styles.pressed]}>
-      <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-    </Pressable>
-  );
-}
 
 function formatAccountDate(value: string) {
   const date = new Date(value);
@@ -273,7 +271,6 @@ function formatAccountDate(value: string) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.68 },
   hero: { backgroundColor: 'transparent' },
   heroHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
@@ -289,12 +286,12 @@ const styles = StyleSheet.create({
   accountType: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
   balanceLabel: {
     fontFamily: font.bodySemiBold,
-    fontSize: 9,
+    fontSize: 10,
     letterSpacing: 0.9,
     marginTop: 22,
   },
   balance: { fontFamily: font.displayBold, fontSize: 30, marginTop: 4 },
-  balanceDate: { fontFamily: font.body, fontSize: 9, marginTop: 4 },
+  balanceDate: { fontFamily: font.body, fontSize: 10, marginTop: 4 },
   actions: { gap: 8, marginTop: 12 },
   balanceEditor: { marginTop: 12 },
   editorTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
@@ -319,7 +316,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   transactionName: { fontFamily: font.bodySemiBold, fontSize: 11 },
-  transactionMeta: { fontFamily: font.body, fontSize: 8, marginTop: 2 },
+  transactionMeta: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
   transactionAmount: { fontFamily: font.dataMedium, fontSize: 10 },
   emptyTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   emptyCopy: { fontFamily: font.body, fontSize: 10, lineHeight: 16, marginTop: 3 },

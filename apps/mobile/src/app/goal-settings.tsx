@@ -21,7 +21,7 @@ import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import { financialCycleForDate } from '@/lib/financial-cycle';
 import type { Goal } from '@/lib/goals';
 import { formatEuro } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function GoalSettingsScreen() {
   const { colors, isDark } = useFlowndTheme();
@@ -38,7 +38,20 @@ export default function GoalSettingsScreen() {
     moveGoal,
     updateGoal,
     transactions,
-  } = useApp();
+  } = useAppState(
+    'goals',
+    'goalContributions',
+    'loans',
+    'draft',
+    'budgetMonthlyIncome',
+    'budgetCycleStartDay',
+    'amountsVisible',
+    'goalAllocationMode',
+    'setGoalAllocationMode',
+    'moveGoal',
+    'updateGoal',
+    'transactions',
+  );
   const targetGoals = [...goals]
     .filter((goal) => goal.status === 'active')
     .sort((first, second) => first.priority - second.priority);
@@ -418,6 +431,6 @@ const styles = StyleSheet.create({
   rowIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
   rowTitle: { fontFamily: font.bodySemiBold, fontSize: 13 },
   rowCopy: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
-  comingSoon: { fontFamily: font.bodySemiBold, fontSize: 9 },
+  comingSoon: { fontFamily: font.bodySemiBold, fontSize: 10 },
   pressed: { opacity: 0.7 },
 });

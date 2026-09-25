@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
 import { TransactionKindSelector } from '@/components/transaction-kind-selector';
+import { parseEuroAmount } from '@/lib/amount';
 import { fetchFamilyGroups, type FamilyGroup } from '@/lib/family';
 import { GENERIC_OPERATION_ERROR, reportClientError } from '@/lib/transaction-import';
 import {
@@ -19,7 +20,7 @@ import {
   suggestPersonalizedTransactionCategory,
   suggestTransactionCategory,
 } from '@/lib/transaction-categories';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 type TransactionStep = 'amount' | 'description' | 'category';
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
@@ -101,7 +102,7 @@ function formatAmountDisplay(value: string) {
 }
 
 function parseAmountInput(value: string) {
-  return Number(value.replace(',', '.')) || 0;
+  return parseEuroAmount(value);
 }
 
 export default function AddTransactionScreen() {
@@ -120,7 +121,16 @@ export default function AddTransactionScreen() {
     saving,
     error,
     clearError,
-  } = useApp();
+  } = useAppState(
+    'addTransaction',
+    'financialAccounts',
+    'planTier',
+    'session',
+    'transactions',
+    'saving',
+    'error',
+    'clearError',
+  );
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
     accountId ?? null,
   );
@@ -1339,7 +1349,7 @@ const styles = StyleSheet.create({
   },
   categoryTileLabel: {
     fontFamily: font.bodyMedium,
-    fontSize: 9,
+    fontSize: 10,
     lineHeight: 12,
     textAlign: 'center',
   },
@@ -1405,7 +1415,7 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   aiOptionText: { fontFamily: font.bodySemiBold, fontSize: 11 },
-  aiProLabel: { fontFamily: font.dataMedium, fontSize: 8, letterSpacing: 0.5 },
+  aiProLabel: { fontFamily: font.dataMedium, fontSize: 10, letterSpacing: 0.5 },
   importOverlay: { ...StyleSheet.absoluteFill, zIndex: 100, justifyContent: 'flex-end' },
   importBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(4, 12, 9, 0.42)' },
   importSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 34 },
@@ -1423,7 +1433,7 @@ const styles = StyleSheet.create({
   sheetOptionCopy: { flex: 1 },
   sheetOptionTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
   sheetOptionSubtitle: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 2 },
-  proBadge: { fontFamily: font.dataMedium, fontSize: 9, letterSpacing: 0.8 },
+  proBadge: { fontFamily: font.dataMedium, fontSize: 10, letterSpacing: 0.8 },
   categoryTitle: {
     fontFamily: font.bodySemiBold,
     fontSize: 13,

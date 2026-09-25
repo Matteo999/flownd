@@ -357,7 +357,9 @@ async function replyForMessage(client, userId, messageId) {
 }
 
 async function saveAssistantReply(client, userId, conversationId, userMessageId, result) {
-  const { data, error } = await client.from('coach_messages').insert({
+  // Le risposte dell'assistente (e le proposte di modifica) sono scritte solo dal
+  // backend: le policy impediscono al token utente di inserire messaggi 'assistant'.
+  const { data, error } = await serviceClient().from('coach_messages').insert({
     conversation_id: conversationId, user_id: userId, role: 'assistant',
     content: result.content, reply_to_message_id: userMessageId,
     pending_action: result.pendingAction,

@@ -1,9 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import {
+  BackButton,
   Card,
   PrimaryButton,
   Screen,
@@ -19,12 +20,16 @@ import {
   syncBankConnection,
 } from '@/lib/open-banking';
 import { formatEuro } from '@/lib/onboarding';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function BankConnectionScreen() {
   const { colors, isDark } = useFlowndTheme();
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const { session, amountsVisible, refreshData } = useApp();
+  const { session, amountsVisible, refreshData } = useAppState(
+    'session',
+    'amountsVisible',
+    'refreshData',
+  );
   const [connection, setConnection] = useState<OpenBankingConnectionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -90,13 +95,7 @@ export default function BankConnectionScreen() {
     <Screen>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Torna indietro"
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.back, pressed && styles.pressed]}>
-          <Text style={[styles.materialIcon, { color: colors.text }]}>arrow_back</Text>
-        </Pressable>
+        <BackButton />
         <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
           {connection?.aspsp_name || 'Banca collegata'}
         </Text>
@@ -252,18 +251,17 @@ function formatDateTime(value: string) {
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
-  back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { flex: 1, textAlign: 'center', fontFamily: font.displaySemiBold, fontSize: 19 },
   headerSpacer: { width: 40 },
   materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 21 },
   hero: { marginBottom: 10 },
-  eyebrow: { fontFamily: font.bodySemiBold, fontSize: 9, letterSpacing: 0.8 },
+  eyebrow: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 0.8 },
   balance: { fontFamily: font.displayBold, fontSize: 31, lineHeight: 40, marginTop: 6 },
   copy: { fontFamily: font.body, fontSize: 10, lineHeight: 16 },
   statsRow: { flexDirection: 'row', gap: 9 },
   statCard: { flex: 1 },
   statValue: { fontFamily: font.dataMedium, fontSize: 19 },
-  statLabel: { fontFamily: font.body, fontSize: 9, marginTop: 3 },
+  statLabel: { fontFamily: font.body, fontSize: 10, marginTop: 3 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 22, marginBottom: 9 },
   sectionTitle: { fontFamily: font.displaySemiBold, fontSize: 18 },
   sectionMeta: { fontFamily: font.dataMedium, fontSize: 10 },
@@ -271,7 +269,7 @@ const styles = StyleSheet.create({
   resourceRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   resourceIcon: { width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   resourceName: { fontFamily: font.bodySemiBold, fontSize: 12 },
-  resourceMeta: { fontFamily: font.body, fontSize: 9, marginTop: 2 },
+  resourceMeta: { fontFamily: font.body, fontSize: 10, marginTop: 2 },
   resourceBalance: { fontFamily: font.dataMedium, fontSize: 11 },
   flex: { flex: 1 },
   infoCard: { marginTop: 18, gap: 10 },
@@ -281,5 +279,4 @@ const styles = StyleSheet.create({
   warning: { fontFamily: font.bodyMedium, fontSize: 10, lineHeight: 15, marginVertical: 10 },
   error: { fontFamily: font.bodyMedium, fontSize: 10, marginVertical: 10 },
   centerCard: { alignItems: 'center', paddingVertical: 28 },
-  pressed: { opacity: 0.7 },
 });

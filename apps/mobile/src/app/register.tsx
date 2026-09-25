@@ -18,13 +18,17 @@ import {
 } from '@/components/flownd-ui';
 import { MIN_PASSWORD_LENGTH } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 export default function RegisterScreen() {
   const { from } = useLocalSearchParams<{ from?: string }>();
   const fromOnboarding = from === 'onboarding';
   const { colors, isDark } = useFlowndTheme();
-  const { session, loading, onboardingComplete } = useApp();
+  const { session, loading, onboardingComplete } = useAppState(
+    'session',
+    'loading',
+    'onboardingComplete',
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
@@ -221,7 +225,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   backButton: {
     alignSelf: 'flex-start',
-    minHeight: 40,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,

@@ -9,12 +9,18 @@ import { Manrope_700Bold } from '@expo-google-fonts/manrope/700Bold';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols/400Regular';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import { AppProvider } from '@/providers/app-provider';
+import { AppProvider, useAppState } from '@/providers/app-provider';
 import {
   FlowndThemeProvider,
   useFlowndTheme,
 } from '@/constants/flownd-theme';
 import { AnimatedLaunchOverlay } from '@/components/animated-launch-overlay';
+import { AppErrorBoundary } from '@/components/app-error-boundary';
+import { AppLockGate } from '@/components/app-lock-gate';
+import { OfflineBanner } from '@/components/offline-banner';
+
+// expo-router mostra questo componente al posto della route che va in errore.
+export { AppErrorBoundary as ErrorBoundary };
 
 SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 450, fade: true });
@@ -60,50 +66,65 @@ function RootNavigation() {
     <ThemeProvider value={navigationTheme}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <AppProvider>
-        <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="onboarding" />
-          <Stack.Screen name="login" />
-          <Stack.Screen name="register" />
-          <Stack.Screen name="auth/callback" />
-          <Stack.Screen name="reset-password" options={{ gestureEnabled: false }} />
-          <Stack.Screen
-            name="add-transaction"
-            options={{
-              presentation: 'transparentModal',
-              animation: 'none',
-              contentStyle: { backgroundColor: 'transparent' },
-            }}
-          />
-          <Stack.Screen name="transaction-import" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="timeline-filters" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="add-manual-account" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="add-goal" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="add-goal-contribution" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="add-loan" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="budget-cycle" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="budget-income" />
-          <Stack.Screen name="budget-allocation" />
-          <Stack.Screen name="budget-subcategory" />
-          <Stack.Screen name="connect-bank" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="bank-connection" />
-          <Stack.Screen name="manual-account" />
-          <Stack.Screen name="goal-settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="goal-detail" />
-          <Stack.Screen name="financing" />
-          <Stack.Screen name="family" />
-          <Stack.Screen
-            name="group-settings"
-            options={{ animationTypeForReplace: 'push' }}
-          />
-          <Stack.Screen name="settings" />
-          <Stack.Screen name="notifications" />
-          <Stack.Screen name="recurring-payments" />
-          <Stack.Screen name="budget" />
-          <Stack.Screen name="(tabs)" />
-        </Stack>
+        <AppStack />
+        <OfflineBanner />
         <AnimatedLaunchOverlay />
+        <AppLockGate />
       </AppProvider>
     </ThemeProvider>
+  );
+}
+
+// Le schermate dati richiedono una sessione: senza, expo-router reindirizza
+// alla route iniziale (che porta all'onboarding) e ripulisce la history.
+function AppStack() {
+  const { session, loading } = useAppState('session', 'loading');
+  return (
+    <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="onboarding" />
+      <Stack.Screen name="login" />
+      <Stack.Screen name="register" />
+      <Stack.Screen name="auth/callback" />
+      <Stack.Screen name="reset-password" options={{ gestureEnabled: false }} />
+      {/* Durante il ripristino della sessione le route restano disponibili,
+          così i deep link non vengono scartati prima che sia pronta. */}
+      <Stack.Protected guard={loading || Boolean(session)}>
+        <Stack.Screen
+          name="add-transaction"
+          options={{
+            presentation: 'transparentModal',
+            animation: 'none',
+            contentStyle: { backgroundColor: 'transparent' },
+          }}
+        />
+        <Stack.Screen name="transaction-import" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="timeline-filters" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="add-manual-account" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="add-goal" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="add-goal-contribution" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="add-loan" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="budget-cycle" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="budget-income" />
+        <Stack.Screen name="budget-allocation" />
+        <Stack.Screen name="budget-subcategory" />
+        <Stack.Screen name="connect-bank" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="bank-connection" />
+        <Stack.Screen name="manual-account" />
+        <Stack.Screen name="goal-settings" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="goal-detail" />
+        <Stack.Screen name="financing" />
+        <Stack.Screen name="family" />
+        <Stack.Screen
+          name="group-settings"
+          options={{ animationTypeForReplace: 'push' }}
+        />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="notifications" />
+        <Stack.Screen name="recurring-payments" />
+        <Stack.Screen name="budget" />
+        <Stack.Screen name="(tabs)" />
+      </Stack.Protected>
+    </Stack>
   );
 }

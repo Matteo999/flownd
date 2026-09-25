@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useFlowndTheme } from '@/components/flownd-ui';
 import { supabase } from '@/lib/supabase';
-import { useApp } from '@/providers/app-provider';
+import { useAppState } from '@/providers/app-provider';
 
 const BUTTON_SIZE = 60;
 const EDGE_MARGIN = 14;
@@ -80,7 +80,7 @@ function rubberBand(value: number, minimum: number, maximum: number) {
 
 export function DraggableTransactionFab({ onPress }: { onPress: () => void }) {
   const { colors } = useFlowndTheme();
-  const { session } = useApp();
+  const { session } = useAppState('session');
   const insets = useSafeAreaInsets();
   const initialPreference = session?.user.id
     ? preferenceValues.get(session.user.id)

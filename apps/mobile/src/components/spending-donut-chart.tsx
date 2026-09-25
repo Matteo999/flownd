@@ -393,7 +393,7 @@ const styles = StyleSheet.create({
   totalHeader: { alignItems: 'center', marginBottom: 2 },
   totalLabel: {
     fontFamily: font.bodySemiBold,
-    fontSize: 9,
+    fontSize: 10,
     letterSpacing: 0.8,
   },
   totalAmount: {
