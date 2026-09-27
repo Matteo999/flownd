@@ -32,7 +32,8 @@ import {
   type Loan,
   type LoanDraft,
 } from '@/lib/goals';
-import { clearFamilyCaches } from '@/lib/family';
+import { queryClient } from '@/lib/query-client';
+import { setSentryUser } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 import {
   type CoachInsight,
@@ -368,7 +369,8 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   const readProfile = useCallback(async (nextSession: Session | null) => {
     if (!nextSession) {
-      clearFamilyCaches();
+      // Nessun dato del vecchio utente deve restare in cache.
+      queryClient.clear();
       recurringStartupRefreshUserId.current = null;
       setOnboardingComplete(false);
       setProfileUnavailable(false);
@@ -454,6 +456,7 @@ export function AppProvider({ children }: PropsWithChildren) {
           if (!refreshed.error) initialSession = refreshed.data.session;
         }
         activeUserId.current = initialSession?.user.id ?? null;
+        setSentryUser(activeUserId.current);
         setSession(initialSession);
         await readProfile(initialSession);
       } catch (startupError) {
@@ -467,6 +470,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       activeUserId.current = nextSession?.user.id ?? null;
       setSession(nextSession);
+      setSentryUser(activeUserId.current);
       if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') return;
       setLoading(true);
       setTimeout(() => {
@@ -1253,6 +1257,8 @@ export function AppProvider({ children }: PropsWithChildren) {
             internal_transfer: internalTransfer,
             excluded_from_totals: internalTransfer,
             occurred_at: transaction.occurredAt,
+            // Impedisce alla sync bancaria di sovrascrivere la correzione.
+            user_edited_at: new Date().toISOString(),
           })
           .eq('id', transactionId)
           .eq('user_id', session.user.id);

@@ -2,7 +2,8 @@ import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -16,41 +17,31 @@ import {
 } from '@/components/flownd-ui';
 import {
   beginBankAuthorization,
-  listItalianBanks,
+  italianBanksQuery,
   type OpenBankingBank,
   syncBankConnection,
 } from '@/lib/open-banking';
+import { queryKeys } from '@/lib/query-client';
 import { useAppState } from '@/providers/app-provider';
+
+const NO_BANKS: OpenBankingBank[] = [];
 
 export default function ConnectBankScreen() {
   const { colors, isDark } = useFlowndTheme();
   const { session, planTier, refreshData } = useAppState('session', 'planTier', 'refreshData');
-  const [banks, setBanks] = useState<OpenBankingBank[]>([]);
+  const queryClient = useQueryClient();
+  const banksQuery = useQuery({
+    ...italianBanksQuery(),
+    enabled: Boolean(session) && planTier !== 'free',
+  });
+  const banks = banksQuery.data ?? NO_BANKS;
+  const loading = banksQuery.isPending && Boolean(session) && planTier !== 'free';
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<OpenBankingBank | null>(null);
-  const [loading, setLoading] = useState(planTier !== 'free');
   const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!session?.access_token || planTier === 'free') {
-      return;
-    }
-    let active = true;
-    listItalianBanks(session.access_token)
-      .then((items) => {
-        if (active) setBanks(items);
-      })
-      .catch((reason) => {
-        if (active) setError(reason instanceof Error ? reason.message : 'Banche non disponibili.');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [planTier, session?.access_token]);
+  const [actionError, setError] = useState<string | null>(null);
+  const error =
+    actionError ?? (banksQuery.error instanceof Error ? banksQuery.error.message : null);
 
   const visibleBanks = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase('it');
@@ -84,6 +75,9 @@ export default function ConnectBankScreen() {
       if (!connectionId) throw new Error('Connessione bancaria non riconosciuta.');
       await syncBankConnection(session.access_token, connectionId);
       await refreshData();
+      if (session?.user.id) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.bankConnections(session.user.id) });
+      }
       router.back();
     } catch (reason) {
       setError(

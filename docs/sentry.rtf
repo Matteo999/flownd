@@ -1,0 +1,31 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 HelveticaNeue;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab560
+\pard\pardeftab560\slleading20\partightenfactor0
+
+\f0\fs26 \cf0 ## Automatic Configuration (Recommended)\
+\
+Add Sentry automatically to your app with the [Sentry wizard](https://docs.sentry.io/platforms/react-native/#install) (call this inside your project directory).\
+\
+```bash\
+npx @sentry/wizard@latest -i reactNative --saas --org flownd --project react-native\
+```\
+\
+The Sentry wizard will automatically patch your project with the following:\
+\
+- Configure the SDK with your DSN\
+- Add source maps upload to your build process\
+- Add debug symbols upload to your build process\
+\
+## Manual Configuration\
+\
+Alternatively, you can also set up the SDK manually, by following the [manual setup docs](https://docs.sentry.io/platforms/react-native/manual-setup/manual-setup/).\
+\
+If you already have the configuration for Sentry in your application, and just need this project's (react-native) DSN, you can find it below:\
+\
+```\
+https://f6f7abd644f4a7d4ee49a27577bb9db5@o4512153406668800.ingest.de.sentry.io/4512153408962640\
+```}

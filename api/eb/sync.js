@@ -145,6 +145,8 @@ async function reconcileTransaction({
         })
         .eq('id', transactionId)
         .eq('source', 'open_banking')
+        // Le correzioni dell'utente hanno la precedenza sui dati della banca.
+        .is('user_edited_at', null)
         .in('description', [...new Set([
           rawStoredDescription,
           damagedStoredDescription,
@@ -176,6 +178,7 @@ async function reconcileTransaction({
       .update({ occurred_at: occurredAt(normalized.occurredOn) })
       .eq('id', transactionId)
       .eq('source', 'open_banking')
+      .is('user_edited_at', null)
     if (dateError) throw dateError
     if (normalized.status === 'booked') {
       await reconcileRecurringTransaction(service, userId, transactionId)

@@ -14,6 +14,7 @@ export function AppErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   const colors = isDark ? darkColors : lightColors;
 
   useEffect(() => {
+    // reportClientError inoltra anche a Sentry.
     void supabase.auth
       .getSession()
       .then(({ data }) => reportClientError(data.session?.access_token, 'render_crash', error))

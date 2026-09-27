@@ -5,6 +5,7 @@ import { DateTimePicker } from '@expo/ui/community/datetime-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Alert, Dimensions, Easing, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -13,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PrimaryButton, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
 import { TransactionKindSelector } from '@/components/transaction-kind-selector';
 import { parseEuroAmount } from '@/lib/amount';
-import { fetchFamilyGroups, type FamilyGroup } from '@/lib/family';
+import { type FamilyGroup, familyGroupsQuery } from '@/lib/family';
 import { GENERIC_OPERATION_ERROR, reportClientError } from '@/lib/transaction-import';
 import {
   categoriesForTransactionKind,
@@ -101,6 +102,8 @@ function formatAmountDisplay(value: string) {
   return `${groupedInteger},${decimalSource.padEnd(2, '0')}`;
 }
 
+const NO_GROUPS: FamilyGroup[] = [];
+
 function parseAmountInput(value: string) {
   return parseEuroAmount(value);
 }
@@ -135,7 +138,11 @@ export default function AddTransactionScreen() {
     accountId ?? null,
   );
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
-  const [familyGroups, setFamilyGroups] = useState<FamilyGroup[]>([]);
+  const familyGroupsResult = useQuery({
+    ...familyGroupsQuery(session?.user.id ?? ''),
+    enabled: Boolean(session?.user.id),
+  });
+  const familyGroups = familyGroupsResult.data ?? NO_GROUPS;
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const manualAccounts = financialAccounts.filter(
@@ -222,24 +229,6 @@ export default function AddTransactionScreen() {
       }),
     ]).start();
   }, [backdropOpacity, sheetTranslateY]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!session?.user.id) return undefined;
-      let active = true;
-      void fetchFamilyGroups(session.user.id)
-        .then((groups) => {
-          if (active) setFamilyGroups(groups);
-        })
-        .catch((groupError) => {
-          if (__DEV__) console.error('Flownd transaction groups load failed', groupError);
-          if (active) setFamilyGroups([]);
-        });
-      return () => {
-        active = false;
-      };
-    }, [session?.user.id]),
-  );
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';

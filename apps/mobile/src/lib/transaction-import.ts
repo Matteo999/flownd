@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 
 import { apiRequest } from '@/lib/api';
+import { captureError } from '@/lib/sentry';
 import type { ExpenseDraft } from '@/lib/onboarding';
 import { supabase } from '@/lib/supabase';
 
@@ -43,6 +44,7 @@ export async function reportClientError(
   const message = reason instanceof Error ? reason.message : String(reason);
   const stack = reason instanceof Error ? reason.stack : undefined;
   if (__DEV__) console.error(`[Flownd:${context}]`, reason);
+  captureError(reason, context);
   if (!accessToken) return;
   try {
     await apiRequest('/api/transaction-tools?action=error', accessToken, {

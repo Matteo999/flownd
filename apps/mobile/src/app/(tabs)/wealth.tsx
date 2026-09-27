@@ -1,5 +1,6 @@
 import { type Href, router, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -20,11 +21,14 @@ import {
   type NetWorthHistoryPoint,
 } from '@/lib/wealth-history';
 import {
-  listBankConnections,
+  bankConnectionsQuery,
   type OpenBankingConnection,
   syncBankConnection,
 } from '@/lib/open-banking';
+import { queryKeys } from '@/lib/query-client';
 import { useAppState } from '@/providers/app-provider';
+
+const NO_CONNECTIONS: OpenBankingConnection[] = [];
 
 export default function WealthScreen() {
   const { colors } = useFlowndTheme();
@@ -45,8 +49,16 @@ export default function WealthScreen() {
   );
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [connections, setConnections] = useState<OpenBankingConnection[]>([]);
-  const [connectionsLoading, setConnectionsLoading] = useState(true);
+  const userId = session?.user.id;
+  const connectionsQuery = useQuery({
+    ...bankConnectionsQuery(userId ?? ''),
+    enabled: Boolean(userId),
+  });
+  const connections = connectionsQuery.data ?? NO_CONNECTIONS;
+  const connectionsLoading = connectionsQuery.isPending && Boolean(userId);
+  const connectionsError =
+    connectionsQuery.error instanceof Error ? connectionsQuery.error.message : null;
+  const queryClient = useQueryClient();
   const netWorth = financialAccounts.reduce(
     (sum, account) => sum + account.balance,
     0,
@@ -68,36 +80,16 @@ export default function WealthScreen() {
   const manualAccounts = financialAccounts.filter(
     (account) => account.source === 'manual',
   );
-  const accessToken = session?.access_token;
 
+  // Al ritorno sulla schermata (es. dopo aver collegato una banca) rilegge se scaduti.
   useFocusEffect(useCallback(() => {
-    if (!accessToken) {
-      setConnectionsLoading(false);
-      return;
-    }
-    let active = true;
-    setConnectionsLoading(true);
-    listBankConnections(accessToken)
-      .then((items) => {
-        if (active) setConnections(items);
-      })
-      .catch((reason) => {
-        if (!active) return;
-        setSyncError(
-          reason instanceof Error ? reason.message : 'Collegamenti non disponibili.',
-        );
-      })
-      .finally(() => {
-        if (active) setConnectionsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [accessToken]));
+    if (!userId) return;
+    void queryClient.refetchQueries({ queryKey: queryKeys.bankConnections(userId), stale: true });
+  }, [queryClient, userId]));
 
   async function reloadConnections() {
-    if (!accessToken) return;
-    setConnections(await listBankConnections(accessToken));
+    if (!userId) return;
+    await queryClient.invalidateQueries({ queryKey: queryKeys.bankConnections(userId) });
   }
 
   function addBankConnection() {
@@ -310,8 +302,10 @@ export default function WealthScreen() {
           </SecondaryButton>
         </View>
       ) : null}
-      {syncError ? (
-        <Text style={[styles.syncError, { color: colors.negative }]}>{syncError}</Text>
+      {syncError ?? connectionsError ? (
+        <Text style={[styles.syncError, { color: colors.negative }]}>
+          {syncError ?? connectionsError}
+        </Text>
       ) : null}
     </Screen>
   );

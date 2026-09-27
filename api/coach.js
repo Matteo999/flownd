@@ -13,7 +13,10 @@ const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MODEL_CONTEXT_MESSAGES = 20
-const DEFAULT_DAILY_LIMITS = { free: 10, pro: 60, max: 150 }
+// Free: 1 domanda a settimana. Pro/Max: limiti giornalieri provvisori, da
+// allineare alla stima dei costi (vedi analisi costi AI).
+const DEFAULT_DAILY_LIMITS = { free: 1, pro: 60, max: 150 }
+const DEFAULT_WEEKLY_LIMITS = { free: 1, pro: null, max: null }
 const DEFAULT_MINUTE_LIMIT = 6
 
 function positiveInteger(value, fallback) {
@@ -23,8 +26,11 @@ function positiveInteger(value, fallback) {
 
 export function coachQuotaLimits(plan, env = process.env) {
   const tier = ['pro', 'max'].includes(plan) ? plan : 'free'
+  const weeklyDefault = DEFAULT_WEEKLY_LIMITS[tier]
+  const weeklyOverride = env[`COACH_WEEKLY_LIMIT_${tier.toUpperCase()}`]
   return {
     daily: positiveInteger(env[`COACH_DAILY_LIMIT_${tier.toUpperCase()}`], DEFAULT_DAILY_LIMITS[tier]),
+    weekly: weeklyOverride ? positiveInteger(weeklyOverride, weeklyDefault) : weeklyDefault,
     minute: positiveInteger(env.COACH_MINUTE_LIMIT, DEFAULT_MINUTE_LIMIT),
   }
 }
@@ -36,10 +42,26 @@ async function consumeCoachQuota(userId) {
   if (profileError) throw profileError
   const limits = coachQuotaLimits(profile?.plan_tier)
   const { data, error } = await service.rpc('consume_coach_quota', {
-    p_user_id: userId, p_daily_limit: limits.daily, p_minute_limit: limits.minute,
+    p_user_id: userId,
+    p_daily_limit: limits.daily,
+    p_minute_limit: limits.minute,
+    p_weekly_limit: limits.weekly,
   })
   if (error) throw error
   return data
+}
+
+// Un record per chiamata al modello (una domanda può richiederne più di una):
+// serve a misurare il costo reale per domanda dai log di Vercel.
+function logCoachUsage(provider, model, usage) {
+  console.info('Flownd coach usage', {
+    provider,
+    model,
+    inputTokens: Number(usage.input) || 0,
+    cachedInputTokens: Number(usage.cachedInput) || 0,
+    outputTokens: Number(usage.output) || 0,
+    reasoningTokens: Number(usage.reasoning) || 0,
+  })
 }
 
 function cleanLogText(value, limit = 4000) {
@@ -166,6 +188,12 @@ async function callOpenAI(input) {
     error.status = response.status
     throw coachError(error, { phase: 'provider_request', provider: 'openai', model })
   }
+  logCoachUsage('openai', model, {
+    input: data?.usage?.input_tokens,
+    cachedInput: data?.usage?.input_tokens_details?.cached_tokens,
+    output: data?.usage?.output_tokens,
+    reasoning: data?.usage?.output_tokens_details?.reasoning_tokens,
+  })
   return data
 }
 
@@ -194,6 +222,12 @@ async function callGemini(contents) {
     error.status = response.status
     throw coachError(error, { phase: 'provider_request', provider: 'gemini', model })
   }
+  logCoachUsage('gemini', model, {
+    input: data?.usageMetadata?.promptTokenCount,
+    cachedInput: data?.usageMetadata?.cachedContentTokenCount,
+    output: data?.usageMetadata?.candidatesTokenCount,
+    reasoning: data?.usageMetadata?.thoughtsTokenCount,
+  })
   return data
 }
 
@@ -430,12 +464,12 @@ async function handlePost(req, res, client, user) {
     throw coachError(error, { phase: 'quota', provider })
   }
   if (!quota?.allowed) {
-    return res.status(429).json({
-      code: quota?.reason === 'minute' ? 'COACH_RATE_LIMIT' : 'COACH_DAILY_LIMIT',
-      error: quota?.reason === 'minute'
-        ? 'Stai scrivendo molto velocemente. Attendi un minuto e riprova.'
-        : 'Hai raggiunto il limite giornaliero di domande al Coach. Riprova domani.',
-    })
+    const denied = {
+      minute: ['COACH_RATE_LIMIT', 'Stai scrivendo molto velocemente. Attendi un minuto e riprova.'],
+      weekly: ['COACH_WEEKLY_LIMIT', 'Con il piano Free hai 1 domanda al Coach a settimana. Torna lunedì o passa a Pro per continuare.'],
+      daily: ['COACH_DAILY_LIMIT', 'Hai raggiunto il limite giornaliero di domande al Coach. Riprova domani.'],
+    }[quota?.reason] ?? ['COACH_DAILY_LIMIT', 'Hai raggiunto il limite di domande al Coach.']
+    return res.status(429).json({ code: denied[0], error: denied[1] })
   }
   let context
   try {

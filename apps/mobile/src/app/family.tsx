@@ -83,7 +83,7 @@ export default function FamilyScreen() {
     () => initialCachedGroups?.[0]?.id ?? null,
   );
   const [detail, setDetail] = useState<FamilyGroupDetail | null>(
-    () => peekFamilyGroupDetail(initialCachedGroups?.[0]?.id),
+    () => peekFamilyGroupDetail(initialCachedGroups?.[0]?.id, session?.user.id),
   );
   const [newGroupName, setNewGroupName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
@@ -415,7 +415,7 @@ export default function FamilyScreen() {
             onCreate={() => setCreateModalOpen(true)}
             onSelect={(groupId) => {
               if (groupId === selectedGroupId) return;
-              setDetail(peekFamilyGroupDetail(groupId));
+              setDetail(peekFamilyGroupDetail(groupId, session?.user.id));
               setSelectedGroupId(groupId);
             }}
           />

@@ -2,6 +2,7 @@ import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-ro
 import { DateTimePicker } from '@expo/ui/community/datetime-picker';
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   memo,
   useCallback,
@@ -58,7 +59,8 @@ import {
   type DashboardPeriod,
   transactionsForPeriod,
 } from '@/lib/dashboard';
-import { fetchFamilyGroups, type FamilyGroup } from '@/lib/family';
+import { type FamilyGroup, familyGroupsQuery } from '@/lib/family';
+import { queryKeys } from '@/lib/query-client';
 import type { ExpenseDraft } from '@/lib/onboarding';
 import { formatEuro } from '@/lib/onboarding';
 import {
@@ -79,6 +81,8 @@ import {
   type TimelineGroup,
 } from '@/lib/timeline';
 import { type TransactionUpdate, useAppState } from '@/providers/app-provider';
+
+const NO_GROUPS: FamilyGroup[] = [];
 
 const periods: { id: DashboardPeriod; label: string }[] = [
   { id: 'week', label: 'Settimana' },
@@ -367,23 +371,27 @@ export default function TimelineScreen() {
     useState<DashboardPeriod>(initialPeriod);
   const [periodAnchor, setPeriodAnchor] = useState(() => new Date());
   const [refreshing, setRefreshing] = useState(false);
-  const [familyGroups, setFamilyGroups] = useState<FamilyGroup[]>([]);
   const userId = session?.user.id;
+  const familyGroupsResult = useQuery({
+    ...familyGroupsQuery(userId ?? ''),
+    enabled: Boolean(userId),
+  });
+  const familyGroups = familyGroupsResult.data ?? NO_GROUPS;
+  const queryClient = useQueryClient();
 
   useFocusEffect(
     useCallback(() => {
       // Rilegge i movimenti al ritorno dai form/import, anche con tab native congelate.
       // Le modifiche fatte dall'app aggiornano già i dati: evitiamo ricariche ravvicinate.
       void refreshData({ maxAgeMs: 30_000 });
+      // I gruppi arrivano dalla cache condivisa; li rileggiamo solo se scaduti.
       if (userId) {
-        void fetchFamilyGroups(userId)
-          .then(setFamilyGroups)
-          .catch((groupError) => {
-            if (__DEV__) console.error('Flownd timeline groups load failed', groupError);
-            setFamilyGroups([]);
-          });
+        void queryClient.refetchQueries({
+          queryKey: queryKeys.familyGroups(userId),
+          stale: true,
+        });
       }
-    }, [refreshData, userId]),
+    }, [queryClient, refreshData, userId]),
   );
 
   const refreshTimeline = useCallback(async () => {
@@ -2429,6 +2437,12 @@ function EditTransactionModal({
                 </View>
               </View>
             </View>
+            {['open_banking', 'manual_open_banking'].includes(transaction.source ?? '') ? (
+              <Text style={[styles.editBankNote, { color: colors.textSecondary }]}>
+                Movimento importato dalla banca: le tue correzioni restano anche dopo le
+                prossime sincronizzazioni. Il saldo del conto resta quello comunicato dalla banca.
+              </Text>
+            ) : null}
             <View style={styles.editCategoryRow}>
               {Platform.OS === 'ios' ? (
                 <MenuView
@@ -3227,6 +3241,7 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   editAccountText: { flexShrink: 1 },
+  editBankNote: { fontFamily: font.body, fontSize: 12, lineHeight: 17, marginTop: 10, paddingHorizontal: 4 },
   editCategoryRow: {
     flexDirection: 'row',
     alignItems: 'center',

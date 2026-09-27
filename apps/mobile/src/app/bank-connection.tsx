@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -14,12 +15,13 @@ import {
 } from '@/components/flownd-ui';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import {
-  getBankConnection,
+  bankConnectionQuery,
   type OpenBankingConnectionDetail,
   removeBankConnection,
   syncBankConnection,
 } from '@/lib/open-banking';
 import { formatEuro } from '@/lib/onboarding';
+import { queryKeys } from '@/lib/query-client';
 import { useAppState } from '@/providers/app-provider';
 
 export default function BankConnectionScreen() {
@@ -30,36 +32,27 @@ export default function BankConnectionScreen() {
     'amountsVisible',
     'refreshData',
   );
-  const [connection, setConnection] = useState<OpenBankingConnectionDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const connectionQuery = useQuery({
+    ...bankConnectionQuery(id ?? ''),
+    enabled: Boolean(id),
+  });
+  const connection: OpenBankingConnectionDetail | null = connectionQuery.data ?? null;
+  const loading = connectionQuery.isPending && Boolean(id);
   const [syncing, setSyncing] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setError] = useState<string | null>(null);
+  const error =
+    actionError
+    ?? (connectionQuery.error instanceof Error ? connectionQuery.error.message : null);
   const accessToken = session?.access_token;
 
-  useEffect(() => {
-    if (!accessToken || !id) return;
-    let active = true;
-    getBankConnection(accessToken, id)
-      .then((data) => {
-        if (active) setConnection(data);
-      })
-      .catch((reason) => {
-        if (active) {
-          setError(reason instanceof Error ? reason.message : 'Dettaglio non disponibile.');
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [accessToken, id]);
-
   async function reload() {
-    if (!accessToken || !id) return;
-    setConnection(await getBankConnection(accessToken, id));
+    if (!id) return;
+    await queryClient.invalidateQueries({ queryKey: queryKeys.bankConnection(id) });
+    if (session?.user.id) {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.bankConnections(session.user.id) });
+    }
   }
 
   function confirmRemoval() {
@@ -78,6 +71,11 @@ export default function BankConnectionScreen() {
             try {
               await removeBankConnection(accessToken, connection.id);
               await refreshData();
+              if (session?.user.id) {
+                void queryClient.invalidateQueries({
+                  queryKey: queryKeys.bankConnections(session.user.id),
+                });
+              }
               router.back();
             } catch (reason) {
               setError(

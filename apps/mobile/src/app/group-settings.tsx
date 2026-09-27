@@ -69,7 +69,7 @@ export default function GroupSettingsScreen() {
   const [allGroups, setAllGroups] = useState<FamilyGroup[]>(cachedGroups);
   const [group, setGroup] = useState<FamilyGroup | null>(cachedGroup);
   const [detail, setDetail] = useState<FamilyGroupDetail | null>(
-    () => peekFamilyGroupDetail(groupId),
+    () => peekFamilyGroupDetail(groupId, session?.user.id),
   );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

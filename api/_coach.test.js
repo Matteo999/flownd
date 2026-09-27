@@ -104,11 +104,11 @@ test('la migrazione applica limiti, RLS e risoluzione atomica', async () => {
 })
 
 test('quota Coach per piano con override da ambiente', () => {
-  assert.deepEqual(coachQuotaLimits('free', {}), { daily: 10, minute: 6 })
-  assert.deepEqual(coachQuotaLimits('max', {}), { daily: 150, minute: 6 })
-  assert.deepEqual(coachQuotaLimits('sconosciuto', {}), { daily: 10, minute: 6 })
+  assert.deepEqual(coachQuotaLimits('free', {}), { daily: 1, weekly: 1, minute: 6 })
+  assert.deepEqual(coachQuotaLimits('max', {}), { daily: 150, weekly: null, minute: 6 })
+  assert.deepEqual(coachQuotaLimits('sconosciuto', {}), { daily: 1, weekly: 1, minute: 6 })
   assert.deepEqual(
-    coachQuotaLimits('pro', { COACH_DAILY_LIMIT_PRO: '80', COACH_MINUTE_LIMIT: '0' }),
-    { daily: 80, minute: 6 },
+    coachQuotaLimits('pro', { COACH_DAILY_LIMIT_PRO: '80', COACH_MINUTE_LIMIT: '0', COACH_WEEKLY_LIMIT_PRO: '300' }),
+    { daily: 80, weekly: 300, minute: 6 },
   )
 })

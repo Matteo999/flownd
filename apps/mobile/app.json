@@ -53,6 +53,15 @@
         {
           "faceIDPermission": "Flownd usa Face ID per proteggere l’accesso ai tuoi dati finanziari."
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://de.sentry.io/",
+          "organization": "flownd",
+          "project": "react-native",
+          "note": "Autenticazione per upload source map: variabile SENTRY_AUTH_TOKEN (EAS environment), mai nel repo."
+        }
       ]
     ],
     "experiments": {

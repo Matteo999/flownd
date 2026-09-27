@@ -39,6 +39,12 @@ export default async function accountDeleteHandler(req, res) {
       }
     }
 
+    // I gruppi condivisi passano al membro più anziano invece di sparire per tutti.
+    const { error: transferError } = await service.rpc('transfer_owned_groups', {
+      p_user_id: user.id,
+    })
+    if (transferError) throw transferError
+
     const { error: deleteError } = await service.auth.admin.deleteUser(user.id)
     if (deleteError) throw deleteError
     return res.status(200).json({ deleted: true })

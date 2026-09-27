@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { queryOptions } from '@tanstack/react-query';
 
 import { apiRequest } from '@/lib/api';
+import { queryClient, queryKeys } from '@/lib/query-client';
 import { supabase } from '@/lib/supabase';
 
 export type SharingAccess = 'none' | 'view' | 'edit';
@@ -154,27 +156,53 @@ type AccessDraft = {
   goalsAccess: SharingAccess;
 };
 
-const groupsMemoryCache = new Map<string, FamilyGroup[]>();
-const groupDetailMemoryCache = new Map<string, FamilyGroupDetail>();
+// Gruppi e dettagli vivono nella cache di TanStack Query: le schermate con
+// useQuery e le funzioni imperative qui sotto condividono gli stessi dati.
 
-// Chiamata al logout: il dettaglio gruppo (saldi, contributi) non deve restare
-// in memoria per l'utente successivo sullo stesso dispositivo.
-export function clearFamilyCaches() {
-  groupsMemoryCache.clear();
-  groupDetailMemoryCache.clear();
+export function familyGroupsQuery(userId: string) {
+  return queryOptions({
+    queryKey: queryKeys.familyGroups(userId),
+    queryFn: () => loadFamilyGroups(userId),
+  });
+}
+
+export function familyGroupDetailQuery(group: FamilyGroup, userId: string) {
+  return queryOptions({
+    queryKey: queryKeys.familyGroupDetail(group.id, userId),
+    queryFn: () => loadFamilyGroupDetail(group, userId),
+  });
+}
+
+export function familyDashboardSummaryQuery(groupId: string) {
+  return queryOptions({
+    queryKey: queryKeys.familyDashboardSummary(groupId),
+    queryFn: () => fetchFamilyDashboardSummary(groupId),
+  });
 }
 
 export function peekFamilyGroups(userId?: string) {
   if (!userId) return null;
-  return groupsMemoryCache.get(userId) ?? null;
+  return queryClient.getQueryData<FamilyGroup[]>(queryKeys.familyGroups(userId)) ?? null;
 }
 
-export function peekFamilyGroupDetail(groupId?: string) {
-  if (!groupId) return null;
-  return groupDetailMemoryCache.get(groupId) ?? null;
+export function peekFamilyGroupDetail(groupId?: string, userId?: string) {
+  if (!groupId || !userId) return null;
+  return queryClient.getQueryData<FamilyGroupDetail>(
+    queryKeys.familyGroupDetail(groupId, userId),
+  ) ?? null;
 }
 
-export async function fetchFamilyGroups(userId: string) {
+// Lettura sempre aggiornata (staleTime 0) che aggiorna anche la cache condivisa;
+// richieste concorrenti per lo stesso utente vengono unificate.
+export function fetchFamilyGroups(userId: string) {
+  return queryClient.fetchQuery({ ...familyGroupsQuery(userId), staleTime: 0 });
+}
+
+export function fetchFamilyGroupDetail(group: FamilyGroup, userId: string) {
+  return queryClient.fetchQuery({ ...familyGroupDetailQuery(group, userId), staleTime: 0 });
+}
+
+async function loadFamilyGroups(userId: string): Promise<FamilyGroup[]> {
   const [membershipsResult, rulesResult] = await Promise.all([
     supabase
       .from('group_members')
@@ -190,10 +218,7 @@ export async function fetchFamilyGroups(userId: string) {
   const { data: memberships, error: membershipsError } = membershipsResult;
   if (membershipsError) throw membershipsError;
   if (rulesResult.error) throw rulesResult.error;
-  if (!memberships?.length) {
-    groupsMemoryCache.set(userId, []);
-    return [];
-  }
+  if (!memberships?.length) return [];
 
   const monthStart = new Date();
   monthStart.setDate(1);
@@ -272,7 +297,6 @@ export async function fetchFamilyGroups(userId: string) {
       )) as NetWorthVisibility,
     }];
   });
-  groupsMemoryCache.set(userId, result);
   return result;
 }
 
@@ -288,7 +312,7 @@ export async function fetchReceivedInvites(email: string) {
   return attachGroupNames(invites ?? []);
 }
 
-export async function fetchFamilyGroupDetail(
+async function loadFamilyGroupDetail(
   group: FamilyGroup,
   userId: string,
 ): Promise<FamilyGroupDetail> {
@@ -466,7 +490,6 @@ export async function fetchFamilyGroupDetail(
       occurredAt: transaction.occurred_at,
     })),
   } satisfies FamilyGroupDetail;
-  groupDetailMemoryCache.set(group.id, result);
   return result;
 }
 

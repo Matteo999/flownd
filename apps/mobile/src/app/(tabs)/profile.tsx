@@ -90,7 +90,7 @@ export default function ProfileScreen() {
   function confirmAccountDeletion() {
     Alert.alert(
       'Eliminare l’account?',
-      'Cancelleremo in modo definitivo transazioni, budget, obiettivi, conversazioni con il Coach e i gruppi di cui sei proprietario. I collegamenti bancari verranno revocati.',
+      'Cancelleremo in modo definitivo transazioni, budget, obiettivi e conversazioni con il Coach. I gruppi di cui sei proprietario passeranno al membro più anziano. I collegamenti bancari verranno revocati.',
       [
         { text: 'Annulla', style: 'cancel' },
         {

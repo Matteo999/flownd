@@ -7,8 +7,11 @@ import { Manrope_500Medium } from '@expo-google-fonts/manrope/500Medium';
 import { Manrope_600SemiBold } from '@expo-google-fonts/manrope/600SemiBold';
 import { Manrope_700Bold } from '@expo-google-fonts/manrope/700Bold';
 import { MaterialSymbols_400Regular } from '@expo-google-fonts/material-symbols/400Regular';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { queryClient } from '@/lib/query-client';
+import { initSentry, Sentry } from '@/lib/sentry';
 import { AppProvider, useAppState } from '@/providers/app-provider';
 import {
   FlowndThemeProvider,
@@ -22,10 +25,12 @@ import { OfflineBanner } from '@/components/offline-banner';
 // expo-router mostra questo componente al posto della route che va in errore.
 export { AppErrorBoundary as ErrorBoundary };
 
+initSentry();
+
 SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 450, fade: true });
 
-export default function RootLayout() {
+function RootLayout() {
   const [loaded, error] = useFonts({
     Manrope_400Regular,
     Manrope_500Medium,
@@ -44,6 +49,8 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default Sentry.wrap(RootLayout);
 
 function RootNavigation() {
   const { colors, isDark } = useFlowndTheme();
@@ -65,12 +72,14 @@ function RootNavigation() {
   return (
     <ThemeProvider value={navigationTheme}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <AppProvider>
-        <AppStack />
-        <OfflineBanner />
-        <AnimatedLaunchOverlay />
-        <AppLockGate />
-      </AppProvider>
+      <QueryClientProvider client={queryClient}>
+        <AppProvider>
+          <AppStack />
+          <OfflineBanner />
+          <AnimatedLaunchOverlay />
+          <AppLockGate />
+        </AppProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   );
 }

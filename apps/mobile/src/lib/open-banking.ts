@@ -1,4 +1,7 @@
+import { queryOptions } from '@tanstack/react-query';
+
 import { apiRequest } from '@/lib/api';
+import { queryKeys } from '@/lib/query-client';
 
 export type OpenBankingBank = {
   name: string;
@@ -40,7 +43,8 @@ export type OpenBankingConnectionDetail = OpenBankingConnection & {
 
 async function ebRequest<T>(
   path: string,
-  accessToken: string,
+  // Se assente, apiRequest usa il token della sessione corrente.
+  accessToken: string | null | undefined,
   options: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown; timeoutMs?: number } = {},
 ) {
   return apiRequest<T>(`/api/eb/${path}`, accessToken, {
@@ -50,7 +54,7 @@ async function ebRequest<T>(
   });
 }
 
-export async function listItalianBanks(accessToken: string) {
+export async function listItalianBanks(accessToken?: string | null) {
   const data = await ebRequest<{ banks: OpenBankingBank[] }>(
     'banks?country=IT',
     accessToken,
@@ -88,7 +92,7 @@ export async function syncBankConnection(accessToken: string, connectionId: stri
   });
 }
 
-export async function listBankConnections(accessToken: string) {
+export async function listBankConnections(accessToken?: string | null) {
   const data = await ebRequest<{ connections: OpenBankingConnection[] }>(
     'connections',
     accessToken,
@@ -97,7 +101,7 @@ export async function listBankConnections(accessToken: string) {
 }
 
 export async function getBankConnection(
-  accessToken: string,
+  accessToken: string | null | undefined,
   connectionId: string,
 ) {
   return ebRequest<OpenBankingConnectionDetail>(
@@ -115,4 +119,27 @@ export async function removeBankConnection(
     accessToken,
     { method: 'DELETE' },
   );
+}
+
+export function bankConnectionsQuery(userId: string) {
+  return queryOptions({
+    queryKey: queryKeys.bankConnections(userId),
+    queryFn: () => listBankConnections(),
+  });
+}
+
+export function bankConnectionQuery(connectionId: string) {
+  return queryOptions({
+    queryKey: queryKeys.bankConnection(connectionId),
+    queryFn: () => getBankConnection(null, connectionId),
+  });
+}
+
+// L'elenco delle banche cambia raramente: resta valido per un'ora.
+export function italianBanksQuery() {
+  return queryOptions({
+    queryKey: queryKeys.italianBanks(),
+    queryFn: () => listItalianBanks(),
+    staleTime: 60 * 60_000,
+  });
 }

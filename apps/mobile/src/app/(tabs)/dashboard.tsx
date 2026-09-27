@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
 import { router, type Href, useFocusEffect } from 'expo-router';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useCallback,
   useEffect,
@@ -55,11 +56,12 @@ import {
 } from '@/lib/onboarding';
 import {
   type FamilyDashboardSummary,
-  fetchFamilyDashboardSummary,
-  fetchFamilyGroups,
+  familyDashboardSummaryQuery,
+  familyGroupsQuery,
   getActiveFamilyGroupId,
   setActiveFamilyGroupId,
 } from '@/lib/family';
+import { queryKeys } from '@/lib/query-client';
 import { useAppState } from '@/providers/app-provider';
 import { frequencyLabels } from '@/lib/recurring-payments';
 
@@ -68,6 +70,15 @@ const periodLabels: { id: DashboardPeriod; label: string }[] = [
   { id: 'month', label: 'Mese' },
   { id: 'year', label: 'Anno' },
 ];
+
+// Risultato stabile tra i render finché i dati non cambiano.
+function combineFamilySummaries(
+  results: { data?: FamilyDashboardSummary }[],
+): FamilyDashboardSummary[] {
+  return results
+    .map((result) => result.data)
+    .filter((summary): summary is FamilyDashboardSummary => Boolean(summary));
+}
 
 export default function DashboardScreen() {
   const { colors, isDark } = useFlowndTheme();
@@ -122,9 +133,18 @@ export default function DashboardScreen() {
     personal: 0,
     groups: 0,
   });
-  const [familySummaries, setFamilySummaries] =
-    useState<FamilyDashboardSummary[]>([]);
+  const userId = session?.user.id;
+  const familyGroupsResult = useQuery({
+    ...familyGroupsQuery(userId ?? ''),
+    enabled: Boolean(userId),
+  });
+  const familyGroups = familyGroupsResult.data;
+  const familySummaries = useQueries({
+    queries: (familyGroups ?? []).map((group) => familyDashboardSummaryQuery(group.id)),
+    combine: combineFamilySummaries,
+  });
   const [familyGroupIndex, setFamilyGroupIndex] = useState(0);
+  const queryClient = useQueryClient();
   const [selectedPeriod, setSelectedPeriod] =
     useState<DashboardPeriod>('month');
   const [chartPeriod, setChartPeriod] = useState<DashboardPeriod>('month');
@@ -132,38 +152,27 @@ export default function DashboardScreen() {
   const overviewForeground = isDark ? colors.background : colors.onAccent;
   const overviewSecondaryForeground = overviewForeground;
 
+  // Gruppo selezionato l'ultima volta (preferenza locale per utente).
+  useEffect(() => {
+    if (!userId || !familyGroups?.length) return;
+    let active = true;
+    void getActiveFamilyGroupId(userId).then((storedGroupId) => {
+      if (!active) return;
+      const storedIndex = familyGroups.findIndex((item) => item.id === storedGroupId);
+      setFamilyGroupIndex(storedIndex >= 0 ? storedIndex : 0);
+    });
+    return () => {
+      active = false;
+    };
+  }, [familyGroups, userId]);
+
+  // Al ritorno sulla dashboard rilegge gruppi e riepiloghi solo se scaduti.
   useFocusEffect(
     useCallback(() => {
-      const userId = session?.user.id;
-      if (!userId) return undefined;
-      let active = true;
-      const timer = setTimeout(() => {
-        void Promise.all([
-          fetchFamilyGroups(userId),
-          getActiveFamilyGroupId(userId),
-        ])
-          .then(async ([groups, storedGroupId]) => {
-            const summaries = await Promise.all(
-              groups.map((group) => fetchFamilyDashboardSummary(group.id)),
-            );
-            const storedIndex = groups.findIndex((item) => item.id === storedGroupId);
-            return { summaries, selectedIndex: storedIndex >= 0 ? storedIndex : 0 };
-          })
-          .then(({ summaries, selectedIndex }) => {
-            if (!active) return;
-            setFamilySummaries(summaries);
-            setFamilyGroupIndex(selectedIndex);
-          })
-          .catch((familyError) => {
-            if (__DEV__) console.error('Flownd family dashboard load failed', familyError);
-            if (active) setFamilySummaries([]);
-          });
-      }, 0);
-      return () => {
-        active = false;
-        clearTimeout(timer);
-      };
-    }, [session?.user.id]),
+      if (!userId) return;
+      void queryClient.refetchQueries({ queryKey: queryKeys.familyGroups(userId), stale: true });
+      void queryClient.refetchQueries({ queryKey: ['family-dashboard-summary'], stale: true });
+    }, [queryClient, userId]),
   );
 
   const selectedBudgets = draft.budgets.filter((item) => item.selected);

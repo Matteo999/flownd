@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-and-api:
+    name: Mobile e API
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # I test importano file .ts direttamente: serve lo stripping dei tipi nativo di Node.
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Installa dipendenze
+        run: npm ci
+
+      - name: Typecheck mobile
+        run: npx tsc --noEmit -p apps/mobile
+
+      - name: Lint mobile
+        working-directory: apps/mobile
+        run: npx expo lint --max-warnings 0
+
+      - name: Test mobile
+        run: npm run test:mobile
+
+      - name: Test API
+        run: |
+          npm run test:coach
+          npm run test:deployment
+          npm run test:recurring
+          npm run test:group-finance
+          npm run test:eb
+
+      - name: Verifica configurazione Expo
+        working-directory: apps/mobile
+        run: npx expo config --type public > /dev/null
