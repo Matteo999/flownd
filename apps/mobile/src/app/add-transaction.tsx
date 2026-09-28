@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton, font, uiStyles, useFlowndTheme } from '@/components/flownd-ui';
 import { TransactionKindSelector } from '@/components/transaction-kind-selector';
+import { ApiRequestError } from '@/lib/api';
 import { parseEuroAmount } from '@/lib/amount';
 import { type FamilyGroup, familyGroupsQuery } from '@/lib/family';
 import { GENERIC_OPERATION_ERROR, reportClientError } from '@/lib/transaction-import';
@@ -434,7 +435,24 @@ export default function AddTransactionScreen() {
     return true;
   }
 
+  function canUseFileAi() {
+    if (planTier === 'free') {
+      Alert.alert(
+        'Importazione AI inclusa in Pro e Max',
+        'Passa a un piano a pagamento per importare estratti conto CSV, PDF e XLSX con l’AI.',
+        [{ text: 'Non ora', style: 'cancel' }, { text: 'Ho capito' }],
+      );
+      return false;
+    }
+    return true;
+  }
+
   async function showAiError(context: string, reason: unknown) {
+    // Piano o quota esaurita: il messaggio del server è già pensato per l'utente.
+    if (reason instanceof ApiRequestError && (reason.status === 403 || reason.status === 429)) {
+      Alert.alert('Limite raggiunto', reason.message);
+      return;
+    }
     await reportClientError(session?.access_token, context, reason);
     Alert.alert('Operazione non riuscita', GENERIC_OPERATION_ERROR);
   }
@@ -515,6 +533,7 @@ export default function AddTransactionScreen() {
 
   async function openFilePicker() {
     if (pickerBusy.current) return;
+    if (!canUseFileAi()) return;
     pickerBusy.current = true;
     closeImportMenu(false);
     let shouldRestoreKeyboard = true;
@@ -1153,6 +1172,7 @@ export default function AddTransactionScreen() {
                 <Text style={[styles.sheetOptionTitle, { color: colors.text }]}>File</Text>
                 <Text style={[styles.sheetOptionSubtitle, { color: colors.textSecondary }]}>CSV, PDF oppure XLSX</Text>
               </View>
+              {planTier === 'free' ? <Text style={[styles.proBadge, { color: colors.accent }]}>PRO</Text> : null}
             </Pressable>
             </Animated.View>
           </GestureDetector>

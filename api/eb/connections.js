@@ -76,7 +76,7 @@ export default async function handler(req, res) {
     const plan = profile.plan_tier || 'free'
     const entitlement = {
       plan,
-      maxConnections: plan === 'max' ? 10 : plan === 'pro' ? 2 : 0,
+      maxConnections: plan === 'max' ? 4 : plan === 'pro' ? 2 : 0,
     }
     const { data: connections, error } = await service
       .from('open_banking_connections')

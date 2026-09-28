@@ -39,11 +39,13 @@ export default function ProfileScreen() {
   const {
     session,
     planTier,
+    planSource,
     amountsVisible,
     toggleAmountsVisible,
   } = useAppState(
     'session',
     'planTier',
+    'planSource',
     'amountsVisible',
     'toggleAmountsVisible',
   );
@@ -131,6 +133,7 @@ export default function ProfileScreen() {
           </Text>
           <Text style={[styles.caption, { color: colors.textSecondary }]}>
             Piano {planTier === 'free' ? 'Free' : planTier === 'pro' ? 'Pro' : 'Max'}
+            {planSource === 'shared' ? ' · incluso nel piano Max del tuo gruppo' : ''}
           </Text>
         </View>
         <View style={[styles.verified, { backgroundColor: colors.positiveSoft }]}>

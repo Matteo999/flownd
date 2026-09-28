@@ -7,50 +7,13 @@ import {
   executeCoachReadTool,
   geminiCoachTools,
 } from './_coach-data.js'
-import { serviceClient } from './eb/_supabase.js'
+import { consumeAiQuota } from './_ai-quota.js'
+import { ApiError, serviceClient } from './eb/_supabase.js'
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MODEL_CONTEXT_MESSAGES = 20
-// Free: 1 domanda a settimana. Pro/Max: limiti giornalieri provvisori, da
-// allineare alla stima dei costi (vedi analisi costi AI).
-const DEFAULT_DAILY_LIMITS = { free: 1, pro: 60, max: 150 }
-const DEFAULT_WEEKLY_LIMITS = { free: 1, pro: null, max: null }
-const DEFAULT_MINUTE_LIMIT = 6
-
-function positiveInteger(value, fallback) {
-  const parsed = Number.parseInt(String(value ?? ''), 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
-}
-
-export function coachQuotaLimits(plan, env = process.env) {
-  const tier = ['pro', 'max'].includes(plan) ? plan : 'free'
-  const weeklyDefault = DEFAULT_WEEKLY_LIMITS[tier]
-  const weeklyOverride = env[`COACH_WEEKLY_LIMIT_${tier.toUpperCase()}`]
-  return {
-    daily: positiveInteger(env[`COACH_DAILY_LIMIT_${tier.toUpperCase()}`], DEFAULT_DAILY_LIMITS[tier]),
-    weekly: weeklyOverride ? positiveInteger(weeklyOverride, weeklyDefault) : weeklyDefault,
-    minute: positiveInteger(env.COACH_MINUTE_LIMIT, DEFAULT_MINUTE_LIMIT),
-  }
-}
-
-async function consumeCoachQuota(userId) {
-  const service = serviceClient()
-  const { data: profile, error: profileError } = await service.from('profiles')
-    .select('plan_tier').eq('id', userId).maybeSingle()
-  if (profileError) throw profileError
-  const limits = coachQuotaLimits(profile?.plan_tier)
-  const { data, error } = await service.rpc('consume_coach_quota', {
-    p_user_id: userId,
-    p_daily_limit: limits.daily,
-    p_minute_limit: limits.minute,
-    p_weekly_limit: limits.weekly,
-  })
-  if (error) throw error
-  return data
-}
-
 // Un record per chiamata al modello (una domanda può richiederne più di una):
 // serve a misurare il costo reale per domanda dai log di Vercel.
 function logCoachUsage(provider, model, usage) {
@@ -457,19 +420,14 @@ async function handlePost(req, res, client, user) {
   if (existingReply) {
     return res.status(200).json({ conversation: publicConversation(conversation), message: publicMessage(existingReply) })
   }
-  let quota
+  // Quota del Coach: settimanale per Free, mensile per Pro e condivisa nel gruppo per Max.
   try {
-    quota = await consumeCoachQuota(user.id)
+    await consumeAiQuota(user.id, 'coach')
   } catch (error) {
+    if (error instanceof ApiError && error.status < 500) {
+      return res.status(error.status).json({ code: error.code, error: error.message })
+    }
     throw coachError(error, { phase: 'quota', provider })
-  }
-  if (!quota?.allowed) {
-    const denied = {
-      minute: ['COACH_RATE_LIMIT', 'Stai scrivendo molto velocemente. Attendi un minuto e riprova.'],
-      weekly: ['COACH_WEEKLY_LIMIT', 'Con il piano Free hai 1 domanda al Coach a settimana. Torna lunedì o passa a Pro per continuare.'],
-      daily: ['COACH_DAILY_LIMIT', 'Hai raggiunto il limite giornaliero di domande al Coach. Riprova domani.'],
-    }[quota?.reason] ?? ['COACH_DAILY_LIMIT', 'Hai raggiunto il limite di domande al Coach.']
-    return res.status(429).json({ code: denied[0], error: denied[1] })
   }
   let context
   try {

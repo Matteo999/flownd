@@ -8,6 +8,9 @@ import {
   incomeReferenceForBand,
 } from '@/lib/onboarding';
 import type { RecurringSeries } from '@/lib/recurring-payments';
+import { queryOptions } from '@tanstack/react-query';
+
+import { queryKeys } from '@/lib/query-client';
 import { supabase } from '@/lib/supabase';
 import {
   incomeTreatmentForCategory,
@@ -71,7 +74,22 @@ type TransactionHistoryRow = {
   recurring_occurrence_id: string | null;
 };
 
-async function fetchTransactionHistory(userId: string) {
+// L'app tiene in memoria solo gli ultimi 13 mesi di movimenti: coprono ciclo
+// corrente, confronti tra cicli, anno in corso e suggerimenti di categoria.
+// I periodi precedenti si caricano su richiesta (timeline).
+export const HISTORY_WINDOW_MONTHS = 13;
+const FAR_FUTURE = new Date('9999-12-31T00:00:00.000Z');
+
+export function historyWindowStart(now = new Date()) {
+  const start = new Date(now.getFullYear(), now.getMonth() - HISTORY_WINDOW_MONTHS, 1);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+async function fetchTransactionHistory(
+  userId: string,
+  range: { from: Date; to?: Date },
+) {
   const rows: TransactionHistoryRow[] = [];
   const pageSize = 1000;
   for (let from = 0; ; from += pageSize) {
@@ -79,6 +97,8 @@ async function fetchTransactionHistory(userId: string) {
       .from('transactions')
       .select('id,description,amount,category,occurred_at,occurred_time,occurred_time_source,source,kind,financial_account_id,bank_status,excluded_from_totals,internal_transfer,excluded_from_budget,income_type,raw_description,merchant_name,counterparty_name,import_memo,import_reference,import_confidence,recurring_payment_id,recurring_occurrence_id')
       .eq('user_id', userId)
+      .gte('occurred_at', range.from.toISOString())
+      .lt('occurred_at', (range.to ?? FAR_FUTURE).toISOString())
       .order('occurred_at', { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) return { data: null, error };
@@ -142,7 +162,55 @@ export function transactionInsertPayload(userId: string, transaction: ExpenseDra
   };
 }
 
+function groupLinksMap(data: unknown) {
+  return new Map(
+    ((data ?? []) as { transaction_id: string; group_id: string }[]).map((item) => [
+      item.transaction_id,
+      item.group_id,
+    ]),
+  );
+}
+
+function mapTransactionRow(
+  item: TransactionHistoryRow,
+  groupTransactionIds: Map<string, string>,
+): ExpenseDraft {
+  return {
+    id: item.id,
+    description: item.description,
+    amount: Number(item.amount),
+    category: item.category,
+    occurredAt: item.occurred_at,
+    occurredTime: item.occurred_time,
+    occurredTimeSource: item.occurred_time_source as ExpenseDraft['occurredTimeSource'],
+    source: item.source,
+    kind: (item.kind ?? 'expense') as ExpenseDraft['kind'],
+    financialAccountId: item.financial_account_id,
+    bankStatus: item.bank_status,
+    excludedFromTotals: Boolean(item.excluded_from_totals),
+    internalTransfer: Boolean(item.internal_transfer),
+    excludedFromBudget: Boolean(item.excluded_from_budget) || groupTransactionIds.has(item.id),
+    groupId: groupTransactionIds.get(item.id) ?? null,
+    incomeType: item.income_type as ExpenseDraft['incomeType'],
+    rawDescription: item.raw_description,
+    merchantName: item.merchant_name,
+    counterpartyName: item.counterparty_name,
+    memo: item.import_memo,
+    bankReference: item.import_reference,
+    importConfidence:
+      item.import_confidence == null ? null : Number(item.import_confidence),
+    recurringPaymentId: item.recurring_payment_id,
+    recurringOccurrenceId: item.recurring_occurrence_id,
+    isRecurring: Boolean(item.recurring_payment_id),
+  };
+}
+
+export type PlanTier = 'free' | 'pro' | 'max';
+
 export type CoreUserData = {
+  // Istante della lettura dal server: gli aggiornamenti locali lo conservano,
+  // così il provider distingue un dato nuovo dal server da una modifica locale.
+  fetchedAt: number;
   transactions: ExpenseDraft[];
   budgets: BudgetCategory[];
   allocation: Partial<Record<BudgetGroupKey, number>>;
@@ -150,7 +218,11 @@ export type CoreUserData = {
   completedGoals: Goal[];
   goalContributions: GoalContributionSummary[];
   goalAllocationMode: GoalAllocationMode;
-  planTier: 'free' | 'pro' | 'max';
+  // Piano effettivo (include Pro ricevuto da un Max) e piano acquistato.
+  planTier: PlanTier;
+  billingPlanTier: PlanTier;
+  planSource: 'own' | 'shared';
+  sharedPlanGroupId: string | null;
   budgetCycleStartDay: number;
   budgetRolloverMode: BudgetRolloverMode;
   incomeBand: IncomeBandId | null;
@@ -208,10 +280,10 @@ export async function fetchCoreUserData(userId: string): Promise<CoreUserData | 
       .eq('status', 'completed')
       .is('deleted_at', null)
       .order('completed_at', { ascending: false }),
-    fetchTransactionHistory(userId),
+    fetchTransactionHistory(userId, { from: historyWindowStart() }),
     supabase
       .from('profiles')
-      .select('goal_allocation_mode,plan_tier,budget_cycle_start_day,budget_rollover_mode,planned_monthly_income,income_band')
+      .select('goal_allocation_mode,plan_tier,billing_plan_tier,plan_source,shared_plan_group_id,budget_cycle_start_day,budget_rollover_mode,planned_monthly_income,income_band')
       .eq('id', userId)
       .single(),
     supabase
@@ -265,40 +337,10 @@ export async function fetchCoreUserData(userId: string): Promise<CoreUserData | 
     );
   }
 
-  const groupTransactionIds = new Map(
-    ((groupTransactionLinksResult.data ?? []) as {
-      transaction_id: string;
-      group_id: string;
-    }[]).map((item) => [item.transaction_id, item.group_id]),
+  const groupTransactionIds = groupLinksMap(groupTransactionLinksResult.data);
+  const monthlyTransactions = (transactionResult.data ?? []).map((item) =>
+    mapTransactionRow(item, groupTransactionIds),
   );
-  const monthlyTransactions = (transactionResult.data ?? []).map((item) => ({
-    id: item.id,
-    description: item.description,
-    amount: Number(item.amount),
-    category: item.category,
-    occurredAt: item.occurred_at,
-    occurredTime: item.occurred_time,
-    occurredTimeSource: item.occurred_time_source as ExpenseDraft['occurredTimeSource'],
-    source: item.source,
-    kind: (item.kind ?? 'expense') as ExpenseDraft['kind'],
-    financialAccountId: item.financial_account_id,
-    bankStatus: item.bank_status,
-    excludedFromTotals: Boolean(item.excluded_from_totals),
-    internalTransfer: Boolean(item.internal_transfer),
-    excludedFromBudget: Boolean(item.excluded_from_budget) || groupTransactionIds.has(item.id),
-    groupId: groupTransactionIds.get(item.id) ?? null,
-    incomeType: item.income_type as ExpenseDraft['incomeType'],
-    rawDescription: item.raw_description,
-    merchantName: item.merchant_name,
-    counterpartyName: item.counterparty_name,
-    memo: item.import_memo,
-    bankReference: item.import_reference,
-    importConfidence:
-        item.import_confidence == null ? null : Number(item.import_confidence),
-    recurringPaymentId: item.recurring_payment_id,
-    recurringOccurrenceId: item.recurring_occurrence_id,
-    isRecurring: Boolean(item.recurring_payment_id),
-  }));
   const incomeBand = goalSettingsResult.data.income_band as IncomeBandId | null;
   const plannedMonthlyIncome = Number(
     goalSettingsResult.data.planned_monthly_income
@@ -355,6 +397,7 @@ export async function fetchCoreUserData(userId: string): Promise<CoreUserData | 
   });
 
   return {
+    fetchedAt: Date.now(),
     transactions: monthlyTransactions,
     budgets: hydratedBudgets,
     allocation,
@@ -366,7 +409,10 @@ export async function fetchCoreUserData(userId: string): Promise<CoreUserData | 
       createdAt: contribution.occurred_at,
     })),
     goalAllocationMode: goalSettingsResult.data.goal_allocation_mode as GoalAllocationMode,
-    planTier: goalSettingsResult.data.plan_tier as 'free' | 'pro' | 'max',
+    planTier: goalSettingsResult.data.plan_tier as PlanTier,
+    billingPlanTier: (goalSettingsResult.data.billing_plan_tier ?? goalSettingsResult.data.plan_tier) as PlanTier,
+    planSource: goalSettingsResult.data.plan_source === 'shared' ? 'shared' : 'own',
+    sharedPlanGroupId: goalSettingsResult.data.shared_plan_group_id ?? null,
     budgetCycleStartDay: Number(goalSettingsResult.data.budget_cycle_start_day) || 1,
     budgetRolloverMode:
       goalSettingsResult.data.budget_rollover_mode === 'carry' ? 'carry' : 'savings',
@@ -459,4 +505,50 @@ export async function fetchSecondaryUserData(userId: string): Promise<SecondaryU
         }
       : null,
   };
+}
+
+// Movimenti in un intervallo fuori dalla finestra in memoria (es. timeline su
+// un anno precedente). Include l'imputazione ai gruppi come i dati principali.
+export async function fetchTransactionsInRange(userId: string, from: Date, to: Date) {
+  const [history, links] = await Promise.all([
+    fetchTransactionHistory(userId, { from, to }),
+    supabase.rpc('my_group_transaction_links'),
+  ]);
+  if (history.error) throw history.error;
+  const groupTransactionIds = groupLinksMap(links.error ? null : links.data);
+  return (history.data ?? []).map((item) => mapTransactionRow(item, groupTransactionIds));
+}
+
+export function olderTransactionsQuery(userId: string, from: Date, to: Date) {
+  return queryOptions({
+    queryKey: queryKeys.olderTransactions(userId, from.toISOString(), to.toISOString()),
+    queryFn: () => fetchTransactionsInRange(userId, from, to),
+    // Lo storico passato cambia raramente (solo per modifiche dell'utente).
+    staleTime: 5 * 60_000,
+  });
+}
+
+// Dati principali e secondari dell'utente nella cache di TanStack Query.
+// Le ricariche sono pilotate dall'AppProvider (mutazioni, realtime, primo piano):
+// lo staleTime evita refetch automatici più frequenti di una volta al minuto.
+const USER_DATA_STALE_MS = 60_000;
+
+export function coreUserDataQuery(userId: string) {
+  return queryOptions({
+    queryKey: queryKeys.userCore(userId),
+    queryFn: async () => {
+      const data = await fetchCoreUserData(userId);
+      if (!data) throw new Error('Dati principali non disponibili');
+      return data;
+    },
+    staleTime: USER_DATA_STALE_MS,
+  });
+}
+
+export function secondaryUserDataQuery(userId: string) {
+  return queryOptions({
+    queryKey: queryKeys.userSecondary(userId),
+    queryFn: () => fetchSecondaryUserData(userId),
+    staleTime: USER_DATA_STALE_MS,
+  });
 }

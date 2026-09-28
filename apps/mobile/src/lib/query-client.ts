@@ -55,6 +55,9 @@ if (Platform.OS !== 'web') {
 }
 
 export const queryKeys = {
+  userData: (userId: string) => ['user-data', userId] as const,
+  userCore: (userId: string) => ['user-data', userId, 'core'] as const,
+  userSecondary: (userId: string) => ['user-data', userId, 'secondary'] as const,
   familyGroups: (userId: string) => ['family-groups', userId] as const,
   familyGroupDetail: (groupId: string, userId: string) =>
     ['family-group-detail', groupId, userId] as const,
@@ -62,4 +65,7 @@ export const queryKeys = {
   bankConnections: (userId: string) => ['bank-connections', userId] as const,
   bankConnection: (connectionId: string) => ['bank-connection', connectionId] as const,
   italianBanks: () => ['banks', 'IT'] as const,
+  olderTransactionsRoot: ['older-transactions'] as const,
+  olderTransactions: (userId: string, from: string, to: string) =>
+    ['older-transactions', userId, from, to] as const,
 };

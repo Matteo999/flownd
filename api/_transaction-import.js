@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { waitUntil } from '@vercel/functions'
 
 import { geminiStructuredGenerationConfig } from './_gemini-config.js'
-import { authenticateRequest } from './eb/_supabase.js'
+import { consumeAiQuota } from './_ai-quota.js'
+import { ApiError, authenticateRequest } from './eb/_supabase.js'
 
 // Keeps the base64 JSON request below common serverless body limits.
 const MAX_FILE_BYTES = 3 * 1024 * 1024
@@ -874,24 +875,12 @@ export default async function handler(req, res) {
     if (!['csv', 'xlsx', 'pdf', 'jpg', 'jpeg', 'png', 'webp'].includes(extension)) {
       throw new Error(`Unsupported file extension: ${extension || 'missing'}`)
     }
-    if (['jpg', 'jpeg', 'png', 'webp'].includes(extension)) {
-      const { data: profile, error: profileError } = await service
-        .from('profiles')
-        .select('plan_tier')
-        .eq('id', user.id)
-        .single()
-      if (profileError) throw profileError
-      if (!['pro', 'max'].includes(profile?.plan_tier)) {
-        return res.status(403).json({
-          error: 'Il riconoscimento da immagini è disponibile con Pro e Max.',
-          code: 'PAID_PLAN_REQUIRED',
-        })
-      }
-    }
     const buffer = Buffer.from(base64, 'base64')
     if (!buffer.length || buffer.length > MAX_FILE_BYTES) {
       return res.status(413).json({ error: 'Il file deve essere più piccolo di 3 MB.' })
     }
+    // Verifica piano e consuma un'importazione dalla quota (pool condiviso per Max).
+    await consumeAiQuota(user.id, 'import', service)
 
     const { data: created, error: createError } = await service
       .from('transaction_import_jobs')
@@ -919,6 +908,9 @@ export default async function handler(req, res) {
     else void task
     return res.status(202).json({ id: created.id, status: 'queued' })
   } catch (error) {
+    if (error instanceof ApiError && error.status < 500) {
+      return res.status(error.status).json({ error: error.message, code: error.code, reportId })
+    }
     const transient = isTransientAiError(error)
     console.error('Flownd transaction import failed', {
       reportId,

@@ -61,6 +61,7 @@ import {
 } from '@/lib/dashboard';
 import { type FamilyGroup, familyGroupsQuery } from '@/lib/family';
 import { queryKeys } from '@/lib/query-client';
+import { historyWindowStart, olderTransactionsQuery } from '@/lib/user-data';
 import type { ExpenseDraft } from '@/lib/onboarding';
 import { formatEuro } from '@/lib/onboarding';
 import {
@@ -195,6 +196,14 @@ function periodStart(date: Date, period: DashboardPeriod) {
     start.setMonth(0, 1);
   }
   return start;
+}
+
+function periodEnd(date: Date, period: DashboardPeriod) {
+  const end = periodStart(date, period);
+  if (period === 'week') end.setDate(end.getDate() + 7);
+  else if (period === 'month') end.setMonth(end.getMonth() + 1);
+  else end.setFullYear(end.getFullYear() + 1);
+  return end;
 }
 
 function isCurrentTimelinePeriod(date: Date, period: DashboardPeriod) {
@@ -495,18 +504,42 @@ export default function TimelineScreen() {
         ? 'settimanale'
         : 'mensile';
 
+  // Oltre la finestra di 13 mesi tenuta in memoria, il periodo visualizzato
+  // viene caricato su richiesta e unito ai movimenti recenti.
+  const viewStart = customDateRange?.start ?? periodStart(periodAnchor, selectedPeriod);
+  const viewEnd = customDateRange
+    ? new Date(customDateRange.end.getTime() + 1)
+    : periodEnd(periodAnchor, selectedPeriod);
+  const windowStart = historyWindowStart();
+  const needsOlder = Boolean(userId) && viewStart < windowStart;
+  const olderRangeEnd = viewEnd < windowStart ? viewEnd : windowStart;
+  const olderQuery = useQuery({
+    ...olderTransactionsQuery(userId ?? '', viewStart, olderRangeEnd),
+    enabled: needsOlder,
+  });
+  const olderTransactions = needsOlder ? olderQuery.data : undefined;
+  const loadingOlder = needsOlder && olderQuery.isPending;
+  const timelineTransactions = useMemo(() => {
+    if (!olderTransactions?.length) return transactions;
+    const known = new Set(transactions.map((transaction) => transaction.id));
+    return [
+      ...transactions,
+      ...olderTransactions.filter((transaction) => !known.has(transaction.id)),
+    ];
+  }, [olderTransactions, transactions]);
+
   const { summary, bins, groups, visibleTransactions } = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('it');
     const normalizedCategories = new Set(
       categoryFilters.map((category) => category.toLocaleLowerCase('it')),
     );
     const periodTransactions = customDateRange
-      ? transactions.filter((transaction) => {
+      ? timelineTransactions.filter((transaction) => {
           if (!transaction.occurredAt) return false;
           const occurredAt = new Date(transaction.occurredAt);
           return occurredAt >= customDateRange.start && occurredAt <= customDateRange.end;
         })
-      : transactionsForPeriod(transactions, selectedPeriod, periodAnchor);
+      : transactionsForPeriod(timelineTransactions, selectedPeriod, periodAnchor);
     const visibleTransactions = periodTransactions.filter((transaction) => {
       const category = transaction.category.trim() || 'Altro';
       const normalizedTransactionCategory = category.toLocaleLowerCase('it');
@@ -540,7 +573,7 @@ export default function TimelineScreen() {
       ),
       visibleTransactions,
     };
-  }, [categoryFilters, customDateRange, periodAnchor, query, selectedPeriod, transactions]);
+  }, [categoryFilters, customDateRange, periodAnchor, query, selectedPeriod, timelineTransactions]);
   const sections = useMemo<TimelineSection[]>(
     () => groups.map((group) => ({ ...group, data: group.transactions })),
     [groups],
@@ -741,7 +774,7 @@ export default function TimelineScreen() {
             showsVerticalScrollIndicator={false}
             refreshControl={
               <RefreshControl
-                refreshing={refreshing}
+                refreshing={refreshing || loadingOlder}
                 onRefresh={refreshTimeline}
                 tintColor={colors.accent}
                 colors={[colors.accent]}

@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppState } from 'react-native';
+import { useQuery } from '@tanstack/react-query';
 import React, {
   createContext,
   PropsWithChildren,
@@ -32,15 +32,16 @@ import {
   type Loan,
   type LoanDraft,
 } from '@/lib/goals';
-import { queryClient } from '@/lib/query-client';
+import { queryClient, queryKeys } from '@/lib/query-client';
 import { setSentryUser } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 import {
   type CoachInsight,
   type FinancialAccount,
   type GoalContributionSummary,
-  fetchCoreUserData,
-  fetchSecondaryUserData,
+  type CoreUserData,
+  coreUserDataQuery,
+  secondaryUserDataQuery,
   normalizeTransactionDraft,
   transactionInsertPayload,
 } from '@/lib/user-data';
@@ -129,6 +130,11 @@ type AppContextValue = {
   goalAllocationMode: GoalAllocationMode;
   goalNotice: GoalNotice | null;
   planTier: 'free' | 'pro' | 'max';
+  // Piano acquistato e provenienza: 'shared' = Pro ricevuto dal gruppo di un Max.
+  billingPlanTier: 'free' | 'pro' | 'max';
+  planSource: 'own' | 'shared';
+  sharedPlanGroupId: string | null;
+  setPlanSharingGroup: (groupId: string | null) => Promise<boolean>;
   financialAccounts: FinancialAccount[];
   recurringPayments: RecurringSeries[];
   coachInsight: CoachInsight | null;
@@ -221,8 +227,95 @@ type AppContextValue = {
 
 const AppContext = createContext<AppStore<AppContextValue> | null>(null);
 
-const FOREGROUND_REFRESH_MS = 60_000;
 const IMPORT_BATCH_SIZE = 500;
+
+const NO_TRANSACTIONS: ExpenseDraft[] = [];
+const NO_GOALS: Goal[] = [];
+const NO_CONTRIBUTIONS: GoalContributionSummary[] = [];
+const NO_LOANS: Loan[] = [];
+const NO_ACCOUNTS: FinancialAccount[] = [];
+const NO_RECURRING: RecurringSeries[] = [];
+
+function invalidateOlderTransactions() {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.olderTransactionsRoot });
+}
+
+async function refreshUserQuery<T>(
+  options: { queryKey: readonly unknown[]; queryFn?: unknown; staleTime?: unknown },
+  unlessFreshSince?: number,
+) {
+  const queryKey = options.queryKey;
+  const state = queryClient.getQueryState(queryKey);
+  // Prima lettura: nessun dato in cache.
+  if (!state || state.dataUpdatedAt === 0) {
+    await queryClient.fetchQuery(options as Parameters<typeof queryClient.fetchQuery<T>>[0]);
+    return;
+  }
+  if (unlessFreshSince != null) {
+    // Considera "freschi" i dati letti dopo l'evento; una lettura in corso viene riusata.
+    await queryClient.fetchQuery({
+      ...(options as Parameters<typeof queryClient.fetchQuery<T>>[0]),
+      staleTime: Math.max(0, Date.now() - unlessFreshSince),
+    });
+    return;
+  }
+  await queryClient.refetchQueries(
+    { queryKey, exact: true },
+    { cancelRefetch: true, throwOnError: true },
+  );
+}
+
+type FieldUpdate<T> = T | ((current: T) => T);
+
+function applyUpdate<T>(current: T, update: FieldUpdate<T>) {
+  return typeof update === 'function' ? (update as (value: T) => T)(current) : update;
+}
+
+// Setter con la stessa firma di useState che aggiornano la cache dell'utente
+// attivo. Se i dati non sono ancora stati letti non fanno nulla: arriveranno
+// completi dalla prima lettura.
+function createUserDataSetters(getUserId: () => string | null) {
+  function coreSetter<K extends keyof CoreUserData>(field: K) {
+    return (update: FieldUpdate<CoreUserData[K]>) => {
+      const userId = getUserId();
+      if (!userId) return;
+      queryClient.setQueryData<CoreUserData>(queryKeys.userCore(userId), (current) =>
+        current ? { ...current, [field]: applyUpdate(current[field], update) } : current,
+      );
+    };
+  }
+  return {
+    setTransactions: coreSetter('transactions'),
+    setGoals: coreSetter('goals'),
+    setCompletedGoals: coreSetter('completedGoals'),
+    setGoalContributions: coreSetter('goalContributions'),
+    setLoans: coreSetter('loans'),
+    setGoalAllocationModeState: coreSetter('goalAllocationMode'),
+    setGoalNotice: coreSetter('goalNotice'),
+    setBudgetCycleStartDay: coreSetter('budgetCycleStartDay'),
+    setBudgetRolloverMode: coreSetter('budgetRolloverMode'),
+  };
+}
+
+function mergeDraftWithCore(current: OnboardingDraft, core: CoreUserData): OnboardingDraft {
+  return {
+    ...current,
+    incomeBand: core.incomeBand,
+    monthlyReference: core.plannedMonthlyIncome,
+    allocation: core.budgets.length
+      ? {
+          needs: core.allocation.needs ?? current.allocation.needs,
+          wants: core.allocation.wants ?? current.allocation.wants,
+          savings: core.allocation.savings ?? current.allocation.savings,
+        }
+      : current.allocation,
+    budgets: core.budgets.length ? core.budgets : current.budgets,
+    goal: core.goals[0] ?? current.goal,
+    expense:
+      core.transactions.find((transaction) => transaction.kind !== 'income')
+      ?? current.expense,
+  };
+}
 
 export function AppProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
@@ -234,30 +327,70 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [profileUnavailable, setProfileUnavailable] = useState(false);
   const [firstDashboardVisit, setFirstDashboardVisit] = useState(false);
   const [draft, setDraft] = useState<OnboardingDraft>(initialDraft);
-  const [transactions, setTransactions] = useState<ExpenseDraft[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [completedGoals, setCompletedGoals] = useState<Goal[]>([]);
-  const [goalContributions, setGoalContributions] = useState<
-    GoalContributionSummary[]
-  >([]);
-  const [loans, setLoans] = useState<Loan[]>([]);
-  const [goalAllocationMode, setGoalAllocationModeState] =
-    useState<GoalAllocationMode>('priority');
-  const [goalNotice, setGoalNotice] = useState<GoalNotice | null>(null);
-  const [planTier, setPlanTier] = useState<'free' | 'pro' | 'max'>('free');
-  const [financialAccounts, setFinancialAccounts] = useState<FinancialAccount[]>([]);
-  const [recurringPayments, setRecurringPayments] = useState<RecurringSeries[]>([]);
-  const [coachInsight, setCoachInsight] = useState<CoachInsight | null>(null);
   const [amountsVisible, setAmountsVisible] = useState(true);
-  const [budgetCycleStartDay, setBudgetCycleStartDay] = useState(1);
-  const [budgetRolloverMode, setBudgetRolloverMode] =
-    useState<BudgetRolloverMode>('savings');
-  const [groupMonthlyAllocation, setGroupMonthlyAllocation] = useState(0);
-  const [previousGroupMonthlyAllocation, setPreviousGroupMonthlyAllocation] = useState(0);
-  const [groupPersonalCarryIn, setGroupPersonalCarryIn] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const activeUserId = useRef<string | null>(null);
   const recurringStartupRefreshUserId = useRef<string | null>(null);
+
+  // Dati utente dalla cache di TanStack Query (una voce per utente). I setter
+  // mantengono la stessa forma di useState ma aggiornano la cache, così gli
+  // aggiornamenti ottimistici delle azioni restano invariati.
+  const dataUserId = onboardingComplete ? session?.user.id ?? null : null;
+  const coreQuery = useQuery({
+    ...coreUserDataQuery(dataUserId ?? ''),
+    enabled: Boolean(dataUserId),
+  });
+  const secondaryQuery = useQuery({
+    ...secondaryUserDataQuery(dataUserId ?? ''),
+    enabled: Boolean(dataUserId),
+  });
+  const core = dataUserId ? coreQuery.data : undefined;
+  const secondary = dataUserId ? secondaryQuery.data : undefined;
+  const transactions = core?.transactions ?? NO_TRANSACTIONS;
+  const goals = core?.goals ?? NO_GOALS;
+  const completedGoals = core?.completedGoals ?? NO_GOALS;
+  const goalContributions = core?.goalContributions ?? NO_CONTRIBUTIONS;
+  const loans = core?.loans ?? NO_LOANS;
+  const goalAllocationMode: GoalAllocationMode = core?.goalAllocationMode ?? 'priority';
+  const goalNotice = core?.goalNotice ?? null;
+  const planTier = core?.planTier ?? 'free';
+  const billingPlanTier = core?.billingPlanTier ?? 'free';
+  const planSource = core?.planSource ?? 'own';
+  const sharedPlanGroupId = core?.sharedPlanGroupId ?? null;
+  const budgetCycleStartDay = core?.budgetCycleStartDay ?? 1;
+  const budgetRolloverMode: BudgetRolloverMode = core?.budgetRolloverMode ?? 'savings';
+  const groupMonthlyAllocation = core?.groupMonthlyAllocation ?? 0;
+  const previousGroupMonthlyAllocation = core?.previousGroupMonthlyAllocation ?? 0;
+  const groupPersonalCarryIn = core?.groupPersonalCarryIn ?? 0;
+  const financialAccounts = secondary?.financialAccounts ?? NO_ACCOUNTS;
+  const recurringPayments = secondary?.recurringPayments ?? NO_RECURRING;
+  const coachInsight = secondary?.coachInsight ?? null;
+  // Errore della prima lettura avviata direttamente da TanStack Query
+  // (es. subito dopo l'onboarding), quando non ci sono dati da mostrare.
+  const dataError = dataUserId && coreQuery.isError && !core
+    ? 'Il profilo è pronto, ma alcuni dati non sono ancora disponibili.'
+    : null;
+
+  const [cacheSetters] = useState(() => createUserDataSetters(() => activeUserId.current));
+  const {
+    setTransactions,
+    setGoals,
+    setCompletedGoals,
+    setGoalContributions,
+    setLoans,
+    setGoalAllocationModeState,
+    setGoalNotice,
+    setBudgetCycleStartDay,
+    setBudgetRolloverMode,
+  } = cacheSetters;
+
+  // La bozza (budget, obiettivo, reddito) si riallinea solo quando arrivano
+  // dati nuovi dal server, non a ogni aggiornamento locale della cache.
+  const [mergedCoreFetchedAt, setMergedCoreFetchedAt] = useState<number | null>(null);
+  if (core && core.fetchedAt !== mergedCoreFetchedAt) {
+    setMergedCoreFetchedAt(core.fetchedAt);
+    setDraft((current) => mergeDraftWithCore(current, core));
+  }
 
   const privacyKey = useCallback(
     (userId: string) => `flownd:amounts-visible:${userId}`,
@@ -275,96 +408,33 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
   }, [privacyKey]);
 
-  const loadUserData = useCallback(async (userId: string) => {
-    const core = await fetchCoreUserData(userId);
-    if (activeUserId.current !== userId) return;
-    if (!core) {
-      setError('Il profilo è pronto, ma alcuni dati non sono ancora disponibili.');
-      return;
-    }
-    setTransactions(core.transactions);
-    setGoals(core.goals);
-    setCompletedGoals(core.completedGoals);
-    setGoalContributions(core.goalContributions);
-    setGoalAllocationModeState(core.goalAllocationMode);
-    setPlanTier(core.planTier);
-    setBudgetCycleStartDay(core.budgetCycleStartDay);
-    setBudgetRolloverMode(core.budgetRolloverMode);
-    setLoans(core.loans);
-    setGoalNotice(core.goalNotice);
-    setGroupMonthlyAllocation(core.groupMonthlyAllocation);
-    setPreviousGroupMonthlyAllocation(core.previousGroupMonthlyAllocation);
-    setGroupPersonalCarryIn(core.groupPersonalCarryIn);
-    setDraft((current) => ({
-      ...current,
-      incomeBand: core.incomeBand,
-      monthlyReference: core.plannedMonthlyIncome,
-      allocation: core.budgets.length
-        ? {
-            needs: core.allocation.needs ?? current.allocation.needs,
-            wants: core.allocation.wants ?? current.allocation.wants,
-            savings: core.allocation.savings ?? current.allocation.savings,
-          }
-        : current.allocation,
-      budgets: core.budgets.length ? core.budgets : current.budgets,
-      goal: core.goals[0] ?? current.goal,
-      expense:
-        core.transactions.find((transaction) => transaction.kind !== 'income')
-        ?? current.expense,
-    }));
+  // Movimenti in memoria (ultimi 13 mesi) più quelli dei periodi precedenti
+  // caricati dalla timeline: modifiche ed eliminazioni devono trovarli tutti.
+  function knownTransactions(): ExpenseDraft[] {
+    const older = queryClient
+      .getQueriesData<ExpenseDraft[]>({ queryKey: queryKeys.olderTransactionsRoot })
+      .flatMap(([, data]) => data ?? []);
+    return older.length ? [...transactions, ...older] : transactions;
+  }
 
-    const secondary = await fetchSecondaryUserData(userId);
-    if (activeUserId.current !== userId) return;
-    setFinancialAccounts(secondary.financialAccounts);
-    setRecurringPayments(secondary.recurringPayments);
-    setCoachInsight(secondary.coachInsight);
-  }, []);
-
-  // Una sola ricarica alla volta: le richieste che arrivano mentre una è in
-  // corso vengono accorpate in un'unica ricarica successiva.
-  const hydrateInFlight = useRef<{
-    promise: Promise<void>;
-    startedAt: number;
-    userId: string;
-  } | null>(null);
-  const hydrateQueued = useRef(false);
-  const lastHydrateStartedAt = useRef(0);
-
+  // Ricarica dei dati utente. Senza opzioni (dopo una modifica) annulla una
+  // lettura in corso e ne avvia una nuova, che quindi include la modifica.
+  // Con unlessFreshSince (realtime, primo piano) non fa nulla se i dati sono
+  // stati letti dopo quell'istante, e si accoda a una lettura già in corso.
   const hydrateUserData = useCallback(
-    (userId: string, options: { unlessFreshSince?: number } = {}) => {
-      const since = options.unlessFreshSince;
-      // Una ricarica in corso per un altro utente (logout/login) non va riusata.
-      const inFlight = hydrateInFlight.current?.userId === userId
-        ? hydrateInFlight.current
-        : null;
-      if (since != null) {
-        // Evento esterno (realtime, foreground): basta una ricarica iniziata dopo di esso.
-        if (lastHydrateStartedAt.current >= since && !inFlight && !hydrateInFlight.current) {
-          return Promise.resolve();
-        }
-        if (inFlight && inFlight.startedAt >= since) return inFlight.promise;
+    async (userId: string, options: { unlessFreshSince?: number } = {}) => {
+      invalidateOlderTransactions();
+      const [coreResult] = await Promise.allSettled([
+        refreshUserQuery(coreUserDataQuery(userId), options.unlessFreshSince),
+        refreshUserQuery(secondaryUserDataQuery(userId), options.unlessFreshSince),
+      ]);
+      if (activeUserId.current !== userId) return;
+      if (coreResult.status === 'rejected') {
+        if (__DEV__) console.error('Flownd user data load failed', coreResult.reason);
+        setError('Il profilo è pronto, ma alcuni dati non sono ancora disponibili.');
       }
-      if (inFlight) {
-        hydrateQueued.current = true;
-        return inFlight.promise;
-      }
-      const run = async () => {
-        do {
-          hydrateQueued.current = false;
-          const startedAt = Date.now();
-          if (hydrateInFlight.current === entry) entry.startedAt = startedAt;
-          await loadUserData(userId);
-          lastHydrateStartedAt.current = startedAt;
-        } while (hydrateQueued.current && activeUserId.current === userId);
-      };
-      const entry = { promise: Promise.resolve(), startedAt: Date.now(), userId };
-      hydrateInFlight.current = entry;
-      entry.promise = run().finally(() => {
-        if (hydrateInFlight.current === entry) hydrateInFlight.current = null;
-      });
-      return entry.promise;
     },
-    [loadUserData],
+    [],
   );
 
   const readProfile = useCallback(async (nextSession: Session | null) => {
@@ -376,23 +446,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       setProfileUnavailable(false);
       setFirstDashboardVisit(false);
       setDraft(initialDraft);
-      setTransactions([]);
-      setGoals([]);
-      setCompletedGoals([]);
-      setGoalContributions([]);
-      setGroupMonthlyAllocation(0);
-      setPreviousGroupMonthlyAllocation(0);
-      setGroupPersonalCarryIn(0);
-      setLoans([]);
-      setGoalAllocationModeState('priority');
-      setGoalNotice(null);
-      setPlanTier('free');
-      setFinancialAccounts([]);
-      setRecurringPayments([]);
-      setCoachInsight(null);
+      setMergedCoreFetchedAt(null);
       setAmountsVisible(true);
-      setBudgetCycleStartDay(1);
-      setBudgetRolloverMode('savings');
       setError(null);
       return;
     }
@@ -542,19 +597,13 @@ export function AppProvider({ children }: PropsWithChildren) {
         scheduleRefresh,
       )
       .subscribe();
-    const appStateSubscription = AppState.addEventListener('change', (state) => {
-      // In background il realtime si disconnette: al ritorno ricarichiamo, ma
-      // non più di una volta al minuto.
-      if (state === 'active') {
-        void hydrateUserData(userId, { unlessFreshSince: Date.now() - FOREGROUND_REFRESH_MS });
-      }
-    });
+    // Il ritorno in primo piano (realtime disconnesso in background) è gestito da
+    // TanStack Query: refetch automatico se i dati hanno più di un minuto.
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer);
-      appStateSubscription.remove();
       void supabase.removeChannel(channel);
     };
-  }, [hydrateUserData, onboardingComplete, session?.user.id]);
+  }, [hydrateUserData, onboardingComplete, session?.user.id, setGoalNotice]);
 
   const grossBudgetMonthlyIncome = useMemo(() => {
     const cycle = financialCycleForDate(new Date(), budgetCycleStartDay, transactions);
@@ -1211,7 +1260,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const internalTransfer = incomeTreatment?.incomeType === 'internal_transfer';
     if (!nextDescription || !nextCategory || transaction.amount <= 0) return false;
 
-    const existingTransaction = transactions.find((item) => item.id === transactionId);
+    const existingTransaction = knownTransactions().find((item) => item.id === transactionId);
     const manualAccount = existingTransaction?.financialAccountId
       ? financialAccounts.find(
           (account) =>
@@ -1343,6 +1392,7 @@ export function AppProvider({ children }: PropsWithChildren) {
           ? { ...current.expense, ...updatedFields }
           : current.expense,
     }));
+    invalidateOlderTransactions();
     return true;
   }
 
@@ -1356,7 +1406,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       return false;
     }
     const uniqueIds = [...new Set(transactionIds)];
-    const selectedTransactions = transactions.filter(
+    const selectedTransactions = knownTransactions().filter(
       (transaction) => transaction.id && uniqueIds.includes(transaction.id),
     );
     const kinds = new Set(
@@ -1426,6 +1476,7 @@ export function AppProvider({ children }: PropsWithChildren) {
           }
         : current,
     );
+    invalidateOlderTransactions();
     return true;
   }
 
@@ -1434,7 +1485,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       setError('La sessione è scaduta. Accedi di nuovo.');
       return false;
     }
-    const transaction = transactions.find((item) => item.id === transactionId);
+    const transaction = knownTransactions().find((item) => item.id === transactionId);
     const disconnectedBankTransaction =
       ['open_banking', 'manual_open_banking'].includes(transaction?.source ?? '') &&
       !financialAccounts.some(
@@ -1496,6 +1547,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         current.filter((item) => item.id !== transactionId),
       );
     }
+    invalidateOlderTransactions();
     return true;
   }
 
@@ -1533,6 +1585,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       );
       return false;
     }
+    invalidateOlderTransactions();
     return true;
   }
 
@@ -2160,6 +2213,27 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
   }, [readProfile]);
 
+  // Il proprietario Max sceglie il gruppo i cui primi 2 membri ricevono Pro.
+  async function setPlanSharingGroup(groupId: string | null) {
+    if (!session) return false;
+    setSaving(true);
+    setError(null);
+    const { error: sharingError } = await supabase.rpc('set_plan_sharing_group', {
+      p_group_id: groupId,
+    });
+    setSaving(false);
+    if (sharingError) {
+      if (__DEV__) console.error('Flownd plan sharing update failed', sharingError);
+      setError('Non siamo riusciti ad aggiornare la condivisione del piano.');
+      return false;
+    }
+    await hydrateUserData(session.user.id);
+    // I membri del gruppo vedono il nuovo piano alla prossima lettura dei gruppi.
+    void queryClient.invalidateQueries({ queryKey: ['family-groups'] });
+    void queryClient.invalidateQueries({ queryKey: ['family-group-detail'] });
+    return true;
+  }
+
   const value: AppContextValue = {
     session,
     loading,
@@ -2176,6 +2250,10 @@ export function AppProvider({ children }: PropsWithChildren) {
     goalAllocationMode,
     goalNotice,
     planTier,
+    billingPlanTier,
+    planSource,
+    sharedPlanGroupId,
+    setPlanSharingGroup,
     financialAccounts,
     recurringPayments,
     coachInsight,
@@ -2187,7 +2265,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     previousGroupMonthlyAllocation,
     groupPersonalCarryIn,
     budgetMonthlyIncome,
-    error,
+    error: error ?? dataError,
     updateDraft: (next) => setDraft((current) => ({ ...current, ...next })),
     completeOnboarding,
     addTransaction,

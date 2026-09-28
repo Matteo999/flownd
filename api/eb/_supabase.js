@@ -72,7 +72,8 @@ export async function paidEntitlement(service, userId) {
   }
   return {
     plan,
-    maxConnections: plan === 'max' ? 10 : 2,
+    // Per persona: chi usa il piano condiviso da un Max ha le banche di un Pro.
+    maxConnections: plan === 'max' ? 4 : 2,
   }
 }
 

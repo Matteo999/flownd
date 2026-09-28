@@ -103,7 +103,7 @@ export default function ConnectBankScreen() {
         <Card>
           <Text style={[styles.cardTitle, { color: colors.text }]}>Disponibile con Pro e Max</Text>
           <Text style={[styles.copy, { color: colors.textSecondary }]}> 
-            Nel piano Free continui a gestire le transazioni manualmente. Con Pro puoi collegare fino a 2 banche; con Max fino a 10.
+            Nel piano Free continui a gestire le transazioni manualmente. Con Pro puoi collegare fino a 2 banche; con Max fino a 4.
           </Text>
         </Card>
       ) : (

@@ -104,15 +104,15 @@ export default function WealthScreen() {
     if (planTier === 'pro' && authorizedConnections.length >= 2) {
       Alert.alert(
         'Hai raggiunto il limite Pro',
-        'Passa al piano Max per collegare fino a 10 banche e completare il tuo patrimonio.',
+        'Passa al piano Max per collegare fino a 4 banche e condividere Pro con altre 2 persone.',
         [{ text: 'Non ora', style: 'cancel' }, { text: 'Ho capito' }],
       );
       return;
     }
-    if (planTier === 'max' && authorizedConnections.length >= 10) {
+    if (planTier === 'max' && authorizedConnections.length >= 4) {
       Alert.alert(
         'Limite collegamenti raggiunto',
-        'Il piano Max consente fino a 10 collegamenti bancari attivi.',
+        'Il piano Max consente fino a 4 collegamenti bancari attivi.',
       );
       return;
     }

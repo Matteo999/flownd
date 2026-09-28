@@ -59,10 +59,20 @@ type SettingsSection = 'budget' | 'sharing' | 'members';
 export default function GroupSettingsScreen() {
   const { colors } = useFlowndTheme();
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
-  const { session, grossBudgetMonthlyIncome, refreshData } = useAppState(
+  const {
+    session,
+    grossBudgetMonthlyIncome,
+    refreshData,
+    billingPlanTier,
+    sharedPlanGroupId,
+    setPlanSharingGroup,
+  } = useAppState(
     'session',
     'grossBudgetMonthlyIncome',
     'refreshData',
+    'billingPlanTier',
+    'sharedPlanGroupId',
+    'setPlanSharingGroup',
   );
   const cachedGroups = peekFamilyGroups(session?.user.id) ?? [];
   const cachedGroup = cachedGroups.find((item) => item.id === groupId) ?? null;
@@ -157,6 +167,27 @@ export default function GroupSettingsScreen() {
       ) : (
         <View style={styles.sections}>
           <Text style={[styles.groupName, { color: colors.textSecondary }]}>{group.name}</Text>
+
+          {group.role === 'owner' && billingPlanTier === 'max' ? (
+            <Card>
+              <SettingsToggle
+                label="Condividi il piano Max"
+                caption={
+                  sharedPlanGroupId === group.id
+                    ? 'I primi 2 membri senza abbonamento hanno Pro incluso. Coach, scansioni e import usano le quote Max del gruppo.'
+                    : sharedPlanGroupId
+                      ? 'Stai condividendo il piano con un altro gruppo: attivalo qui per spostarlo.'
+                      : 'Offri Pro a 2 membri di questo gruppo, incluso nel tuo piano Max.'
+                }
+                value={sharedPlanGroupId === group.id}
+                onChange={(next) => {
+                  void setPlanSharingGroup(next ? group.id : null).then(async (saved) => {
+                    if (saved) await reload(group);
+                  });
+                }}
+              />
+            </Card>
+          ) : null}
 
           <SettingsAccordionCard
             title="Budget"

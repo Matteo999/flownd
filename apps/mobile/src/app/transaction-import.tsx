@@ -30,6 +30,7 @@ import {
   useFlowndTheme,
 } from '@/components/flownd-ui';
 import { TransactionDateField } from '@/components/transaction-date-field';
+import { ApiRequestError } from '@/lib/api';
 import { parseEuroAmount } from '@/lib/amount';
 import { type ExpenseDraft, formatDateItalian, formatEuro } from '@/lib/onboarding';
 import {
@@ -154,6 +155,11 @@ export default function TransactionImportScreen() {
   }, []);
 
   const showOperationalError = useCallback(async (context: string, reason: unknown) => {
+    // Piano o quota esaurita: mostriamo il messaggio del server, non è un guasto.
+    if (reason instanceof ApiRequestError && (reason.status === 403 || reason.status === 429)) {
+      setAnalysisError(reason.message);
+      return;
+    }
     setAnalysisError(GENERIC_OPERATION_ERROR);
     await reportClientError(session?.access_token, context, reason);
   }, [session]);
@@ -354,10 +360,8 @@ export default function TransactionImportScreen() {
 
   useEffect(() => {
     if (autoLaunchRef.current || !requestedSource) return;
-    if (
-      ['camera', 'library', 'image-asset'].includes(requestedSource)
-      && !isPaid
-    ) return;
+    // Tutte le funzioni AI (immagini e file) sono incluse solo in Pro e Max.
+    if (!isPaid) return;
     const timer = setTimeout(() => {
       if (autoLaunchRef.current) return;
       autoLaunchRef.current = true;
@@ -463,7 +467,14 @@ export default function TransactionImportScreen() {
               : 'CSV, PDF e XLSX vengono analizzati in background.'}
           </Text>
 
-          {mode === 'file' ? (
+          {mode === 'file' && !isPaid ? (
+            <Card style={styles.paywallCard}>
+              <Text style={[styles.paywallTitle, { color: colors.text }]}>Disponibile con Pro e Max</Text>
+              <Text style={[styles.paywallCopy, { color: colors.textSecondary }]}>
+                L’importazione AI di estratti conto CSV, PDF e XLSX è riservata ai piani a pagamento.
+              </Text>
+            </Card>
+          ) : mode === 'file' ? (
             <GradientButton onPress={chooseFile} disabled={analyzing}>
               ✦ Scegli CSV, PDF o XLSX
             </GradientButton>

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import {
@@ -306,16 +305,53 @@ test('non confonde la parola presso con il distributore Esso', () => {
   assert.equal(esso.category, 'Trasporti e Auto')
 })
 
-test('usa un fingerprint idempotente nei payload CRBZ senza identificativi', async () => {
-  const fixture = JSON.parse(
-    await readFile(new URL('./raw_payload/26.08.07 - Raw Payload CRBZ.json', import.meta.url)),
-  )
-  const raw = fixture.transactions.raw.transactions[0]
-  const first = normalizeBankTransaction(raw, fixture.selectedAccount.identificationHash || 'crbz')
-  const second = normalizeBankTransaction(raw, fixture.selectedAccount.identificationHash || 'crbz')
+// Struttura di un accredito CRBZ reale (nessun entry_reference né transaction_id,
+// dettagli solo nelle righe di causale), con dati anonimi e fittizi.
+const crbzTransferWithoutIds = {
+  entry_reference: null,
+  merchant_category_code: null,
+  transaction_amount: { currency: 'EUR', amount: '249.00' },
+  creditor: null,
+  creditor_account: { iban: 'IT60X0542811101000000123456', other: null },
+  creditor_agent: null,
+  debtor: null,
+  debtor_account: null,
+  debtor_agent: null,
+  bank_transaction_code: null,
+  credit_debit_indicator: 'CRDT',
+  status: 'BOOK',
+  booking_date: '2019-03-15',
+  value_date: '2019-03-15',
+  transaction_date: null,
+  balance_after_transaction: null,
+  reference_number: null,
+  reference_number_schema: null,
+  remittance_information: [
+    'BONIFICO A VOSTRO FAVORE',
+    'Mario Rossi',
+    'Data Regolamento:15/03/19',
+    'Cod.Id.Ord:IT00A0000000000000000000000',
+    'Banca Ordinante:BANCA DI ESEMPIO',
+    'Cro:000000000000',
+    'Note:Rimborso cena',
+    'Id.Ordinante:000000000001',
+    'Id.Operazione:000000000002',
+    'Id.Beneficiario:000000000003',
+    'Causale Movimento:048',
+  ],
+  debtor_account_additional_identification: null,
+  creditor_account_additional_identification: null,
+  exchange_rate: null,
+  note: null,
+  transaction_id: null,
+}
+
+test('usa un fingerprint idempotente nei payload CRBZ senza identificativi', () => {
+  const first = normalizeBankTransaction(crbzTransferWithoutIds, 'crbz')
+  const second = normalizeBankTransaction(structuredClone(crbzTransferWithoutIds), 'crbz')
   assert.match(first.stableKey, /^fingerprint:/)
   assert.equal(first.stableKey, second.stableKey)
-  assert.equal(first.description, 'Matteo La Mendola')
+  assert.equal(first.description, 'Mario Rossi')
   assert.equal(first.transferHint, true)
   assert.equal(first.kind, 'income')
 })

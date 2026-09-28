@@ -1,5 +1,6 @@
 import { authenticateRequest, ApiError } from './eb/_supabase.js'
 import { randomUUID } from 'node:crypto'
+import { consumeAiQuota } from './_ai-quota.js'
 import { geminiStructuredGenerationConfig } from './_gemini-config.js'
 
 const CATEGORIES = [
@@ -67,14 +68,6 @@ function parseModelJson(text) {
   const end = clean.lastIndexOf('}')
   if (start < 0 || end < start) throw new Error('AI response contains no JSON object')
   return JSON.parse(clean.slice(start, end + 1))
-}
-
-async function assertPaidPlan(service, userId) {
-  const { data, error } = await service.from('profiles').select('plan_tier').eq('id', userId).single()
-  if (error) throw new ApiError(503, 'Piano utente non disponibile')
-  if (!['pro', 'max'].includes(data.plan_tier)) {
-    throw new ApiError(403, 'Il riconoscimento da foto e screenshot è disponibile con Pro e Max.', 'PAID_PLAN_REQUIRED')
-  }
 }
 
 function safeTransactions(value) {
@@ -176,7 +169,8 @@ export default async function handler(req, res) {
   try {
     const { user, service } = await authenticateRequest(req)
     stage = 'check_paid_plan'
-    await assertPaidPlan(service, user.id)
+    // Verifica piano e consuma una scansione dalla quota (pool condiviso per Max).
+    await consumeAiQuota(user.id, 'scan', service)
     stage = 'validate_image'
     const dataUrl = String(req.body?.dataUrl || '')
     if (!/^data:image\/(jpeg|png|webp);base64,/i.test(dataUrl) || dataUrl.length > 3_000_000) {
@@ -207,6 +201,9 @@ export default async function handler(req, res) {
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : null,
     })
+    if (error instanceof ApiError && error.status < 500) {
+      return res.status(error.status).json({ error: error.message, code: error.code, reportId })
+    }
     const providerStatus = Number(error?.providerStatus)
     const responseStatus = Number(error?.status)
       || ([429, 503].includes(providerStatus) ? 503 : 500)
