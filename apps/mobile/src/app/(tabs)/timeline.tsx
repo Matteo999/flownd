@@ -1,8 +1,9 @@
 import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
 import { DateTimePicker } from '@expo/ui/community/datetime-picker';
+import { Image } from 'expo-image';
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   memo,
   useCallback,
@@ -38,14 +39,18 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import {
   Card,
-  PageHeader,
+  GlassIconButton,
+  GlassNavBar,
+  GlassSegmentedControl,
+  GlassSurface,
+  LargeTitle,
   PrimaryButton,
   Screen,
   ScreenScrollBridge,
   font,
   useFlowndTheme,
 } from '@/components/flownd-ui';
-import { AppHeaderActions } from '@/components/app-header-actions';
+import { AppHeaderActions, UserAvatar } from '@/components/app-header-actions';
 import { DraggableTransactionFab } from '@/components/draggable-transaction-fab';
 import { TransactionDateField } from '@/components/transaction-date-field';
 import { TransactionKindSelector } from '@/components/transaction-kind-selector';
@@ -59,7 +64,13 @@ import {
   type DashboardPeriod,
   transactionsForPeriod,
 } from '@/lib/dashboard';
-import { type FamilyGroup, familyGroupsQuery } from '@/lib/family';
+import {
+  type FamilyDashboardSummary,
+  type FamilyGroup,
+  familyDashboardSummaryQuery,
+  familyGroupsQuery,
+  memberTimelineTransactionsQuery,
+} from '@/lib/family';
 import { queryKeys } from '@/lib/query-client';
 import { historyWindowStart, olderTransactionsQuery } from '@/lib/user-data';
 import type { ExpenseDraft } from '@/lib/onboarding';
@@ -84,6 +95,26 @@ import {
 import { type TransactionUpdate, useAppState } from '@/providers/app-provider';
 
 const NO_GROUPS: FamilyGroup[] = [];
+const NO_TRANSACTIONS: ExpenseDraft[] = [];
+const ME = 'me';
+const MEMBER_COLORS = ['#FF6685', '#7C5CFC', '#FF8A3D', '#18A8D8', '#20C58A', '#FFB020'];
+
+// Persona mostrata in Timeline: "Tu" oppure un membro dei tuoi gruppi.
+type TimelinePerson = {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  color: string;
+};
+
+// Risultato stabile tra i render finché i dati non cambiano.
+function combineFamilySummaries(
+  results: { data?: FamilyDashboardSummary }[],
+): FamilyDashboardSummary[] {
+  return results
+    .map((result) => result.data)
+    .filter((summary): summary is FamilyDashboardSummary => Boolean(summary));
+}
 
 const periods: { id: DashboardPeriod; label: string }[] = [
   { id: 'week', label: 'Settimana' },
@@ -386,7 +417,65 @@ export default function TimelineScreen() {
     enabled: Boolean(userId),
   });
   const familyGroups = familyGroupsResult.data ?? NO_GROUPS;
+  const familySummaries = useQueries({
+    queries: familyGroups.map((group) => familyDashboardSummaryQuery(group.id)),
+    combine: combineFamilySummaries,
+  });
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
+  // Persone di cui mostrare i movimenti, in modo additivo. Di default solo tu.
+  const [selectedPeople, setSelectedPeople] = useState<ReadonlySet<string>>(
+    () => new Set([ME]),
+  );
+  const [membersPanelVisible, setMembersPanelVisible] = useState(false);
+  const timelinePeople = useMemo<TimelinePerson[]>(() => {
+    const members = new Map<string, TimelinePerson>();
+    for (const summary of familySummaries) {
+      for (const member of summary.members) {
+        if (member.userId === userId || members.has(member.userId)) continue;
+        members.set(member.userId, {
+          id: member.userId,
+          name: member.displayName.trim().split(/\s+/)[0] || member.displayName,
+          avatarUrl: member.avatarUrl,
+          color: MEMBER_COLORS[members.size % MEMBER_COLORS.length],
+        });
+      }
+    }
+    return [
+      { id: ME, name: 'Tu', avatarUrl: null, color: colors.accent },
+      ...members.values(),
+    ];
+  }, [colors.accent, familySummaries, userId]);
+  const peopleById = useMemo(
+    () => new Map(timelinePeople.map((person) => [person.id, person])),
+    [timelinePeople],
+  );
+  const hasGroupMembers = timelinePeople.length > 1;
+  // Un membro uscito dai gruppi non resta selezionato.
+  const activePeople = useMemo(() => {
+    const active = new Set([...selectedPeople].filter((id) => peopleById.has(id)));
+    if (!active.size) active.add(ME);
+    return active;
+  }, [peopleById, selectedPeople]);
+  const selectedMemberIds = useMemo(
+    () => [...activePeople].filter((id) => id !== ME),
+    [activePeople],
+  );
+  const showingMembers = selectedMemberIds.length > 0;
+  const customPeopleSelection = showingMembers || !activePeople.has(ME);
+
+  function togglePerson(id: string) {
+    setSelectedPeople(() => {
+      const next = new Set(activePeople);
+      if (next.has(id)) {
+        if (next.size === 1) return activePeople;
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -518,17 +607,28 @@ export default function TimelineScreen() {
     enabled: needsOlder,
   });
   const olderTransactions = needsOlder ? olderQuery.data : undefined;
-  const loadingOlder = needsOlder && olderQuery.isPending;
+  const memberQuery = useQuery({
+    ...memberTimelineTransactionsQuery(userId ?? '', viewStart, viewEnd),
+    enabled: Boolean(userId) && showingMembers,
+  });
+  const memberTransactions = showingMembers
+    ? memberQuery.data ?? NO_TRANSACTIONS
+    : NO_TRANSACTIONS;
+  const loadingOlder =
+    (needsOlder && olderQuery.isPending) || (showingMembers && memberQuery.isPending);
   const timelineTransactions = useMemo(() => {
-    if (!olderTransactions?.length) return transactions;
-    const known = new Set(transactions.map((transaction) => transaction.id));
-    return [
-      ...transactions,
-      ...olderTransactions.filter((transaction) => !known.has(transaction.id)),
-    ];
-  }, [olderTransactions, transactions]);
+    const own = activePeople.has(ME) ? transactions : NO_TRANSACTIONS;
+    const known = new Set(own.map((transaction) => transaction.id));
+    const older = activePeople.has(ME)
+      ? (olderTransactions ?? []).filter((transaction) => !known.has(transaction.id))
+      : [];
+    const members = memberTransactions.filter(
+      (transaction) => transaction.memberId && activePeople.has(transaction.memberId),
+    );
+    return older.length || members.length ? [...own, ...older, ...members] : own;
+  }, [activePeople, memberTransactions, olderTransactions, transactions]);
 
-  const { summary, bins, groups, visibleTransactions } = useMemo(() => {
+  const { memberBins, summary, bins, groups, visibleTransactions } = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('it');
     const normalizedCategories = new Set(
       categoryFilters.map((category) => category.toLocaleLowerCase('it')),
@@ -554,7 +654,21 @@ export default function TimelineScreen() {
         normalizedTransactionCategory.includes(normalizedQuery);
       return matchesCategory && matchesQuery;
     });
+    const buildBins = (items: ExpenseDraft[]) => customDateRange
+      ? buildTimelineRangeBins(items, customDateRange.start, customDateRange.end)
+      : buildTimelineBins(items, selectedPeriod, periodAnchor);
+    const memberBins = showingMembers
+      ? [...activePeople].map((personId) => ({
+          personId,
+          bins: buildBins(
+            visibleTransactions.filter(
+              (transaction) => (transaction.memberId ?? ME) === personId,
+            ),
+          ),
+        }))
+      : null;
     return {
+      memberBins,
       summary: summarizeTransactions(visibleTransactions),
       bins: customDateRange
         ? buildTimelineRangeBins(
@@ -573,7 +687,16 @@ export default function TimelineScreen() {
       ),
       visibleTransactions,
     };
-  }, [categoryFilters, customDateRange, periodAnchor, query, selectedPeriod, timelineTransactions]);
+  }, [
+    activePeople,
+    categoryFilters,
+    customDateRange,
+    periodAnchor,
+    query,
+    selectedPeriod,
+    showingMembers,
+    timelineTransactions,
+  ]);
   const sections = useMemo<TimelineSection[]>(
     () => groups.map((group) => ({ ...group, data: group.transactions })),
     [groups],
@@ -583,6 +706,7 @@ export default function TimelineScreen() {
       visibleTransactions.filter(
         (transaction) =>
           transaction.id &&
+          !transaction.memberId &&
           !transaction.internalTransfer &&
           transaction.source !== 'manual_balance_adjustment',
       ),
@@ -673,7 +797,73 @@ export default function TimelineScreen() {
     <Screen
       animateFirstFocus
       scroll={false}
+      transparentHeaderOnScroll
       style={styles.virtualizedScreen}
+      fixedHeader={
+        <GlassNavBar
+          title="Timeline"
+          actions={
+            <>
+              {hasGroupMembers ? (
+                <GlassIconButton
+                  icon="group"
+                  tinted={customPeopleSelection}
+                  accessibilityLabel="Scegli di chi vedere i movimenti"
+                  accessibilityHint={
+                    customPeopleSelection
+                      ? `${activePeople.size} persone selezionate`
+                      : 'Ora vedi solo i tuoi movimenti'
+                  }
+                  onPress={() => setMembersPanelVisible(true)}
+                />
+              ) : null}
+              <AppHeaderActions
+                glass
+                leading={
+                  <>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        selectionMode
+                          ? 'Chiudi selezione multipla'
+                          : 'Seleziona più movimenti'
+                      }
+                      onPress={() =>
+                        selectionMode
+                          ? closeSelectionMode()
+                          : setSelectionMode(true)
+                      }
+                      style={({ pressed }) => [styles.glassButton, pressed && styles.pressed]}>
+                      <Text style={[styles.glassIcon, { color: colors.text }]}>
+                        {selectionMode ? 'close' : 'checklist'}
+                      </Text>
+                    </Pressable>
+                    {!selectionMode ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Apri filtri"
+                        onPress={openFiltersScreen}
+                        style={({ pressed }) => [styles.glassButton, pressed && styles.pressed]}>
+                        <Text style={[styles.glassIcon, { color: colors.text }]}>
+                          discover_tune
+                        </Text>
+                        {hasActiveFilters ? (
+                          <View
+                            style={[
+                              styles.filterIndicator,
+                              { backgroundColor: colors.accent },
+                            ]}
+                          />
+                        ) : null}
+                      </Pressable>
+                    ) : null}
+                  </>
+                }
+              />
+            </>
+          }
+        />
+      }
       floatingActionPosition={selectionMode ? 'center' : 'free'}
       floatingAction={
         selectionMode ? (
@@ -699,63 +889,6 @@ export default function TimelineScreen() {
           />
         )
       }>
-      <View style={styles.timelineHeaderLayer}>
-        <PageHeader
-          collapseInPlace
-          compactBorderless
-          title="Timeline"
-          action={
-            <AppHeaderActions
-              leading={
-                <View style={styles.headerTools}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      selectionMode
-                        ? 'Chiudi selezione multipla'
-                        : 'Seleziona più movimenti'
-                    }
-                    onPress={() =>
-                      selectionMode
-                        ? closeSelectionMode()
-                        : setSelectionMode(true)
-                    }
-                    style={({ pressed }) => [
-                      styles.headerButton,
-                      pressed && styles.pressed,
-                    ]}>
-                    <Text style={[styles.materialIcon, { color: colors.text }]}>
-                      {selectionMode ? 'close' : 'checklist'}
-                    </Text>
-                  </Pressable>
-                  {!selectionMode ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Apri filtri"
-                      onPress={openFiltersScreen}
-                      style={({ pressed }) => [
-                        styles.headerButton,
-                        pressed && styles.pressed,
-                      ]}>
-                      <Text style={[styles.materialIcon, { color: colors.text }]}>
-                        discover_tune
-                      </Text>
-                      {hasActiveFilters ? (
-                        <View
-                          style={[
-                            styles.filterIndicator,
-                            { backgroundColor: colors.accent },
-                          ]}
-                        />
-                      ) : null}
-                    </Pressable>
-                  ) : null}
-                </View>
-              }
-            />
-          }
-        />
-      </View>
       <ScreenScrollBridge>
         {(onScroll) => (
           <Animated.SectionList<ExpenseDraft, TimelineSection>
@@ -782,9 +915,14 @@ export default function TimelineScreen() {
             }
             onScroll={onScroll}
             scrollEventThrottle={16}
-            contentContainerStyle={styles.timelineContent}
+            contentContainerStyle={[
+              styles.timelineContent,
+              { paddingTop: insets.top + 10 },
+            ]}
             ListHeaderComponent={
               <>
+                <LargeTitle title="Timeline" />
+                <View style={styles.titleSpacer} />
                 {selectionMode ? (
                   <Card
                     style={[
@@ -871,86 +1009,67 @@ export default function TimelineScreen() {
                   </View>
                 ) : (
                   <>
-                    <View
-                      style={[
-                        styles.periodControl,
-                        { backgroundColor: colors.sunken },
-                      ]}>
-                      {periods.map((period) => {
-                        const selected = selectedPeriod === period.id;
-                        return (
-                          <Pressable
-                            key={period.id}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected }}
-                            hitSlop={4}
-                            onPress={() => selectPeriod(period.id)}
-                            style={[
-                              styles.periodButton,
-                              selected && { backgroundColor: colors.surface },
-                            ]}>
-                            <Text
-                              style={[
-                                styles.periodText,
-                                {
-                                  color: selected
-                                    ? colors.text
-                                    : colors.textSecondary,
-                                },
-                              ]}>
-                              {period.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                    <GlassSegmentedControl
+                      options={periods}
+                      selectedIndex={Math.max(
+                        0,
+                        periods.findIndex((period) => period.id === selectedPeriod),
+                      )}
+                      onChange={(index) => selectPeriod(periods[index].id)}
+                      style={styles.periodControl}
+                    />
 
                     <View style={styles.periodNavigator}>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Periodo precedente"
-                        hitSlop={8}
-                        onPress={() =>
-                          setPeriodAnchor((date) =>
-                            shiftTimelinePeriod(date, selectedPeriod, -1),
-                          )
-                        }
-                        style={({ pressed }) => [
-                          styles.periodArrow,
-                          pressed && styles.pressed,
-                        ]}>
-                        <Text
-                          style={[styles.materialIcon, { color: colors.text }]}>
-                          chevron_left
-                        </Text>
-                      </Pressable>
+                      <GlassSurface interactive style={styles.periodArrow}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Periodo precedente"
+                          hitSlop={8}
+                          onPress={() =>
+                            setPeriodAnchor((date) =>
+                              shiftTimelinePeriod(date, selectedPeriod, -1),
+                            )
+                          }
+                          style={({ pressed }) => [
+                            styles.periodArrowButton,
+                            pressed && styles.pressed,
+                          ]}>
+                          <Text
+                            style={[styles.materialIcon, { color: colors.text }]}>
+                            chevron_left
+                          </Text>
+                        </Pressable>
+                      </GlassSurface>
                       <Text style={[styles.periodRange, { color: colors.text }]}>
                         {periodLabel}
                       </Text>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Periodo successivo"
-                        accessibilityState={{ disabled: currentPeriod }}
-                        disabled={currentPeriod}
-                        hitSlop={8}
-                        onPress={() =>
-                          setPeriodAnchor((date) =>
-                            shiftTimelinePeriod(date, selectedPeriod, 1),
-                          )
-                        }
-                        style={({ pressed }) => [
-                          styles.periodArrow,
-                          currentPeriod && styles.periodArrowDisabled,
-                          pressed && styles.pressed,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.materialIcon,
-                            { color: colors.text },
+                      <GlassSurface
+                        interactive={!currentPeriod}
+                        style={[styles.periodArrow, currentPeriod && styles.periodArrowDisabled]}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Periodo successivo"
+                          accessibilityState={{ disabled: currentPeriod }}
+                          disabled={currentPeriod}
+                          hitSlop={8}
+                          onPress={() =>
+                            setPeriodAnchor((date) =>
+                              shiftTimelinePeriod(date, selectedPeriod, 1),
+                            )
+                          }
+                          style={({ pressed }) => [
+                            styles.periodArrowButton,
+                            pressed && styles.pressed,
                           ]}>
-                          chevron_right
-                        </Text>
-                      </Pressable>
+                          <Text
+                            style={[
+                              styles.materialIcon,
+                              { color: colors.text },
+                            ]}>
+                            chevron_right
+                          </Text>
+                        </Pressable>
+                      </GlassSurface>
                     </View>
                   </>
                 )}
@@ -998,7 +1117,14 @@ export default function TimelineScreen() {
                       signed
                     />
                   </View>
-                  <IncomeExpenseChart bins={bins} />
+                  {memberBins ? (
+                    <MemberExpenseChart
+                      memberBins={memberBins}
+                      peopleById={peopleById}
+                    />
+                  ) : (
+                    <IncomeExpenseChart bins={bins} />
+                  )}
                 </Card>
               </>
             }
@@ -1085,6 +1211,11 @@ export default function TimelineScreen() {
                     selected={Boolean(
                       item.id && selectedTransactionIds.has(item.id),
                     )}
+                    person={
+                      showingMembers
+                        ? peopleById.get(item.memberId ?? ME) ?? null
+                        : null
+                    }
                     onEdit={setEditingTransaction}
                     onSelect={toggleTransactionSelection}
                   />
@@ -1094,6 +1225,15 @@ export default function TimelineScreen() {
           />
         )}
       </ScreenScrollBridge>
+      <MembersPanel
+        visible={membersPanelVisible}
+        people={timelinePeople}
+        selected={activePeople}
+        top={insets.top + 55}
+        onToggle={togglePerson}
+        onSelectAll={() => setSelectedPeople(new Set(timelinePeople.map((person) => person.id)))}
+        onClose={() => setMembersPanelVisible(false)}
+      />
       {editingTransaction ? (
         <EditTransactionModal
           key={editingTransaction.id ?? editingTransaction.occurredAt}
@@ -1346,12 +1486,229 @@ function IncomeExpenseChart({
   );
 }
 
+function PersonAvatar({ person, size }: { person: TimelinePerson; size: number }) {
+  const [failed, setFailed] = useState(false);
+  if (person.id === ME) return <UserAvatar size={size} />;
+  if (person.avatarUrl && !failed) {
+    return (
+      <Image
+        accessibilityLabel={`Avatar di ${person.name}`}
+        contentFit="cover"
+        onError={() => setFailed(true)}
+        source={{ uri: person.avatarUrl }}
+        style={{ width: size, height: size, borderRadius: size / 2 }}
+      />
+    );
+  }
+  return (
+    <View
+      style={[
+        styles.personAvatar,
+        { width: size, height: size, borderRadius: size / 2, backgroundColor: `${person.color}26` },
+      ]}>
+      <Text style={[styles.personInitial, { color: person.color, fontSize: size * 0.3 }]}>
+        {person.name.trim()[0]?.toUpperCase() ?? '?'}
+      </Text>
+    </View>
+  );
+}
+
+// Uscite impilate per persona, come nel design 3b.
+function MemberExpenseChart({
+  memberBins,
+  peopleById,
+}: {
+  memberBins: { personId: string; bins: ReturnType<typeof buildTimelineBins> }[];
+  peopleById: Map<string, TimelinePerson>;
+}) {
+  const { colors } = useFlowndTheme();
+  const binCount = memberBins[0]?.bins.length ?? 0;
+  const totals = Array.from({ length: binCount }, (_, index) =>
+    memberBins.reduce((sum, member) => sum + member.bins[index].expense, 0),
+  );
+  const maxValue = Math.max(1, ...totals);
+  const hasData = totals.some((total) => total > 0);
+
+  return (
+    <View>
+      <View style={styles.legend}>
+        {memberBins.map(({ personId }) => {
+          const person = peopleById.get(personId);
+          if (!person) return null;
+          return (
+            <View key={personId} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: person.color }]} />
+              <Text style={[styles.legendText, { color: colors.textSecondary }]}>
+                {person.name}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+      <View style={styles.plot}>
+        {Array.from({ length: binCount }, (_, index) => {
+          const segments = memberBins.filter((member) => member.bins[index].expense > 0);
+          return (
+            <View key={memberBins[0].bins[index].key} style={styles.bin}>
+              <View style={styles.stack}>
+                {segments.length ? (
+                  segments.map((member, segmentIndex) => (
+                    <View
+                      key={member.personId}
+                      style={[
+                        styles.stackSegment,
+                        {
+                          backgroundColor: peopleById.get(member.personId)?.color ?? colors.accent,
+                          height: Math.max(2, (member.bins[index].expense / maxValue) * 92),
+                        },
+                        segments.length === 1
+                          ? styles.stackSegmentSingle
+                          : segmentIndex === 0
+                            ? styles.stackSegmentTop
+                            : segmentIndex === segments.length - 1
+                              ? styles.stackSegmentBottom
+                              : null,
+                      ]}
+                    />
+                  ))
+                ) : (
+                  <View
+                    style={[
+                      styles.stackSegment,
+                      styles.stackSegmentSingle,
+                      { height: 2, backgroundColor: colors.textSecondary, opacity: 0.18 },
+                    ]}
+                  />
+                )}
+              </View>
+              <Text
+                numberOfLines={1}
+                style={[styles.binLabel, { color: colors.textSecondary }]}>
+                {memberBins[0].bins[index].label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+      {!hasData ? (
+        <Text style={[styles.plotEmpty, { color: colors.textSecondary }]}>
+          Nessuna uscita nel periodo selezionato.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// Menu in vetro sotto il tasto membri: selezione additiva delle persone.
+function MembersPanel({
+  visible,
+  people,
+  selected,
+  top,
+  onToggle,
+  onSelectAll,
+  onClose,
+}: {
+  visible: boolean;
+  people: TimelinePerson[];
+  selected: ReadonlySet<string>;
+  top: number;
+  onToggle: (id: string) => void;
+  onSelectAll: () => void;
+  onClose: () => void;
+}) {
+  const { colors } = useFlowndTheme();
+  const allSelected = people.every((person) => selected.has(person.id));
+  // Niente dissolvenza (romperebbe il vetro nativo): il pannello si apre in scala
+  // dall'angolo del tasto.
+  const [appear] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    if (!visible) {
+      appear.setValue(0);
+      return;
+    }
+    const animation = Animated.spring(appear, {
+      toValue: 1,
+      damping: 18,
+      stiffness: 260,
+      mass: 0.8,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [appear, visible]);
+  return (
+    <Modal transparent visible={visible} animationType="none" onRequestClose={onClose}>
+      <Pressable
+        accessibilityLabel="Chiudi"
+        accessibilityRole="button"
+        onPress={onClose}
+        style={StyleSheet.absoluteFill}
+      />
+      <Animated.View
+        style={[
+          styles.membersPanel,
+          {
+            top,
+            transform: [
+              { translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) },
+              { scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) },
+            ],
+          },
+        ]}>
+        <GlassSurface style={styles.membersPanelSurface}>
+          <Text style={[styles.membersPanelTitle, { color: colors.textSecondary }]}>
+            MOVIMENTI DI
+          </Text>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: allSelected }}
+            onPress={onSelectAll}
+            style={({ pressed }) => [styles.memberRow, pressed && styles.pressed]}>
+            <View style={[styles.personAvatar, styles.allAvatar, { backgroundColor: colors.accentSoft }]}>
+              <Text style={[styles.materialIcon, { color: colors.accent }]}>groups</Text>
+            </View>
+            <Text style={[styles.memberName, { color: colors.text }]}>Tutti</Text>
+            <Text style={[styles.memberCheck, { color: colors.accent, opacity: allSelected ? 1 : 0 }]}>
+              check
+            </Text>
+          </Pressable>
+          {people.map((person) => {
+            const checked = selected.has(person.id);
+            return (
+              <Pressable
+                key={person.id}
+                accessibilityRole="checkbox"
+                accessibilityLabel={person.id === ME ? 'I tuoi movimenti' : person.name}
+                accessibilityState={{ checked }}
+                onPress={() => onToggle(person.id)}
+                style={({ pressed }) => [styles.memberRow, pressed && styles.pressed]}>
+                <PersonAvatar person={person} size={34} />
+                <Text numberOfLines={1} style={[styles.memberName, { color: colors.text }]}>
+                  {person.name}
+                </Text>
+                <Text style={[styles.memberCheck, { color: colors.accent, opacity: checked ? 1 : 0 }]}>
+                  check
+                </Text>
+              </Pressable>
+            );
+          })}
+          <Text style={[styles.membersPanelNote, { color: colors.textSecondary }]}>
+            Vedi solo i movimenti che i membri condividono con i vostri gruppi.
+          </Text>
+        </GlassSurface>
+      </Animated.View>
+    </Modal>
+  );
+}
+
 const TransactionRow = memo(function TransactionRow({
   transaction,
   last,
   amountsVisible,
   selectionMode,
   selected,
+  person,
   onEdit,
   onSelect,
 }: {
@@ -1360,6 +1717,8 @@ const TransactionRow = memo(function TransactionRow({
   amountsVisible: boolean;
   selectionMode: boolean;
   selected: boolean;
+  // Presente quando la Timeline include altri membri: avatar al posto dell'icona.
+  person?: TimelinePerson | null;
   onEdit: (transaction: ExpenseDraft) => void;
   onSelect: (transaction: ExpenseDraft) => void;
 }) {
@@ -1370,11 +1729,14 @@ const TransactionRow = memo(function TransactionRow({
     ? new Date(transaction.occurredAt)
     : new Date();
   const timeLabel = transactionTimeLabel(transaction, occurredAt);
+  const memberTransaction = Boolean(transaction.memberId);
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole={memberTransaction ? undefined : 'button'}
       accessibilityLabel={
-        selectionMode
+        memberTransaction
+          ? `${person?.name ?? 'Membro'}: ${transaction.description}`
+          : selectionMode
           ? `${selected ? 'Deseleziona' : 'Seleziona'} ${transaction.description}`
           : balanceAdjustment
             ? transaction.description
@@ -1383,6 +1745,7 @@ const TransactionRow = memo(function TransactionRow({
       accessibilityState={{ selected: selectionMode ? selected : undefined }}
       disabled={
         !transaction.id ||
+        memberTransaction ||
         balanceAdjustment ||
         (selectionMode && transaction.internalTransfer)
       }
@@ -1413,6 +1776,8 @@ const TransactionRow = memo(function TransactionRow({
               </Text>
             ) : null}
           </View>
+        ) : person ? (
+          <PersonAvatar person={person} size={38} />
         ) : (
           <View
             style={[
@@ -1437,6 +1802,11 @@ const TransactionRow = memo(function TransactionRow({
             {transaction.description}
           </Text>
           <View style={styles.transactionMeta}>
+            {person ? (
+              <Text style={[styles.personName, { color: person.color }]}>
+                {person.name}
+              </Text>
+            ) : null}
             <Text style={[styles.category, { color: colors.textSecondary }]}>
               {transaction.internalTransfer ? 'Trasferimento interno' : transaction.category}
             </Text>
@@ -2711,17 +3081,52 @@ function EditTransactionModal({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   virtualizedScreen: { paddingBottom: 0 },
-  timelineHeaderLayer: { zIndex: 50 },
   timelineList: { flex: 1, zIndex: 0 },
-  timelineContent: { paddingTop: 18, paddingBottom: 110 },
-  pressed: { opacity: 0.65 },
-  headerTools: { flexDirection: 'row', alignItems: 'center' },
-  headerButton: {
-    width: 34,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
+  timelineContent: { paddingBottom: 110 },
+  titleSpacer: { height: 14 },
+  glassButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  glassIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 24 },
+  personName: { fontFamily: font.bodySemiBold, fontSize: 10 },
+  personAvatar: { alignItems: 'center', justifyContent: 'center' },
+  personInitial: { fontFamily: font.displayBold },
+  allAvatar: { width: 34, height: 34, borderRadius: 17 },
+  stack: { height: 96, justifyContent: 'flex-end', alignItems: 'center', gap: 1 },
+  stackSegment: { width: 10 },
+  stackSegmentSingle: { borderRadius: 3 },
+  stackSegmentTop: { borderTopLeftRadius: 3, borderTopRightRadius: 3 },
+  stackSegmentBottom: { borderBottomLeftRadius: 2, borderBottomRightRadius: 2 },
+  membersPanel: {
+    position: 'absolute',
+    right: 16,
+    width: 260,
+    transformOrigin: 'top right',
   },
+  membersPanelSurface: { borderRadius: 22, paddingVertical: 10, paddingHorizontal: 8 },
+  membersPanelTitle: {
+    fontFamily: font.bodySemiBold,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    paddingHorizontal: 8,
+    marginBottom: 4,
+  },
+  memberRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+  },
+  memberName: { flex: 1, fontFamily: font.bodySemiBold, fontSize: 14 },
+  memberCheck: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 24 },
+  membersPanelNote: {
+    fontFamily: font.body,
+    fontSize: 10,
+    lineHeight: 14,
+    paddingHorizontal: 8,
+    marginTop: 6,
+  },
+  pressed: { opacity: 0.65 },
   materialIcon: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 21,
@@ -2754,21 +3159,7 @@ const styles = StyleSheet.create({
   },
   bulkActionDisabled: { opacity: 0.42 },
   bulkActionText: { fontFamily: font.bodySemiBold, fontSize: 10 },
-  periodControl: {
-    flexDirection: 'row',
-    borderRadius: 10,
-    padding: 3,
-    gap: 3,
-    marginBottom: 12,
-  },
-  periodButton: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  periodText: { fontFamily: font.bodySemiBold, fontSize: 11 },
+  periodControl: { marginBottom: 12 },
   periodNavigator: {
     minHeight: 38,
     flexDirection: 'row',
@@ -2776,12 +3167,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  periodArrow: {
-    width: 42,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  periodArrow: { width: 40, height: 40, borderRadius: 20 },
+  periodArrowButton: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   periodArrowDisabled: { opacity: 0.25 },
   periodRange: {
     fontFamily: font.bodySemiBold,

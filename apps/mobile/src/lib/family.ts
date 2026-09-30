@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { queryOptions } from '@tanstack/react-query';
 
 import { apiRequest } from '@/lib/api';
+import type { ExpenseDraft } from '@/lib/onboarding';
 import { queryClient, queryKeys } from '@/lib/query-client';
 import { supabase } from '@/lib/supabase';
 
@@ -177,6 +178,40 @@ export function familyDashboardSummaryQuery(groupId: string) {
   return queryOptions({
     queryKey: queryKeys.familyDashboardSummary(groupId),
     queryFn: () => fetchFamilyDashboardSummary(groupId),
+  });
+}
+
+// Movimenti degli altri membri dei miei gruppi nell'intervallo [from, to),
+// come ExpenseDraft in sola lettura con `memberId`.
+export function memberTimelineTransactionsQuery(userId: string, from: Date, to: Date) {
+  return queryOptions({
+    queryKey: queryKeys.memberTimelineTransactions(userId, from.toISOString(), to.toISOString()),
+    queryFn: async (): Promise<ExpenseDraft[]> => {
+      const { data, error } = await supabase.rpc('member_timeline_transactions', {
+        p_from: from.toISOString(),
+        p_to: to.toISOString(),
+      });
+      if (error) throw error;
+      return ((data ?? []) as {
+        id: string;
+        member_id: string;
+        description: string;
+        amount: number | string;
+        kind: string;
+        category: string | null;
+        private_details: boolean;
+        occurred_at: string;
+      }[]).map((transaction) => ({
+        id: transaction.id,
+        memberId: transaction.member_id,
+        description: transaction.description,
+        amount: Number(transaction.amount),
+        kind: transaction.kind === 'income' ? 'income' : 'expense',
+        category: transaction.category ?? 'Categoria privata',
+        privateDetails: transaction.private_details,
+        occurredAt: transaction.occurred_at,
+      }));
+    },
   });
 }
 

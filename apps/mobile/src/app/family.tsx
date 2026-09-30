@@ -427,19 +427,21 @@ export default function FamilyScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         style={styles.groupsBody}>
+        {!loading ? (
+          <ReceivedGroupInvites
+            receivedInvites={receivedInvites}
+            saving={saving}
+            onAcceptInvite={(inviteId) => void runAction(async () => {
+              const groupId = await acceptGroupInvite(inviteId);
+              setDetail(null);
+              await loadGroups(groupId);
+            })}
+          />
+        ) : null}
         {loading ? (
           <GroupDetailSkeleton />
         ) : groups.length ? (
           <>
-            <ReceivedGroupInvites
-              receivedInvites={receivedInvites}
-              saving={saving}
-              onAcceptInvite={(inviteId) => void runAction(async () => {
-                const groupId = await acceptGroupInvite(inviteId);
-                setDetail(null);
-                await loadGroups(groupId);
-              })}
-            />
             {selectedGroup ? (
               <GroupView
                 group={selectedGroup}

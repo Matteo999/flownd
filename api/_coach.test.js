@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { coachTools, cycleHistoryComparison, geminiCoachTools } from './_coach-data.js'
-import { coachErrorLog, conversationTitle } from './coach.js'
+import { coachErrorLog, conversationTitle, modelContext } from './coach.js'
 
 const expectedTools = [
   'get_financial_overview',
@@ -22,6 +22,17 @@ test('titolo conversazione normalizzato e limitato a 60 caratteri', () => {
   const title = conversationTitle('a'.repeat(100))
   assert.equal(title.length, 60)
   assert.ok(title.endsWith('…'))
+})
+
+test('il contesto esclude le domande senza risposta e termina col messaggio corrente', () => {
+  const messages = [
+    { id: 'u1', role: 'user', content: 'Prima' },
+    { id: 'a1', role: 'assistant', content: 'Risposta' },
+    { id: 'u2', role: 'user', content: 'Rimasta senza risposta' },
+    { id: 'u3', role: 'user', content: 'Ultima domanda' },
+  ]
+  assert.deepEqual(modelContext(messages, 'u3').map((message) => message.id), ['u1', 'a1', 'u3'])
+  assert.deepEqual(modelContext(messages, 'missing').map((message) => message.id), ['u1', 'a1'])
 })
 
 test('OpenAI e Gemini espongono gli stessi tool del Coach', () => {

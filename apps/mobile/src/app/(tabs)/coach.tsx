@@ -27,10 +27,13 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   Card,
-  PageHeader,
+  GlassIconButton,
+  GlassNavBar,
+  LargeTitle,
   PrimaryButton,
   Screen,
   ScreenScrollBridge,
@@ -86,6 +89,10 @@ export default function CoachScreen() {
   const [historyVisible, setHistoryVisible] = useState(false);
   const [resolvingMessageId, setResolvingMessageId] = useState<string | null>(null);
   const listRef = useRef<FlatList<CoachMessage>>(null);
+  // Dopo il caricamento di una chat si va in fondo senza animazione (anche se
+  // il contenuto si misura in più passaggi) finché l'utente non scorre.
+  const jumpToEnd = useRef(true);
+  const insets = useSafeAreaInsets();
   const selectionVersion = useRef(0);
   const drawerProgress = useRef(new Animated.Value(0)).current;
   const keyboardLift = useRef(new Animated.Value(0)).current;
@@ -191,6 +198,7 @@ export default function CoachScreen() {
         );
         if (!active || version !== selectionVersion.current) return;
         setConversationId(loaded.conversation.id);
+        jumpToEnd.current = true;
         setMessages([welcomeMessage, ...loaded.messages]);
       })
       .catch((error) => {
@@ -218,6 +226,7 @@ export default function CoachScreen() {
     setWaiting(false);
     setResolvingMessageId(null);
     setConversationId(null);
+    jumpToEnd.current = true;
     setMessages([welcomeMessage]);
     setInput('');
     animateDrawer(false);
@@ -236,6 +245,7 @@ export default function CoachScreen() {
       const loaded = await loadCoachConversation(selectedId, session.access_token);
       if (version !== selectionVersion.current) return;
       setConversationId(loaded.conversation.id);
+      jumpToEnd.current = true;
       setMessages([welcomeMessage, ...loaded.messages]);
       setInput('');
       animateDrawer(false);
@@ -333,6 +343,7 @@ export default function CoachScreen() {
       actionStatus: null,
       createdAt: new Date().toISOString(),
     };
+    jumpToEnd.current = false;
     setMessages((current) => [...current, userMessage]);
     setInput('');
     setWaiting(true);
@@ -414,15 +425,30 @@ export default function CoachScreen() {
     <Screen
       animateFirstFocus
       scroll={false}
-      style={styles.screen}>
-      <PageHeader
-        title="Coach"
-        leading={<DrawerMenuButton onPress={() => animateDrawer(true)} />}
-        action={(
-          <AppHeaderActions />
-        )}
-        collapseInPlace
-      />
+      transparentHeaderOnScroll
+      style={styles.screen}
+      fixedHeader={
+        <GlassNavBar
+          title="Coach"
+          leading={
+            <GlassIconButton
+              accessibilityLabel="Apri storico conversazioni"
+              onPress={() => animateDrawer(true)}>
+              <DrawerMenuIcon />
+            </GlassIconButton>
+          }
+          actions={
+            <>
+              <GlassIconButton
+                icon="edit_square"
+                accessibilityLabel="Nuova chat"
+                onPress={startNewConversation}
+              />
+              <AppHeaderActions glass />
+            </>
+          }
+        />
+      }>
       <ScreenScrollBridge>
         {(onScroll) => (
           <Animated.View style={[styles.keyboardView, { paddingBottom: keyboardLift }]}>
@@ -431,15 +457,20 @@ export default function CoachScreen() {
           data={messages}
           keyExtractor={(message) => message.id}
           renderItem={({ item }) => <MessageBubble message={item} />}
+          initialNumToRender={120}
           onContentSizeChange={() =>
-            listRef.current?.scrollToEnd({ animated: true })
+            listRef.current?.scrollToEnd({ animated: !jumpToEnd.current })
           }
+          onScrollBeginDrag={() => {
+            jumpToEnd.current = false;
+          }}
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           onScroll={onScroll}
           scrollEventThrottle={16}
-          contentContainerStyle={styles.messages}
+          contentContainerStyle={[styles.messages, { paddingTop: insets.top + 10 }]}
+          ListHeaderComponent={<LargeTitle title="Coach" />}
           ListFooterComponent={
             <>
               {messages.length === 1 ? (
@@ -640,18 +671,13 @@ export default function CoachScreen() {
   );
 }
 
-function DrawerMenuButton({ onPress }: { onPress: () => void }) {
+function DrawerMenuIcon() {
   const { colors } = useFlowndTheme();
   return (
-    <Pressable
-      accessibilityLabel="Apri storico conversazioni"
-      accessibilityRole="button"
-      hitSlop={6}
-      onPress={onPress}
-      style={({ pressed }) => [styles.drawerMenuButton, pressed && styles.pressed]}>
+    <View style={styles.drawerMenuIcon}>
       <View style={[styles.drawerMenuLineLong, { backgroundColor: colors.text }]} />
       <View style={[styles.drawerMenuLineShort, { backgroundColor: colors.text }]} />
-    </Pressable>
+    </View>
   );
 }
 
@@ -1139,13 +1165,7 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.42 },
   pressed: { opacity: 0.68 },
-  drawerMenuButton: {
-    width: 38,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-  },
+  drawerMenuIcon: { alignItems: 'center', justifyContent: 'center', gap: 5 },
   drawerMenuLineLong: { width: 20, height: 2, borderRadius: 1 },
   drawerMenuLineShort: { width: 13, height: 2, borderRadius: 1, marginRight: 7 },
   materialIcon: {

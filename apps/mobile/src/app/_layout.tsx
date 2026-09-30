@@ -132,7 +132,9 @@ function AppStack() {
         <Stack.Screen name="notifications" />
         <Stack.Screen name="recurring-payments" />
         <Stack.Screen name="budget" />
-        <Stack.Screen name="(tabs)" />
+        {/* Le schede sono la radice dell'app: lo swipe dal bordo (es. per lo
+            storico del Coach) non deve tornare alla schermata di avvio. */}
+        <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
       </Stack.Protected>
     </Stack>
   );

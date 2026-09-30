@@ -28,7 +28,9 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import {
   Card,
   Field,
-  PageHeader,
+  GlassIconButton,
+  GlassNavBar,
+  LargeTitle,
   PrimaryButton,
   Screen,
   font,
@@ -332,8 +334,24 @@ export default function GoalsScreen() {
   return (
     <Screen
       animateFirstFocus
+      transparentHeaderOnScroll
       onRefresh={refreshData}
       scrollEnabled={!dragActive}
+      fixedHeader={
+        <GlassNavBar
+          title="Obiettivi"
+          actions={
+            <>
+              <GlassIconButton
+                icon="tune"
+                accessibilityLabel="Gestisci allocazione"
+                onPress={() => router.push('/goal-settings' as Href)}
+              />
+              <AppHeaderActions glass />
+            </>
+          }
+        />
+      }
       floatingActionPosition="free"
       floatingAction={dragActive ? (
         <Animated.View
@@ -352,25 +370,8 @@ export default function GoalsScreen() {
           <Text style={styles.dragBubbleIcon}>savings</Text>
         </Animated.View>
       ) : null}>
-      <PageHeader
-        title="Obiettivi"
-        action={
-          <AppHeaderActions
-            leading={
-              <Pressable
-                accessibilityLabel="Gestisci allocazione"
-                accessibilityRole="button"
-                onPress={() => router.push('/goal-settings' as Href)}
-                style={({ pressed }) => [
-                  styles.headerAction,
-                  pressed && styles.pressed,
-                ]}>
-                <Text style={[styles.materialIcon, { color: colors.text }]}>tune</Text>
-              </Pressable>
-            }
-          />
-        }
-      />
+      <LargeTitle title="Obiettivi" />
+      <View style={styles.titleSpacer} />
 
       {freeSavings ? (
         <View style={styles.freeSavingsSection}>
@@ -915,12 +916,7 @@ function SavingsDragSource({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  headerAction: {
-    width: 34,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  titleSpacer: { height: 14 },
   materialIcon: {
     fontFamily: 'MaterialSymbols_400Regular',
     fontSize: 21,

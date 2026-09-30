@@ -261,6 +261,20 @@ async function loadMessages(client, userId, conversationId, limit = 100) {
   return (data || []).reverse()
 }
 
+// Contesto per il modello: le domande rimaste senza risposta (es. richiesta
+// fallita) vengono escluse, altrimenti il modello riceve più turni utente di
+// fila e risponde alla prima invece che al messaggio appena inviato, che
+// chiude sempre il contesto.
+export function modelContext(messages, currentMessageId) {
+  const current = messages.find((message) => message.id === currentMessageId)
+  const answered = messages.filter((message, index) => {
+    if (message.id === currentMessageId) return false
+    if (message.role !== 'user') return true
+    return messages[index + 1]?.role === 'assistant'
+  })
+  return current ? [...answered, current] : answered
+}
+
 async function runOpenAICoach(messages, client, userId) {
   const input = messages.map(({ role, content }) => ({ role, content }))
   for (let turn = 0; turn < 5; turn += 1) {
@@ -431,7 +445,10 @@ async function handlePost(req, res, client, user) {
   }
   let context
   try {
-    context = await loadMessages(client, user.id, conversation.id, MODEL_CONTEXT_MESSAGES)
+    context = modelContext(
+      await loadMessages(client, user.id, conversation.id, MODEL_CONTEXT_MESSAGES),
+      messageId,
+    )
   } catch (error) {
     throw coachError(error, { phase: 'load_model_context', provider })
   }

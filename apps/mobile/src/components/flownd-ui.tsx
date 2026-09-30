@@ -31,12 +31,18 @@ import {
 } from 'react-native';
 import { type Href, router, useIsFocused } from 'expo-router';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
-import MaskedView from '@react-native-masked-view/masked-view';
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
+import Reanimated, {
+  type SharedValue,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
 import { BrandLogo } from '@/components/brand-logo';
 import {
@@ -74,6 +80,19 @@ export const palette = {
 const lightScreenGradient = ['#DCE8FF', '#DDF6EF', '#FFFFFF'] as const;
 const darkScreenGradient = ['#172D48', '#123027', darkColors.background] as const;
 const lightCompactHeaderBackground = '#DFEBF7';
+// Maschera del contenuto sotto la barra fissa: invisibile dietro la status
+// bar, poi opacità crescente (curva morbida) fin oltre la barra di navigazione.
+const HEADER_FADE_EXTENT = 84;
+const HEADER_FADE_MASK = [
+  'rgba(0,0,0,0)',
+  'rgba(0,0,0,0)',
+  'rgba(0,0,0,0.07)',
+  'rgba(0,0,0,0.27)',
+  'rgba(0,0,0,0.55)',
+  'rgba(0,0,0,0.8)',
+  'rgba(0,0,0,0.95)',
+  'rgba(0,0,0,1)',
+] as const;
 const darkCompactHeaderBackground = '#162B38';
 
 export { font, useFlowndTheme };
@@ -178,11 +197,32 @@ export function Screen({
     <View
       style={[
         styles.screenContent,
-        transparentHeaderOnScroll && { paddingTop: insets.top + 10 },
+        transparentHeaderOnScroll && scroll && { paddingTop: insets.top + 10 },
         style,
       ]}>
       {children}
     </View>
+  );
+  const scrollView = (
+    <Animated.ScrollView
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      onScroll={handleScroll}
+      scrollEnabled={scrollEnabled}
+      scrollEventThrottle={16}
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        ) : undefined
+      }
+      contentContainerStyle={styles.scroll}>
+      {content}
+    </Animated.ScrollView>
   );
   return (
     <AnimatedSafeAreaView
@@ -190,7 +230,6 @@ export function Screen({
       style={[
         styles.safe,
         { backgroundColor: colors.background },
-        animateFirstFocus && { opacity: firstFocusProgress },
       ]}>
       <LinearGradient
         colors={
@@ -220,60 +259,54 @@ export function Screen({
         />
       ) : null}
       <ScrollHeaderContext.Provider value={headerContext}>
-        {scroll ? (
-          <Animated.ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            onScroll={handleScroll}
-            scrollEnabled={scrollEnabled}
-            scrollEventThrottle={16}
-            refreshControl={
-              onRefresh ? (
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={refresh}
-                  tintColor={colors.accent}
-                  colors={[colors.accent]}
+        {transparentHeaderOnScroll ? (
+          // Scorrendo, il contenuto che passa sotto la barra sfuma in
+          // trasparenza e lascia vedere lo sfondo reale: nessuna banda.
+          <MaskedView
+            style={styles.flex}
+            maskElement={(
+              <View style={StyleSheet.absoluteFill}>
+                <Animated.View
+                  style={[
+                    StyleSheet.absoluteFill,
+                    styles.maskSolid,
+                    {
+                      opacity: headerProgress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 0],
+                      }),
+                    },
+                  ]}
                 />
-              ) : undefined
-            }
-            contentContainerStyle={styles.scroll}>
-            {content}
-          </Animated.ScrollView>
+                <LinearGradient
+                  colors={HEADER_FADE_MASK}
+                  locations={HEADER_FADE_MASK.map((_, index) =>
+                    index === 0
+                      ? 0
+                      : (insets.top
+                          + (HEADER_FADE_EXTENT * (index - 1)) / (HEADER_FADE_MASK.length - 2))
+                        / (insets.top + HEADER_FADE_EXTENT),
+                  ) as unknown as readonly [number, number, ...number[]]}
+                  style={{ height: insets.top + HEADER_FADE_EXTENT }}
+                />
+                <View style={[styles.flex, styles.maskSolid]} />
+              </View>
+            )}>
+            {scroll ? scrollView : content}
+          </MaskedView>
+        ) : scroll ? (
+          scrollView
         ) : (
           content
         )}
+        {fixedHeader ? (
+          <View
+            pointerEvents="box-none"
+            style={[styles.fixedScreenHeader, { top: insets.top + 3 }]}>
+            {fixedHeader}
+          </View>
+        ) : null}
       </ScrollHeaderContext.Provider>
-      {transparentHeaderOnScroll && Platform.OS === 'ios' && isGlassEffectAPIAvailable() ? (
-        <MaskedView
-          maskElement={(
-            <LinearGradient
-              colors={['#000000', '#000000', 'rgba(0,0,0,0)']}
-              locations={[0, 0.52, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-          )}
-          pointerEvents="none"
-          style={[styles.scrollBlurMask, { height: insets.top + 50 }]}>
-          <GlassView
-            colorScheme={isDark ? 'dark' : 'light'}
-            glassEffectStyle={{
-              style: headerCollapsed ? 'clear' : 'none',
-              animate: true,
-              animationDuration: 0.16,
-            }}
-            pointerEvents="none"
-            style={StyleSheet.absoluteFill}
-          />
-        </MaskedView>
-      ) : null}
-      {fixedHeader ? (
-        <View
-          pointerEvents="box-none"
-          style={[styles.fixedScreenHeader, { top: insets.top + 3 }]}>
-          {fixedHeader}
-        </View>
-      ) : null}
       {floatingAction ? (
         <View
           pointerEvents="box-none"
@@ -284,6 +317,30 @@ export function Screen({
           ]}>
           {floatingAction}
         </View>
+      ) : null}
+      {animateFirstFocus ? (
+        // Dissolvenza d'ingresso con una copertura che svanisce: un'opacità
+        // animata sui contenitori impedirebbe a iOS di disegnare il vetro nativo.
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            styles.firstFocusCover,
+            {
+              opacity: firstFocusProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 0],
+              }),
+            },
+          ]}>
+          <LinearGradient
+            colors={isDark ? darkScreenGradient : lightScreenGradient}
+            end={{ x: 0.68, y: 1 }}
+            locations={isDark ? [0, 0.22, 0.72] : [0, 0.28, 0.82]}
+            start={{ x: 0.1, y: 0 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
       ) : null}
     </AnimatedSafeAreaView>
   );
@@ -712,6 +769,231 @@ export function ProgressBar({ value, warning = false }: { value: number; warning
   );
 }
 
+// Superficie "liquid glass": GlassView nativo su iOS 26+, altrove un fondo
+// traslucido che ne imita l'aspetto. Solo per i controlli, mai per le card.
+export function GlassSurface({
+  children,
+  interactive = false,
+  tintColor,
+  style,
+}: PropsWithChildren<{
+  interactive?: boolean;
+  tintColor?: string;
+  style?: StyleProp<ViewStyle>;
+}>) {
+  const { isDark } = useFlowndTheme();
+  if (Platform.OS === 'ios' && isGlassEffectAPIAvailable()) {
+    return (
+      <GlassView
+        colorScheme={isDark ? 'dark' : 'light'}
+        glassEffectStyle="regular"
+        isInteractive={interactive}
+        tintColor={tintColor}
+        style={style}>
+        {children}
+      </GlassView>
+    );
+  }
+  return (
+    <View
+      style={[
+        styles.glassFallback,
+        {
+          backgroundColor: tintColor ?? (isDark ? 'rgba(23,33,28,0.82)' : 'rgba(255,255,255,0.66)'),
+          borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)',
+        },
+        style,
+      ]}>
+      {children}
+    </View>
+  );
+}
+
+// Controllo segmentato in vetro con cursore animato. `progress` (indice
+// frazionario) permette di legare il cursore a un gesto, es. lo swipe tra pagine.
+export function GlassSegmentedControl({
+  options,
+  selectedIndex,
+  onChange,
+  progress,
+  fontSize = 12,
+  style,
+}: {
+  options: { id: string; label: string; accessibilityLabel?: string }[];
+  selectedIndex: number;
+  onChange: (index: number) => void;
+  progress?: SharedValue<number>;
+  fontSize?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const { colors, isDark } = useFlowndTheme();
+  const [width, setWidth] = useState(0);
+  const internalProgress = useSharedValue(selectedIndex);
+  useEffect(() => {
+    internalProgress.value = withSpring(selectedIndex, {
+      damping: 20,
+      stiffness: 260,
+      mass: 0.8,
+    });
+  }, [internalProgress, selectedIndex]);
+  const source = progress ?? internalProgress;
+  const segmentWidth = width > 0 ? width / options.length : 0;
+  const thumbStyle = useAnimatedStyle(
+    () => ({ transform: [{ translateX: source.value * segmentWidth }] }),
+    [segmentWidth],
+  );
+  return (
+    <GlassSurface
+      interactive
+      style={[styles.glassSegmented, style]}>
+      <View
+        accessibilityRole="tablist"
+        onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+        style={styles.glassSegmentedRow}>
+        {segmentWidth > 0 ? (
+          <Reanimated.View
+            pointerEvents="none"
+            style={[
+              styles.glassSegmentedThumb,
+              {
+                width: segmentWidth,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.16)' : '#FFFFFF',
+              },
+              thumbStyle,
+            ]}
+          />
+        ) : null}
+        {options.map((option, index) => {
+          const selected = index === selectedIndex;
+          return (
+            <Pressable
+              key={option.id}
+              accessibilityRole="tab"
+              accessibilityLabel={option.accessibilityLabel ?? option.label}
+              accessibilityState={{ selected }}
+              onPress={() => onChange(index)}
+              style={styles.glassSegmentedButton}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.glassSegmentedLabel,
+                  {
+                    fontSize,
+                    color: selected ? colors.text : colors.textSecondary,
+                    fontFamily: selected ? font.bodySemiBold : font.bodyMedium,
+                  },
+                ]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </GlassSurface>
+  );
+}
+
+// Tasto circolare in vetro per la GlassNavBar (44pt, icona Material Symbols).
+export function GlassIconButton({
+  icon,
+  accessibilityLabel,
+  accessibilityHint,
+  onPress,
+  tinted = false,
+  iconStyle,
+  children,
+}: {
+  icon?: string;
+  accessibilityLabel: string;
+  accessibilityHint?: string;
+  onPress: () => void;
+  tinted?: boolean;
+  iconStyle?: StyleProp<TextStyle>;
+  children?: ReactNode;
+}) {
+  const { colors } = useFlowndTheme();
+  return (
+    <GlassSurface
+      interactive
+      tintColor={tinted ? colors.accent : undefined}
+      style={styles.glassIconButton}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
+        hitSlop={4}
+        onPress={onPress}
+        style={({ pressed }) => [styles.glassIconButtonPressable, pressed && styles.glassIconPressed]}>
+        {children ?? (
+          <Text
+            style={[
+              styles.glassIconGlyph,
+              { color: tinted ? colors.onAccent : colors.text },
+              iconStyle,
+            ]}>
+            {icon}
+          </Text>
+        )}
+      </Pressable>
+    </GlassSurface>
+  );
+}
+
+// Barra di navigazione fissa (da passare a `Screen fixedHeader` insieme a
+// `transparentHeaderOnScroll`): il titolo compatto compare scorrendo, accanto
+// alle azioni in vetro.
+export function GlassNavBar({
+  title,
+  leading,
+  actions,
+}: {
+  title: string;
+  leading?: ReactNode;
+  actions?: ReactNode;
+}) {
+  const { colors } = useFlowndTheme();
+  const scrollContext = useContext(ScrollHeaderContext);
+  const opacity = scrollContext ? scrollContext.headerProgress : 0;
+  const translateY = scrollContext
+    ? scrollContext.headerProgress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] })
+    : 12;
+  return (
+    <View pointerEvents="box-none" style={styles.glassNavBar}>
+      {leading ? <View style={styles.glassNavLeading}>{leading}</View> : null}
+      <Animated.Text
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        numberOfLines={1}
+        pointerEvents="none"
+        style={[
+          styles.glassNavTitle,
+          { color: colors.text, opacity, transform: [{ translateY }] },
+        ]}>
+        {title}
+      </Animated.Text>
+      {actions ? <View style={styles.glassNavActions}>{actions}</View> : null}
+    </View>
+  );
+}
+
+// Titolo grande in stile iOS: sfuma scorrendo mentre quello compatto sale
+// nella GlassNavBar.
+export function LargeTitle({ title }: { title: string }) {
+  const { colors } = useFlowndTheme();
+  const scrollContext = useContext(ScrollHeaderContext);
+  const opacity = scrollContext
+    ? scrollContext.headerProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] })
+    : 1;
+  return (
+    <Animated.Text
+      accessibilityRole="header"
+      numberOfLines={1}
+      style={[styles.largeTitle, { color: colors.text, opacity }]}>
+      {title}
+    </Animated.Text>
+  );
+}
+
 export const uiStyles = StyleSheet.create({
   title: {
     fontFamily: font.displayBold,
@@ -746,13 +1028,8 @@ const styles = StyleSheet.create({
     zIndex: 40,
     elevation: 9,
   },
-  scrollBlurMask: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    left: 0,
-    zIndex: 30,
-  },
+  maskSolid: { backgroundColor: '#000000' },
+  firstFocusCover: { zIndex: 100, elevation: 20 },
   scroll: { flexGrow: 1 },
   screenContent: { flex: 1, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 110 },
   floatingAction: {
@@ -876,5 +1153,50 @@ const styles = StyleSheet.create({
     elevation: 9,
   },
   bar: { height: 7, borderRadius: 7, overflow: 'hidden' },
+  glassFallback: {
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#0B241B',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  glassSegmented: { height: 44, borderRadius: 22, padding: 4 },
+  glassSegmentedRow: { flex: 1, flexDirection: 'row' },
+  glassSegmentedThumb: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 18,
+    shadowColor: '#000000',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  glassSegmentedButton: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  glassSegmentedLabel: { textAlign: 'center' },
+  glassNavBar: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  glassNavTitle: {
+    flex: 1,
+    fontFamily: font.displayBold,
+    fontSize: 19,
+    letterSpacing: -0.2,
+    marginRight: 10,
+  },
+  glassNavActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  glassNavLeading: { marginRight: 10 },
+  glassIconButton: { width: 44, height: 44, borderRadius: 22 },
+  glassIconButtonPressable: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  glassIconPressed: { opacity: 0.65 },
+  glassIconGlyph: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22, lineHeight: 24 },
+  largeTitle: {
+    fontFamily: font.displayBold,
+    fontSize: 34,
+    lineHeight: 41,
+    letterSpacing: -0.4,
+    marginTop: 40,
+  },
   barFill: { height: '100%', borderRadius: 7 },
 });

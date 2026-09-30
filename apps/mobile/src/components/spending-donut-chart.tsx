@@ -12,7 +12,7 @@ import {
 import { font, useFlowndTheme } from '@/components/flownd-ui';
 import { HIDDEN_AMOUNT } from '@/lib/dashboard';
 import type { ExpenseDraft } from '@/lib/onboarding';
-import { formatEuro } from '@/lib/onboarding';
+import { formatWholeEuro } from '@/lib/onboarding';
 
 const CHART_SIZE = 190;
 const CHART_CENTER = CHART_SIZE / 2;
@@ -265,7 +265,7 @@ export function SpendingDonutChart({
           minimumFontScale={0.7}
           numberOfLines={1}
           style={[styles.totalAmount, { color: colors.text }]}>
-          {amountsVisible ? formatEuro(total) : HIDDEN_AMOUNT}
+          {amountsVisible ? formatWholeEuro(total) : HIDDEN_AMOUNT}
         </Text>
       </View>
 
@@ -331,7 +331,7 @@ export function SpendingDonutChart({
             </Text>
             <Text
               style={[styles.selectionValue, { color: colors.textSecondary }]}>
-              {amountsVisible ? formatEuro(selectedSegment.amount) : HIDDEN_AMOUNT}
+              {amountsVisible ? formatWholeEuro(selectedSegment.amount) : HIDDEN_AMOUNT}
               {' · '}
               {percentageLabel(selectedSegment.amount, total)}
             </Text>
@@ -367,7 +367,7 @@ export function SpendingDonutChart({
                 </Text>
                 <Text
                   style={[styles.legendValue, { color: colors.textSecondary }]}>
-                  {amountsVisible ? formatEuro(item.amount) : HIDDEN_AMOUNT}
+                  {amountsVisible ? formatWholeEuro(item.amount) : HIDDEN_AMOUNT}
                 </Text>
                 <Text
                   style={[

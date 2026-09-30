@@ -65,6 +65,8 @@ export const queryKeys = {
   bankConnections: (userId: string) => ['bank-connections', userId] as const,
   bankConnection: (connectionId: string) => ['bank-connection', connectionId] as const,
   italianBanks: () => ['banks', 'IT'] as const,
+  memberTimelineTransactions: (userId: string, from: string, to: string) =>
+    ['member-timeline-transactions', userId, from, to] as const,
   olderTransactionsRoot: ['older-transactions'] as const,
   olderTransactions: (userId: string, from: string, to: string) =>
     ['older-transactions', userId, from, to] as const,

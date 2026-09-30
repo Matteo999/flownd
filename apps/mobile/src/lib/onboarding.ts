@@ -126,6 +126,10 @@ export type ExpenseDraft = {
   recurringOccurrenceId?: string | null;
   isRecurring?: boolean;
   groupId?: string | null;
+  // Movimento di un altro membro di un gruppo (sola lettura in Timeline).
+  memberId?: string | null;
+  // Con visibilità "summary" descrizione e categoria non sono condivise.
+  privateDetails?: boolean;
   incomeType?:
     | 'salary'
     | 'extra_salary'
@@ -451,5 +455,14 @@ export function formatEuro(value: number) {
     style: 'currency',
     currency: 'EUR',
     maximumFractionDigits: value % 1 === 0 ? 0 : 2,
+  }).format(value);
+}
+
+// Importo arrotondato all'euro, per le viste di sintesi come la dashboard.
+export function formatWholeEuro(value: number) {
+  return new Intl.NumberFormat('it-IT', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 0,
   }).format(value);
 }
