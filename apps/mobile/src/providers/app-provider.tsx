@@ -1548,6 +1548,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       );
     }
     invalidateOlderTransactions();
+    // La spesa di gruppo collegata viene eliminata in cascata: movimenti e saldi del gruppo cambiano.
+    void queryClient.invalidateQueries({ queryKey: ['family-group-detail'] });
+    void queryClient.invalidateQueries({ queryKey: ['family-dashboard-summary'] });
     return true;
   }
 
