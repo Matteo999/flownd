@@ -77,9 +77,10 @@ export const palette = {
   blue: '#457FEF',
 };
 
-const lightScreenGradient = ['#DCE8FF', '#DDF6EF', '#FFFFFF'] as const;
-const darkScreenGradient = ['#172D48', '#123027', darkColors.background] as const;
-const lightCompactHeaderBackground = '#DFEBF7';
+// Sfumatura monocroma (opzione 2c): una sola tinta petrolio in alto che sfuma nel fondo.
+const lightScreenGradient = ['#DAE8EA', '#EEF4F5', '#FFFFFF'] as const;
+const darkScreenGradient = ['#153237', '#10252A', darkColors.background] as const;
+const lightCompactHeaderBackground = '#DDEAEC';
 // Maschera del contenuto sotto la barra fissa: invisibile dietro la status
 // bar, poi opacità crescente (curva morbida) fin oltre la barra di navigazione.
 const HEADER_FADE_EXTENT = 84;
@@ -237,10 +238,10 @@ export function Screen({
             ? darkScreenGradient
             : lightScreenGradient
         }
-        end={{ x: 0.68, y: 1 }}
-        locations={isDark ? [0, 0.22, 0.72] : [0, 0.28, 0.82]}
+        end={{ x: 0.5, y: 1 }}
+        locations={isDark ? [0, 0.3, 0.75] : [0, 0.3, 0.8]}
         pointerEvents="none"
-        start={{ x: 0.1, y: 0 }}
+        start={{ x: 0.5, y: 0 }}
         style={StyleSheet.absoluteFill}
       />
       {!transparentHeaderOnScroll ? (
@@ -335,9 +336,9 @@ export function Screen({
           ]}>
           <LinearGradient
             colors={isDark ? darkScreenGradient : lightScreenGradient}
-            end={{ x: 0.68, y: 1 }}
-            locations={isDark ? [0, 0.22, 0.72] : [0, 0.28, 0.82]}
-            start={{ x: 0.1, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            locations={isDark ? [0, 0.3, 0.75] : [0, 0.3, 0.8]}
+            start={{ x: 0.5, y: 0 }}
             style={StyleSheet.absoluteFill}
           />
         </Animated.View>
@@ -944,18 +945,38 @@ export function GlassIconButton({
 // alle azioni in vetro.
 export function GlassNavBar({
   title,
+  titleVisible,
+  centered = false,
   leading,
   actions,
 }: {
   title: string;
+  // Titolo compatto centrato nella barra invece che allineato a sinistra.
+  centered?: boolean;
+  // Se definito, comanda lui la comparsa del titolo (es. quando un elemento
+  // della pagina raggiunge la barra) al posto della soglia di scroll standard.
+  titleVisible?: boolean;
   leading?: ReactNode;
   actions?: ReactNode;
 }) {
   const { colors } = useFlowndTheme();
   const scrollContext = useContext(ScrollHeaderContext);
-  const opacity = scrollContext ? scrollContext.headerProgress : 0;
-  const translateY = scrollContext
-    ? scrollContext.headerProgress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] })
+  const [ownProgress] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    if (titleVisible === undefined) return;
+    const animation = Animated.timing(ownProgress, {
+      toValue: titleVisible ? 1 : 0,
+      duration: 160,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [titleVisible, ownProgress]);
+  const progress =
+    titleVisible !== undefined ? ownProgress : (scrollContext?.headerProgress ?? null);
+  const opacity = progress ?? 0;
+  const translateY = progress
+    ? progress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] })
     : 12;
   return (
     <View pointerEvents="box-none" style={styles.glassNavBar}>
@@ -967,6 +988,7 @@ export function GlassNavBar({
         pointerEvents="none"
         style={[
           styles.glassNavTitle,
+          centered && styles.glassNavTitleCentered,
           { color: colors.text, opacity, transform: [{ translateY }] },
         ]}>
         {title}
@@ -1184,6 +1206,13 @@ const styles = StyleSheet.create({
     fontSize: 19,
     letterSpacing: -0.2,
     marginRight: 10,
+  },
+  glassNavTitleCentered: {
+    position: 'absolute',
+    left: 64,
+    right: 64,
+    marginRight: 0,
+    textAlign: 'center',
   },
   glassNavActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   glassNavLeading: { marginRight: 10 },

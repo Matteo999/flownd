@@ -1,11 +1,22 @@
 import { router, type Href } from 'expo-router';
-import { type ReactNode, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import Constants from 'expo-constants';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  BackButton,
   Card,
-  PageHeader,
+  GlassIconButton,
+  GlassNavBar,
   Screen,
   font,
   useFlowndTheme,
@@ -30,6 +41,15 @@ const themeOptions: {
   { id: 'system', label: 'Sistema', icon: 'settings_suggest' },
 ];
 
+// Altezza (sotto l'inset) a cui il centro del nome deve salire perché il titolo compaia: a metà barra.
+const NAV_BAR_BOTTOM = 10;
+
+const rowTints = {
+  budget: '#457FEF',
+  groups: '#7C5CE6',
+  notifications: '#EE8A4A',
+};
+
 export default function ProfileScreen() {
   const {
     colors,
@@ -50,11 +70,42 @@ export default function ProfileScreen() {
     'toggleAmountsVisible',
   );
   const [deleting, setDeleting] = useState(false);
+  const insets = useSafeAreaInsets();
+  const nameRef = useRef<Text>(null);
+  const nameThreshold = useRef<number | null>(null);
+  const scrollOffset = useRef(0);
+  const [nameInHeader, setNameInHeader] = useState(false);
   const appLockEnabled = useAppLockEnabled();
   const [appLockUpdating, setAppLockUpdating] = useState(false);
 
   useEffect(() => {
     void hydrateAppLockPreference();
+  }, []);
+
+  const metadata = session?.user.user_metadata;
+  const email = session?.user.email ?? '';
+  const displayName =
+    (typeof metadata?.full_name === 'string' && metadata.full_name) ||
+    (typeof metadata?.name === 'string' && metadata.name) ||
+    email.split('@')[0] ||
+    'Account Flownd';
+  const planLabel = planTier === 'free' ? 'Free' : planTier === 'pro' ? 'Pro' : 'Max';
+
+  // Il titolo compatto prende il posto del nome quando questo sale sotto la barra.
+  const measureName = useCallback(() => {
+    nameRef.current?.measureInWindow((_x, y, _width, height) => {
+      if (height > 0) {
+        nameThreshold.current =
+          y + scrollOffset.current + height / 2 - (insets.top + NAV_BAR_BOTTOM);
+      }
+    });
+  }, [insets.top]);
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offset = event.nativeEvent.contentOffset.y;
+    scrollOffset.current = offset;
+    const threshold = nameThreshold.current;
+    if (threshold !== null) setNameInHeader(offset >= threshold);
   }, []);
 
   async function toggleAppLock() {
@@ -117,39 +168,55 @@ export default function ProfileScreen() {
   }
 
   return (
-    <Screen>
-      <PageHeader
-        title="Profilo"
-        leading={
-          <BackButton />
-        }
-      />
-
-      <Card style={styles.identity}>
-        <UserAvatar size={48} />
-        <View style={styles.flex}>
-          <Text style={[styles.email, { color: colors.text }]}>
-            {session?.user.email ?? 'Account Flownd'}
-          </Text>
+    <Screen
+      transparentHeaderOnScroll
+      onScroll={handleScroll}
+      fixedHeader={
+        <GlassNavBar
+          title={displayName}
+          centered
+          titleVisible={nameInHeader}
+          leading={
+            <GlassIconButton
+              accessibilityLabel="Torna indietro"
+              icon="arrow_back"
+              onPress={() => {
+                if (router.canGoBack()) router.back();
+                else router.replace('/dashboard' as Href);
+              }}
+            />
+          }
+        />
+      }>
+      <View style={styles.identity}>
+        <View style={[styles.avatarRing, { borderColor: colors.surface }]}>
+          <UserAvatar size={96} />
+        </View>
+        <Text
+          ref={nameRef}
+          accessibilityRole="header"
+          numberOfLines={1}
+          onLayout={measureName}
+          style={[styles.name, { color: colors.text }]}>
+          {displayName}
+        </Text>
+        {email ? (
+          <Text style={[styles.email, { color: colors.textSecondary }]}>{email}</Text>
+        ) : null}
+        <View style={[styles.planChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.planIcon, { color: colors.accent }]}>workspace_premium</Text>
+          <Text style={[styles.planLabel, { color: colors.text }]}>Piano {planLabel}</Text>
+        </View>
+        {planSource === 'shared' ? (
           <Text style={[styles.caption, { color: colors.textSecondary }]}>
-            Piano {planTier === 'free' ? 'Free' : planTier === 'pro' ? 'Pro' : 'Max'}
-            {planSource === 'shared' ? ' · incluso nel piano Max del tuo gruppo' : ''}
+            Incluso nel piano Max del tuo gruppo
           </Text>
-        </View>
-        <View style={[styles.verified, { backgroundColor: colors.positiveSoft }]}>
-          <Text style={[styles.materialIcon, { color: colors.positive }]}>verified</Text>
-        </View>
-      </Card>
+        ) : null}
+      </View>
 
       <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ASPETTO</Text>
-      <Card>
-        <Text style={[styles.cardTitle, { color: colors.text }]}>Tema dell’app</Text>
-        <Text style={[styles.cardCopy, { color: colors.textSecondary }]}>
-          Scegli un aspetto fisso oppure segui automaticamente il dispositivo.
-        </Text>
-        <View
-          accessibilityRole="radiogroup"
-          style={[styles.themeControl, { backgroundColor: colors.sunken }]}>
+      <Card style={styles.themeCard}>
+        <View accessibilityRole="radiogroup" style={styles.themeControl}>
           {themeOptions.map((option) => {
             const selected = themePreference === option.id;
             return (
@@ -161,10 +228,7 @@ export default function ProfileScreen() {
                 onPress={() => void setThemePreference(option.id)}
                 style={[
                   styles.themeOption,
-                  selected && {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.border,
-                  },
+                  selected && { backgroundColor: colors.sunken },
                 ]}>
                 <Text
                   style={[
@@ -184,29 +248,39 @@ export default function ProfileScreen() {
             );
           })}
         </View>
-        <Text style={[styles.currentTheme, { color: colors.textSecondary }]}>
-          {themePreference === 'system'
-            ? 'Il tema cambierà insieme alle impostazioni di sistema.'
-            : `Flownd resterà in modalità ${themePreference === 'dark' ? 'scura' : 'chiara'}.`}
-        </Text>
       </Card>
+      <Text style={[styles.currentTheme, { color: colors.textSecondary }]}>
+        {themePreference === 'system'
+          ? 'Il tema cambierà insieme alle impostazioni di sistema.'
+          : `Flownd resterà in modalità ${themePreference === 'dark' ? 'scura' : 'chiara'}.`}
+      </Text>
 
       <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>PREFERENZE</Text>
-      <View style={styles.list}>
+      <Card style={styles.list}>
         <ProfileRow
           icon="account_balance_wallet"
+          tint={rowTints.budget}
           label="Budget"
           caption="Allocazione, categorie e mese finanziario"
           onPress={() => router.push('/budget' as Href)}
         />
         <ProfileRow
           icon="group"
+          tint={rowTints.groups}
           label="Gruppi"
           caption="Membri, permessi, split e budget condivisi"
           onPress={() => router.push('/family' as Href)}
         />
         <ProfileRow
+          icon="notifications"
+          tint={rowTints.notifications}
+          label="Notifiche"
+          caption="Avvisi di budget, ricorrenze e attività del gruppo"
+          onPress={() => router.push('/notifications' as Href)}
+        />
+        <ProfileRow
           icon={amountsVisible ? 'visibility' : 'visibility_off'}
+          tint={colors.accent}
           label="Importi visibili"
           caption={
             amountsVisible
@@ -220,6 +294,7 @@ export default function ProfileScreen() {
         />
         <ProfileRow
           icon={appLockEnabled ? 'lock' : 'lock_open'}
+          tint={colors.positive}
           label="Blocca Flownd"
           caption={
             appLockEnabled
@@ -229,9 +304,10 @@ export default function ProfileScreen() {
           trailing={<SwitchVisual on={appLockEnabled} />}
           accessibilityRole="switch"
           accessibilityState={{ checked: appLockEnabled, busy: appLockUpdating }}
+          last
           onPress={() => void toggleAppLock()}
         />
-      </View>
+      </Card>
 
       <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ACCOUNT</Text>
       <Pressable
@@ -264,6 +340,9 @@ export default function ProfileScreen() {
           </Text>
         )}
       </Pressable>
+      <Text style={[styles.version, { color: colors.textSecondary }]}>
+        Flownd {Constants.expoConfig?.version ?? ''}
+      </Text>
     </Screen>
   );
 }
@@ -285,18 +364,22 @@ function SwitchVisual({ on }: { on: boolean }) {
 
 function ProfileRow({
   icon,
+  tint,
   label,
   caption,
   trailing,
   onPress,
+  last = false,
   accessibilityRole = 'button',
   accessibilityState,
 }: {
   icon: string;
+  tint: string;
   label: string;
   caption: string;
   trailing?: ReactNode;
   onPress: () => void;
+  last?: boolean;
   accessibilityRole?: 'button' | 'switch';
   accessibilityState?: { checked: boolean; busy?: boolean };
 }) {
@@ -306,44 +389,46 @@ function ProfileRow({
       accessibilityRole={accessibilityRole}
       accessibilityState={accessibilityState}
       onPress={onPress}
-      style={({ pressed }) => pressed && styles.pressed}>
-      <Card style={styles.row}>
-        <View style={[styles.rowIcon, { backgroundColor: colors.sunken }]}>
-          <Text style={[styles.materialIcon, { color: colors.textSecondary }]}>
-            {icon}
-          </Text>
-        </View>
-        <View style={styles.flex}>
-          <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
-          <Text style={[styles.caption, { color: colors.textSecondary }]}>
-            {caption}
-          </Text>
-        </View>
-        {trailing ?? (
-          <Text style={[styles.chevron, { color: colors.textSecondary }]}>›</Text>
-        )}
-      </Card>
+      style={({ pressed }) => [
+        styles.row,
+        !last && { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
+        pressed && styles.pressed,
+      ]}>
+      <View style={[styles.rowIcon, { backgroundColor: `${tint}22` }]}>
+        <Text style={[styles.materialIcon, { color: tint }]}>{icon}</Text>
+      </View>
+      <View style={styles.flex}>
+        <Text style={[styles.rowLabel, { color: colors.text }]}>{label}</Text>
+        <Text style={[styles.caption, { color: colors.textSecondary }]}>{caption}</Text>
+      </View>
+      {trailing ?? (
+        <Text style={[styles.chevron, { color: colors.textSecondary }]}>›</Text>
+      )}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  identity: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  email: { fontFamily: font.bodySemiBold, fontSize: 14 },
+  identity: { alignItems: 'center', marginTop: 56, gap: 4 },
+  avatarRing: { borderWidth: 4, borderRadius: 56, padding: 4, marginBottom: 10 },
+  name: { fontFamily: font.displayBold, fontSize: 26, lineHeight: 32, letterSpacing: -0.3, maxWidth: '100%' },
+  email: { fontFamily: font.body, fontSize: 13 },
+  planChip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 6, marginTop: 10 },
+  planIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 16 },
+  planLabel: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  version: { fontFamily: font.body, fontSize: 11, textAlign: 'center', marginTop: 14 },
   caption: { fontFamily: font.body, fontSize: 11, lineHeight: 16, marginTop: 2 },
-  verified: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   materialIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 20 },
   sectionLabel: { fontFamily: font.bodySemiBold, fontSize: 10, letterSpacing: 1.1, marginTop: 24, marginBottom: 8 },
-  cardTitle: { fontFamily: font.bodySemiBold, fontSize: 15 },
-  cardCopy: { fontFamily: font.body, fontSize: 11, lineHeight: 17, marginTop: 3 },
-  themeControl: { flexDirection: 'row', borderRadius: 12, padding: 3, marginTop: 15 },
-  themeOption: { flex: 1, minHeight: 68, borderRadius: 9, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  themeCard: { padding: 5 },
+  themeControl: { flexDirection: 'row' },
+  themeOption: { flex: 1, minHeight: 68, borderRadius: 12, alignItems: 'center', justifyContent: 'center', gap: 4 },
   themeIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 22 },
   themeLabel: { fontFamily: font.bodySemiBold, fontSize: 11 },
-  currentTheme: { fontFamily: font.body, fontSize: 10, lineHeight: 15, marginTop: 10 },
-  list: { gap: 9 },
-  row: { flexDirection: 'row', alignItems: 'center', minHeight: 70, gap: 11 },
+  currentTheme: { fontFamily: font.body, fontSize: 11, lineHeight: 15, marginTop: 8, marginLeft: 4 },
+  list: { paddingVertical: 4, paddingHorizontal: 14 },
+  row: { flexDirection: 'row', alignItems: 'center', minHeight: 70, gap: 12, paddingVertical: 10 },
   rowIcon: { width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   rowLabel: { fontFamily: font.bodyMedium, fontSize: 14 },
   chevron: { fontFamily: font.body, fontSize: 24 },

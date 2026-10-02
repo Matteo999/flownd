@@ -106,11 +106,16 @@ export default function BudgetAllocationScreen() {
   function persistBudget() {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
+      // Qui cambiano solo le percentuali: il reddito pianificato resta quello
+      // lordo del profilo. Il netto del ciclo (entrate reali meno la quota ai
+      // gruppi) è solo per la visualizzazione: salvarlo ridurrebbe a ogni
+      // modifica la base su cui si calcola proprio la quota ai gruppi.
+      const plannedMonthlyIncome = Math.max(1, draft.monthlyReference);
       const latest = materializeBudgetAmounts(
         mergeSelectedBudgets(budgetsRef.current, draft.budgets),
-        budgetMonthlyIncome,
+        plannedMonthlyIncome,
       );
-      void saveBudgetAllocations(latest, Math.max(1, budgetMonthlyIncome));
+      void saveBudgetAllocations(latest, plannedMonthlyIncome);
     }, 350);
   }
 

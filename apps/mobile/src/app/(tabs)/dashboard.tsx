@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { router, type Href, useFocusEffect } from 'expo-router';
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useCallback,
   useEffect,
@@ -30,6 +30,7 @@ import Animated, {
 import {
   Card,
   GlassNavBar,
+  GlassSurface,
   GlassSegmentedControl,
   LargeTitle,
   PrimaryButton,
@@ -40,6 +41,7 @@ import {
 } from '@/components/flownd-ui';
 import { AppHeaderActions } from '@/components/app-header-actions';
 import { DraggableTransactionFab } from '@/components/draggable-transaction-fab';
+import { GroupsPage } from '@/components/group-dashboard';
 import { SpendingDonutChart } from '@/components/spending-donut-chart';
 import {
   HIDDEN_AMOUNT,
@@ -49,7 +51,6 @@ import {
 } from '@/lib/dashboard';
 import {
   financialCycleForDate,
-  formatFinancialCycle,
   transactionsForFinancialCycle,
 } from '@/lib/financial-cycle';
 import {
@@ -58,8 +59,6 @@ import {
   summarizeBudgets,
 } from '@/lib/onboarding';
 import {
-  type FamilyDashboardSummary,
-  familyDashboardSummaryQuery,
   familyGroupsQuery,
   getActiveFamilyGroupId,
   setActiveFamilyGroupId,
@@ -79,15 +78,6 @@ const CATEGORY_TILE_VISUALS = [
   { color: '#FF8A3D', soft: '#FFF0E7', darkSoft: '#57331F' },
   { color: '#27D69A', soft: '#E5FBF3', darkSoft: '#164D3B' },
 ];
-
-// Risultato stabile tra i render finché i dati non cambiano.
-function combineFamilySummaries(
-  results: { data?: FamilyDashboardSummary }[],
-): FamilyDashboardSummary[] {
-  return results
-    .map((result) => result.data)
-    .filter((summary): summary is FamilyDashboardSummary => Boolean(summary));
-}
 
 export default function DashboardScreen() {
   const { colors, isDark } = useFlowndTheme();
@@ -148,10 +138,6 @@ export default function DashboardScreen() {
     enabled: Boolean(userId),
   });
   const familyGroups = familyGroupsResult.data;
-  const familySummaries = useQueries({
-    queries: (familyGroups ?? []).map((group) => familyDashboardSummaryQuery(group.id)),
-    combine: combineFamilySummaries,
-  });
   const [familyGroupIndex, setFamilyGroupIndex] = useState(0);
   const queryClient = useQueryClient();
   const [selectedPeriod, setSelectedPeriod] =
@@ -178,7 +164,7 @@ export default function DashboardScreen() {
     useCallback(() => {
       if (!userId) return;
       void queryClient.refetchQueries({ queryKey: queryKeys.familyGroups(userId), stale: true });
-      void queryClient.refetchQueries({ queryKey: ['family-dashboard-summary'], stale: true });
+      void queryClient.refetchQueries({ queryKey: ['family-group-detail'], stale: true });
     }, [queryClient, userId]),
   );
 
@@ -297,23 +283,6 @@ export default function DashboardScreen() {
     financialAccounts.map((account) => account.lastSyncedAt),
   );
   const hasChartTransactions = chartTransactions.length > 0;
-  const activeFamilySummary =
-    familySummaries[familyGroupIndex] ?? familySummaries[0] ?? null;
-  const groupChartTransactions = transactionsForPeriod(
-    (activeFamilySummary?.expenses ?? []).map((expense) => ({
-      id: expense.id,
-      description: activeFamilySummary?.groupName ?? 'Spesa del gruppo',
-      amount: expense.amount,
-      category: expense.category === 'wants'
-        ? 'Desideri'
-        : expense.category === 'savings'
-          ? 'Risparmi'
-          : 'Necessità',
-      kind: 'expense' as const,
-      occurredAt: expense.occurredAt,
-    })),
-    chartPeriod,
-  );
   const [dashboardPageWidth, setDashboardPageWidth] = useState(
     Math.max(1, windowWidth),
   );
@@ -471,46 +440,22 @@ export default function DashboardScreen() {
                   ));
                 }}
                 style={[styles.dashboardMainView, { width: dashboardPageWidth }]}>
-
-      {renderedScope === 'groups' && familySummaries.length > 1 ? (
-        <View style={styles.groupChips}>
-          {familySummaries.map((summary, index) => {
-            const selected = index === familyGroupIndex;
-            return (
-              <Pressable
-                key={summary.groupId}
-                accessibilityRole="tab"
-                accessibilityState={{ selected }}
-                onPress={() => {
-                  setFamilyGroupIndex(index);
-                  if (session?.user.id) {
-                    void setActiveFamilyGroupId(session.user.id, summary.groupId);
-                  }
-                }}
-                style={({ pressed }) => [
-                  styles.groupChip,
-                  {
-                    backgroundColor: selected ? colors.accent : colors.sunken,
-                    borderColor: selected ? colors.accent : colors.border,
-                  },
-                  pressed && styles.dashboardTabPressed,
-                ]}>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.groupChipLabel,
-                    { color: selected ? colors.onAccent : colors.textSecondary },
-                  ]}>
-                  {summary.groupName}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : null}
-
+      {renderedScope === 'groups' ? (
+        <GroupsPage
+          activeIndex={familyGroupIndex}
+          amountsVisible={amountsVisible}
+          groups={familyGroups}
+          loading={familyGroupsResult.isLoading}
+          userId={userId}
+          onSelectGroup={(index) => {
+            if (index < 0 || !familyGroups) return;
+            setFamilyGroupIndex(index);
+            if (userId) void setActiveFamilyGroupId(userId, familyGroups[index].id);
+          }}
+        />
+      ) : (
+      <>
       <View style={styles.hero}>
-        {renderedScope === 'personal' ? (
           <>
             <Pressable
               accessibilityHint="Apre la distribuzione tra macro-categorie e categorie"
@@ -518,11 +463,10 @@ export default function DashboardScreen() {
               accessibilityRole="button"
               hitSlop={6}
               onPress={() => router.push('/budget' as Href)}
-              style={({ pressed }) => [styles.heroLabelRow, pressed && styles.iconPressed]}>
-              <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>
-                BUDGET · {formatFinancialCycle(financialCycle).toLocaleUpperCase('it-IT')}
-              </Text>
-              <Text style={[styles.heroLabelIcon, { color: colors.textSecondary }]}>tune</Text>
+              style={({ pressed }) => [styles.heroTuneButton, pressed && styles.iconPressed]}>
+              <GlassSurface interactive style={styles.heroTuneGlass}>
+                <Text style={[styles.heroLabelIcon, { color: colors.text }]}>tune</Text>
+              </GlassSurface>
             </Pressable>
             <BudgetGauge
               amountsVisible={amountsVisible}
@@ -538,84 +482,14 @@ export default function DashboardScreen() {
                   : `${HIDDEN_AMOUNT} mensili · ${HIDDEN_AMOUNT} ai gruppi`}
               </Text>
             ) : null}
+            <CycleProgress
+              cycle={financialCycle}
+              spentProgress={monthlyBudget > 0 ? monthlyBudgetUsed / monthlyBudget : 0}
+            />
           </>
-        ) : activeFamilySummary ? (
-          <>
-            <Pressable
-              accessibilityHint="Apre la sezione Gruppi"
-              accessibilityLabel={`Apri il gruppo ${activeFamilySummary.groupName}`}
-              accessibilityRole="button"
-              onPress={() => router.push('/family' as Href)}
-              style={({ pressed }) => [styles.heroGroupRow, pressed && styles.iconPressed]}>
-              <DashboardFamilyAvatars
-                borderColor={colors.background}
-                fallbackBackground={colors.accentSoft}
-                foreground={colors.accent}
-                members={activeFamilySummary.members}
-              />
-              <Text numberOfLines={1} style={[styles.heroGroupName, { color: colors.text }]}>
-                {activeFamilySummary.groupName}
-              </Text>
-              <Text style={[styles.heroLabelIcon, styles.heroChevron, { color: colors.textSecondary }]}>
-                chevron_right
-              </Text>
-            </Pressable>
-            {activeFamilySummary.budgetTotal > 0 ? (
-              <>
-                <Pressable
-                  accessibilityLabel="Apri il budget del gruppo"
-                  accessibilityRole="button"
-                  hitSlop={6}
-                  onPress={() => router.push('/family' as Href)}
-                  style={({ pressed }) => [styles.heroLabelRow, pressed && styles.iconPressed]}>
-                  <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>
-                    BUDGET CONDIVISO
-                  </Text>
-                  <Text style={[styles.heroLabelIcon, { color: colors.textSecondary }]}>tune</Text>
-                </Pressable>
-                <BudgetGauge
-                  amountsVisible={amountsVisible}
-                  remainingLabel={formatFamilyCurrency(
-                    activeFamilySummary.budgetRemaining,
-                    activeFamilySummary.currency,
-                  )}
-                  spent={activeFamilySummary.budgetSpent}
-                  total={activeFamilySummary.budgetTotal}
-                  totalLabel={formatFamilyCurrency(
-                    activeFamilySummary.budgetTotal,
-                    activeFamilySummary.currency,
-                  )}
-                />
-                <Text style={[styles.heroCaption, { color: colors.textSecondary }]}>
-                  {amountsVisible
-                    ? `${formatFamilyCurrency(activeFamilySummary.budgetCovered, activeFamilySummary.currency)} coperti · ${formatFamilyCurrency(activeFamilySummary.budgetSpent, activeFamilySummary.currency)} spesi`
-                    : `${HIDDEN_AMOUNT} coperti · ${HIDDEN_AMOUNT} spesi`}
-                </Text>
-              </>
-            ) : (
-              <Text style={[styles.heroCaption, { color: colors.textSecondary }]}>
-                Nessun budget condiviso · {activeFamilySummary.memberCount}{' '}
-                {activeFamilySummary.memberCount === 1 ? 'partecipante' : 'partecipanti'}
-              </Text>
-            )}
-          </>
-        ) : (
-          <Pressable
-            accessibilityHint="Apre la sezione Gruppi"
-            accessibilityLabel="Crea il tuo gruppo"
-            accessibilityRole="button"
-            onPress={() => router.push('/family' as Href)}
-            style={({ pressed }) => [styles.heroEmpty, pressed && styles.iconPressed]}>
-            <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>GRUPPI</Text>
-            <Text style={[styles.familyEmptyTitle, { color: colors.text }]}>Crea il tuo gruppo</Text>
-            <Text style={[styles.heroCaption, { color: colors.textSecondary }]}>
-              Invita altre persone e scegli cosa condividere.
-            </Text>
-          </Pressable>
-        )}
       </View>
 
-      {renderedScope === 'personal' && firstDashboardVisit ? (
+      {firstDashboardVisit ? (
         <Card
           style={[
             styles.confirmation,
@@ -650,36 +524,16 @@ export default function DashboardScreen() {
           Budget per categoria
         </Text>
         <Pressable
-          accessibilityLabel={
-            renderedScope === 'personal'
-              ? 'Modifica il budget per categoria'
-              : 'Apri il budget del gruppo'
-          }
+          accessibilityLabel="Modifica il budget per categoria"
           accessibilityRole="button"
           hitSlop={8}
-          onPress={() =>
-            router.push((renderedScope === 'personal' ? '/budget' : '/family') as Href)
-          }
+          onPress={() => router.push('/budget' as Href)}
           style={({ pressed }) => pressed && styles.iconPressed}>
           <Text style={[styles.tilesLink, { color: colors.accent }]}>Modifica</Text>
         </Pressable>
       </View>
       {(() => {
-        const tiles = renderedScope === 'groups'
-          ? (activeFamilySummary?.budgets ?? []).map((budget, index) => {
-              const visual = CATEGORY_TILE_VISUALS[index % CATEGORY_TILE_VISUALS.length];
-              return {
-                id: budget.id,
-                name: budget.category,
-                icon: 'category',
-                color: visual.color,
-                soft: isDark ? visual.darkSoft : visual.soft,
-                progress: budget.monthlyLimit > 0 ? budget.spent / budget.monthlyLimit : 0,
-                spentLabel: formatFamilyCurrency(budget.spent, activeFamilySummary!.currency),
-                amountLabel: formatFamilyCurrency(budget.monthlyLimit, activeFamilySummary!.currency),
-              };
-            })
-          : budgetRows.map((budget) => {
+        const tiles = budgetRows.map((budget) => {
               const visual = CATEGORY_TILE_VISUALS[
                 budget.id === 'wants' ? 1 : budget.id === 'savings' ? 2 : 0
               ];
@@ -698,9 +552,7 @@ export default function DashboardScreen() {
           return (
             <Card style={styles.tilesEmpty}>
               <Text style={[styles.emptyBudgetCopy, { color: colors.textSecondary }]}>
-                {renderedScope === 'groups'
-                  ? 'Nessun budget per categoria impostato per questo gruppo.'
-                  : 'Nessun budget per categoria impostato.'}
+                Nessun budget per categoria impostato.
               </Text>
             </Card>
           );
@@ -771,7 +623,7 @@ export default function DashboardScreen() {
 
       <View accessibilityState={{ busy: periodPending }}>
         <Card style={styles.chartCard}>
-          {(renderedScope === 'groups' ? groupChartTransactions.length > 0 : hasChartTransactions) ? (
+          {hasChartTransactions ? (
             <SpendingDonutChart
               amountsVisible={amountsVisible}
               totalLabel={
@@ -779,7 +631,7 @@ export default function DashboardScreen() {
                   ? 'TOTALE SPESO NEL CICLO'
                   : 'TOTALE SPESO'
               }
-              transactions={renderedScope === 'groups' ? groupChartTransactions : chartTransactions}
+              transactions={chartTransactions}
             />
           ) : (
             <View style={styles.guidedState}>
@@ -797,7 +649,7 @@ export default function DashboardScreen() {
         </Card>
       </View>
 
-      {renderedScope === 'personal' && dashboardRecurrences.length ? (
+      {dashboardRecurrences.length ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Apri ${dashboardRecurrences.length} ricorrenze`}
@@ -834,7 +686,7 @@ export default function DashboardScreen() {
         </Pressable>
       ) : null}
 
-      {renderedScope === 'personal' && coachInsight ? (
+      {coachInsight ? (
         <Card style={[styles.contentCard, { backgroundColor: colors.accentSoft }]}>
           <Text style={[styles.eyebrow, { color: colors.accent }]}>
             INSIGHT DEL COACH
@@ -848,7 +700,7 @@ export default function DashboardScreen() {
         </Card>
       ) : null}
 
-      {renderedScope === 'personal' && featuredGoal ? (
+      {featuredGoal ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Apri l’obiettivo ${featuredGoal.name}`}
@@ -881,44 +733,7 @@ export default function DashboardScreen() {
         </Pressable>
       ) : null}
 
-      {renderedScope === 'groups' && activeFamilySummary?.goalTarget ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Apri gli obiettivi condivisi di ${activeFamilySummary.groupName}`}
-          onPress={() => router.push('/family' as Href)}
-          style={({ pressed }) => pressed && styles.iconPressed}>
-          <Card style={styles.contentCard}>
-            <View style={styles.goalTop}>
-              <View style={styles.flex}>
-                <Text style={[styles.eyebrow, { color: colors.textSecondary }]}>
-                  {activeFamilySummary.sharedGoalCount === 1
-                    ? 'OBIETTIVO CONDIVISO'
-                    : 'OBIETTIVI CONDIVISI'}
-                </Text>
-                <Text style={[styles.goalName, { color: colors.text }]}>
-                  {activeFamilySummary.groupName}
-                </Text>
-                <Text style={[styles.goalAmount, { color: colors.textSecondary }]}>
-                  {amountsVisible
-                    ? `${formatFamilyCurrency(activeFamilySummary.goalSaved, activeFamilySummary.currency)} di ${formatFamilyCurrency(activeFamilySummary.goalTarget, activeFamilySummary.currency)}`
-                    : `${HIDDEN_AMOUNT} di ${HIDDEN_AMOUNT}`}
-                </Text>
-              </View>
-              <Text style={[styles.goalPercent, { color: colors.accent }]}>
-                {amountsVisible
-                  ? `${Math.round((activeFamilySummary.goalSaved / activeFamilySummary.goalTarget) * 100)}%`
-                  : '••%'}
-              </Text>
-            </View>
-            <ProgressBar
-              value={activeFamilySummary.goalSaved / activeFamilySummary.goalTarget}
-            />
-            <Text style={[styles.cardLink, { color: colors.accent }]}>Apri il gruppo</Text>
-          </Card>
-        </Pressable>
-      ) : null}
-
-      {renderedScope === 'personal' && budgetAlert ? (
+      {budgetAlert ? (
         <Card
           style={[
             styles.contentCard,
@@ -954,7 +769,7 @@ export default function DashboardScreen() {
         </Card>
       ) : null}
 
-      {renderedScope === 'personal' && !hasRecentData ? (
+      {!hasRecentData ? (
         <Card style={styles.contentCard}>
           <Text style={[styles.cardTitle, { color: colors.text }]}>
             {financialAccounts.length
@@ -980,6 +795,8 @@ export default function DashboardScreen() {
           </PrimaryButton>
         </Card>
       ) : null}
+      </>
+      )}
               </View>
             ))}
           </Animated.View>
@@ -1080,99 +897,92 @@ function BudgetGauge({
   );
 }
 
-function DashboardFamilyAvatars({
-  members,
-  foreground,
-  borderColor,
-  fallbackBackground,
-}: {
-  members: FamilyDashboardSummary['members'];
-  foreground: string;
-  borderColor: string;
-  fallbackBackground: string;
-}) {
-  const visibleMembers = members.slice(0, 3);
-  const overflow = members.length - visibleMembers.length;
-  return (
-    <View style={styles.dashboardAvatars}>
-      {visibleMembers.map((member, index) => (
-        <DashboardFamilyAvatar
-          key={member.userId}
-          borderColor={borderColor}
-          fallbackBackground={fallbackBackground}
-          foreground={foreground}
-          index={index}
-          member={member}
-        />
-      ))}
-      {overflow > 0 ? (
-        <View
-          style={[
-            styles.dashboardAvatar,
-            styles.dashboardAvatarOverlap,
-            styles.dashboardAvatarFallback,
-            { borderColor, backgroundColor: fallbackBackground },
-          ]}>
-          <Text style={[styles.dashboardAvatarOverflowText, { color: foreground }]}>
-            +{overflow}
-          </Text>
-        </View>
-      ) : null}
-    </View>
-  );
-}
+const DAY_MS = 24 * 60 * 60 * 1000;
+const CYCLE_ON_TRACK_MARGIN = 0.05;
+const CYCLE_LABEL_GAP = 8;
 
-function DashboardFamilyAvatar({
-  member,
-  index,
-  foreground,
-  borderColor,
-  fallbackBackground,
+// Linea del ciclo: si riempie fino alla tacca di oggi (tempo trascorso). Il
+// badge confronta la spesa col tempo. L'etichetta "oggi" sta sotto la tacca ma
+// resta dentro la barra: ai bordi scorre di lato e nasconde la data che copre.
+function CycleProgress({
+  cycle,
+  spentProgress,
 }: {
-  member: FamilyDashboardSummary['members'][number];
-  index: number;
-  foreground: string;
-  borderColor: string;
-  fallbackBackground: string;
+  cycle: { start: Date; end: Date };
+  spentProgress: number;
 }) {
-  const [failed, setFailed] = useState(false);
-  const initial = member.displayName.trim()[0]?.toUpperCase() || 'F';
-  if (member.avatarUrl && !failed) {
-    return (
-      <Image
-        accessibilityLabel={`Avatar di ${member.displayName}`}
-        contentFit="cover"
-        onError={() => setFailed(true)}
-        source={{ uri: member.avatarUrl }}
-        style={[
-          styles.dashboardAvatar,
-          index > 0 && styles.dashboardAvatarOverlap,
-          { borderColor },
-        ]}
-      />
-    );
-  }
+  const { colors } = useFlowndTheme();
+  const [trackWidth, setTrackWidth] = useState(0);
+  const [todayWidth, setTodayWidth] = useState(0);
+  const [startWidth, setStartWidth] = useState(0);
+  const [endWidth, setEndWidth] = useState(0);
+  const now = new Date();
+  const totalMs = Math.max(DAY_MS, cycle.end.getTime() - cycle.start.getTime());
+  const timeProgress = Math.min(1, Math.max(0, (now.getTime() - cycle.start.getTime()) / totalMs));
+  const status =
+    spentProgress > 1
+      ? { label: 'Oltre budget', icon: 'priority_high', color: colors.negative, soft: colors.negativeSoft }
+      : spentProgress > timeProgress + CYCLE_ON_TRACK_MARGIN
+        ? { label: 'Sopra ritmo', icon: 'trending_up', color: colors.warning, soft: colors.warningSoft }
+        : { label: 'In linea', icon: 'check', color: colors.positive, soft: colors.positiveSoft };
+  const lastDay = new Date(cycle.end.getTime() - DAY_MS);
+  const shortDate = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' });
+  const tickX = trackWidth * timeProgress;
+  const todayLeft = Math.min(
+    Math.max(0, tickX - todayWidth / 2),
+    Math.max(0, trackWidth - todayWidth),
+  );
+  const showStart = todayLeft > startWidth + CYCLE_LABEL_GAP;
+  const showEnd = todayLeft + todayWidth < trackWidth - endWidth - CYCLE_LABEL_GAP;
+
   return (
     <View
-      style={[
-        styles.dashboardAvatar,
-        styles.dashboardAvatarFallback,
-        index > 0 && styles.dashboardAvatarOverlap,
-        { borderColor, backgroundColor: fallbackBackground },
-      ]}>
-      <Text style={[styles.dashboardAvatarInitial, { color: foreground }]}>
-        {initial}
-      </Text>
+      accessible
+      accessibilityLabel={`${status.label}. Tempo trascorso del ciclo: ${Math.round(timeProgress * 100)} per cento`}
+      style={styles.cycleProgress}>
+      <View style={[styles.cycleBadge, { backgroundColor: status.soft }]}>
+        <Text style={[styles.cycleBadgeIcon, { color: status.color }]}>{status.icon}</Text>
+        <Text style={[styles.cycleBadgeLabel, { color: status.color }]}>{status.label}</Text>
+      </View>
+      <View
+        onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
+        style={[styles.cycleTrack, { backgroundColor: colors.border }]}>
+        <View
+          style={[
+            styles.cycleFill,
+            { backgroundColor: colors.accent, width: `${timeProgress * 100}%` },
+          ]}
+        />
+        <View
+          style={[
+            styles.cycleTick,
+            { backgroundColor: colors.text, left: `${timeProgress * 100}%` },
+          ]}
+        />
+      </View>
+      <View style={styles.cycleDates}>
+        <Text
+          onLayout={(event) => setStartWidth(event.nativeEvent.layout.width)}
+          style={[styles.cycleDate, { color: colors.textSecondary, opacity: showStart ? 1 : 0 }]}>
+          {shortDate.format(cycle.start)}
+        </Text>
+        <Text
+          onLayout={(event) => setEndWidth(event.nativeEvent.layout.width)}
+          style={[styles.cycleDate, { color: colors.textSecondary, opacity: showEnd ? 1 : 0 }]}>
+          {shortDate.format(lastDay)}
+        </Text>
+        <Text
+          onLayout={(event) => setTodayWidth(event.nativeEvent.layout.width)}
+          style={[
+            styles.cycleDate,
+            styles.cycleDateToday,
+            { color: colors.text, left: todayLeft, opacity: trackWidth > 0 ? 1 : 0 },
+          ]}>
+          oggi · {shortDate.format(now)}
+        </Text>
+      </View>
     </View>
   );
-}
-
-function formatFamilyCurrency(amount: number, currency: string) {
-  return new Intl.NumberFormat('it-IT', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
 }
 
 const styles = StyleSheet.create({
@@ -1193,22 +1003,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   dashboardMainView: { flexShrink: 0, paddingHorizontal: 20 },
-  groupChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 10,
-  },
-  groupChip: {
-    minHeight: 32,
-    maxWidth: 150,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 13,
-  },
-  groupChipLabel: { fontFamily: font.bodySemiBold, fontSize: 11 },
   recurrencesCard: { gap: 14 },
   recurrencesHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   recurrencesTitle: { fontFamily: font.bodySemiBold, fontSize: 14 },
@@ -1222,13 +1016,6 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 26,
   },
-  familyEmptyTitle: { fontFamily: font.displayBold, fontSize: 25, lineHeight: 33, marginTop: 10 },
-  dashboardAvatars: { flexDirection: 'row', alignItems: 'center', paddingRight: 1 },
-  dashboardAvatar: { width: 27, height: 27, borderRadius: 14, borderWidth: 1.5 },
-  dashboardAvatarOverlap: { marginLeft: -7 },
-  dashboardAvatarFallback: { backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' },
-  dashboardAvatarInitial: { fontFamily: font.displayBold, fontSize: 10 },
-  dashboardAvatarOverflowText: { fontFamily: font.dataMedium, fontSize: 8 },
   iconPressed: { opacity: 0.6 },
   confirmation: { marginBottom: 18 },
   confirmationTop: {
@@ -1304,10 +1091,33 @@ const styles = StyleSheet.create({
   },
   scopeSwitch: { marginTop: 12, marginBottom: 16 },
   hero: { alignItems: 'center', paddingTop: 2, paddingBottom: 18 },
-  heroLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 24 },
-  heroLabel: { fontFamily: font.bodySemiBold, fontSize: 11, letterSpacing: 1 },
   heroLabelIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 16, lineHeight: 18 },
-  heroChevron: { fontSize: 18, lineHeight: 20 },
+  heroTuneButton: { position: 'absolute', top: 0, right: 0, zIndex: 1 },
+  heroTuneGlass: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cycleProgress: { alignSelf: 'stretch', marginTop: 14, gap: 8 },
+  cycleBadge: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  cycleBadgeIcon: { fontFamily: 'MaterialSymbols_400Regular', fontSize: 14, lineHeight: 16 },
+  cycleBadgeLabel: { fontFamily: font.bodySemiBold, fontSize: 12 },
+  cycleTrack: { height: 6, borderRadius: 3, justifyContent: 'center' },
+  cycleFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 3 },
+  cycleTick: { position: 'absolute', top: -4, width: 2, height: 14, borderRadius: 1, marginLeft: -1 },
+  cycleDates: { height: 16, flexDirection: 'row', justifyContent: 'space-between' },
+  cycleDate: { fontFamily: font.bodyMedium, fontSize: 11 },
+  cycleDateToday: { position: 'absolute', top: 0, fontFamily: font.bodySemiBold },
   heroCaption: {
     fontFamily: font.bodyMedium,
     fontSize: 12,
@@ -1315,22 +1125,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: 'center',
   },
-  heroGroupRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    minHeight: 36,
-    maxWidth: '100%',
-    paddingLeft: 8,
-    paddingRight: 6,
-    marginBottom: 6,
-  },
-  heroGroupName: { flexShrink: 1, fontFamily: font.bodySemiBold, fontSize: 13 },
-  heroEmpty: { alignItems: 'center', paddingVertical: 18 },
   gauge: {
     width: GAUGE_SIZE,
     height: GAUGE_HEIGHT,
-    marginTop: 10,
+    marginTop: 0,
     overflow: 'hidden',
   },
   gaugeImage: {

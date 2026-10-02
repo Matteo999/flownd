@@ -1,4 +1,4 @@
-import { router, type Href, useFocusEffect } from 'expo-router';
+import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { Slider } from '@expo/ui/community/slider';
@@ -85,10 +85,18 @@ export default function FamilyScreen() {
   const [detail, setDetail] = useState<FamilyGroupDetail | null>(
     () => peekFamilyGroupDetail(initialCachedGroups?.[0]?.id, session?.user.id),
   );
-  const [newGroupName, setNewGroupName] = useState('');
+  // Dalla Dashboard (nessun gruppo / modello scelto) la creazione si apre subito.
+  const { create: createParam, name: nameParam } = useLocalSearchParams<{
+    create?: string;
+    name?: string;
+  }>();
+  const [newGroupName, setNewGroupName] = useState(
+    () => (createParam === '1' && typeof nameParam === 'string' ? nameParam : ''),
+  );
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteAccess, setInviteAccess] = useState(initialInviteAccess);
-  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(createParam === '1');
+
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);

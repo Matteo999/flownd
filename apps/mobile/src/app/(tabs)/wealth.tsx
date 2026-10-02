@@ -334,7 +334,6 @@ export default function WealthScreen() {
       <LargeTitle title="Patrimonio" />
 
       <View style={styles.hero}>
-        <Text style={[styles.eyebrow, { color: colors.textSecondary }]}>PATRIMONIO NETTO</Text>
         <View style={styles.netWorthRow}>
           <Text style={[styles.netWorth, { color: colors.text }]}>
             {decimalIndex > 0 ? netWorthLabel.slice(0, decimalIndex) : netWorthLabel}
