@@ -5,6 +5,7 @@ import clientErrorHandler from './_client-error.js'
 import groupInvitesHandler from './_group-invites.js'
 import transactionImportHandler from './_transaction-import.js'
 import transactionScanHandler from './_transaction-scan.js'
+import waitlistHandler from './_waitlist.js'
 import {
   RECURRING_DETECTOR_VERSION,
   refreshDetectedRecurringPayments,
@@ -93,6 +94,8 @@ const handlers = {
   import: transactionImportHandler,
   'recurring-refresh': recurringRefreshHandler,
   scan: transactionScanHandler,
+  'waitlist-confirm': waitlistHandler,
+  'waitlist-signup': waitlistHandler,
 }
 
 export default async function handler(req, res) {

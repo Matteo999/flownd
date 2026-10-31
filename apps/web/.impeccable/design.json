@@ -1,0 +1,857 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-31T14:19:25+00:00",
+  "title": "Design System: Flownd Web",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Mist Canvas",
+        "canonical": "#f6f8f7",
+        "oklch": "oklch(97.7% 0.002 165.1)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242525",
+          "#414242",
+          "#606261",
+          "#818382",
+          "#a4a5a5",
+          "#c8c9c9",
+          "#eeefee"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "sunken": {
+        "role": "neutral",
+        "displayName": "Sunken Sage",
+        "canonical": "#edf1ef",
+        "oklch": "oklch(95.5% 0.005 165.0)",
+        "tonalRamp": [
+          "#0a0b0b",
+          "#242625",
+          "#404341",
+          "#5f6260",
+          "#808381",
+          "#a3a6a4",
+          "#c7cac8",
+          "#edefee"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Deep Ink",
+        "canonical": "#16211d",
+        "oklch": "oklch(23.6% 0.017 170.4)",
+        "tonalRamp": [
+          "#080c0b",
+          "#202724",
+          "#3b4441",
+          "#596460",
+          "#798681",
+          "#9da8a4",
+          "#c2ccc8",
+          "#e9f0ed"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Slate Sage",
+        "canonical": "#5c6b64",
+        "oklch": "oklch(51.3% 0.021 165.7)",
+        "tonalRamp": [
+          "#070d0a",
+          "#1f2723",
+          "#3a4540",
+          "#57655f",
+          "#78867f",
+          "#9ca8a2",
+          "#c1ccc7",
+          "#e8f1ed"
+        ]
+      },
+      "placeholder": {
+        "role": "neutral",
+        "displayName": "Placeholder Sage",
+        "canonical": "#6b7a73",
+        "oklch": "oklch(56.5% 0.021 165.9)",
+        "tonalRamp": [
+          "#070d0a",
+          "#1f2724",
+          "#3a4540",
+          "#57655f",
+          "#788680",
+          "#9ca8a3",
+          "#c2ccc7",
+          "#e8f1ed"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#dce3df",
+        "oklch": "oklch(90.9% 0.009 161.3)",
+        "tonalRamp": [
+          "#0a0c0b",
+          "#232624",
+          "#3f4341",
+          "#5d6360",
+          "#7e8481",
+          "#a1a6a3",
+          "#c6cac8",
+          "#ecefed"
+        ]
+      },
+      "petrol": {
+        "role": "primary",
+        "displayName": "Deep Petrol",
+        "canonical": "#256b7e",
+        "oklch": "oklch(49.3% 0.074 219.3)",
+        "tonalRamp": [
+          "#000e16",
+          "#012a35",
+          "#154957",
+          "#2c6a7c",
+          "#4f8c9f",
+          "#7caebe",
+          "#a8d1de",
+          "#d7f4fe"
+        ]
+      },
+      "petrol-deep": {
+        "role": "primary",
+        "displayName": "Petrol Depth",
+        "canonical": "#1d5666",
+        "oklch": "oklch(42.4% 0.064 219.9)",
+        "tonalRamp": [
+          "#000e14",
+          "#092a33",
+          "#204854",
+          "#376978",
+          "#598b9b",
+          "#83adbb",
+          "#add0dc",
+          "#d9f4fd"
+        ]
+      },
+      "petrol-mist": {
+        "role": "primary",
+        "displayName": "Petrol Mist",
+        "canonical": "#dceaec",
+        "oklch": "oklch(92.7% 0.015 207.1)",
+        "tonalRamp": [
+          "#080c0d",
+          "#202627",
+          "#3b4445",
+          "#586465",
+          "#798587",
+          "#9da7a9",
+          "#c2cbcc",
+          "#e9f0f1"
+        ]
+      },
+      "on-accent": {
+        "role": "primary",
+        "displayName": "On Accent",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "positive": {
+        "role": "secondary",
+        "displayName": "Ledger Green",
+        "canonical": "#2e8b6f",
+        "oklch": "oklch(57.5% 0.097 169.3)",
+        "tonalRamp": [
+          "#001108",
+          "#002e20",
+          "#004f3b",
+          "#187159",
+          "#429479",
+          "#73b59d",
+          "#a2d7c2",
+          "#d0f9e9"
+        ]
+      },
+      "save-band": {
+        "role": "secondary",
+        "displayName": "Savings Green",
+        "canonical": "#277a61",
+        "oklch": "oklch(52.3% 0.089 169.2)",
+        "tonalRamp": [
+          "#001108",
+          "#002e20",
+          "#0d4e3c",
+          "#257059",
+          "#4a927a",
+          "#78b49e",
+          "#a5d6c3",
+          "#d3f9ea"
+        ]
+      },
+      "wants-band": {
+        "role": "tertiary",
+        "displayName": "Desideri Amber",
+        "canonical": "#8a6516",
+        "oklch": "oklch(53.1% 0.102 81.0)",
+        "tonalRamp": [
+          "#150800",
+          "#352100",
+          "#573d00",
+          "#7c5b13",
+          "#9f7c3a",
+          "#bfa06b",
+          "#dfc59a",
+          "#ffeccd"
+        ]
+      },
+      "amber-fill": {
+        "role": "tertiary",
+        "displayName": "Overspend Amber",
+        "canonical": "#b98a2e",
+        "oklch": "oklch(66.3% 0.120 80.3)",
+        "tonalRamp": [
+          "#170700",
+          "#381f00",
+          "#5b3b00",
+          "#815800",
+          "#a57a26",
+          "#c49f5e",
+          "#e3c491",
+          "#ffeccd"
+        ]
+      },
+      "amber-text": {
+        "role": "tertiary",
+        "displayName": "Amber Ink",
+        "canonical": "#8a6516",
+        "oklch": "oklch(57.8% 0.106 80.5)",
+        "tonalRamp": [
+          "#160700",
+          "#362000",
+          "#583c00",
+          "#7e5a0a",
+          "#a17b36",
+          "#c0a068",
+          "#e0c597",
+          "#feecce"
+        ]
+      },
+      "negative": {
+        "role": "tertiary",
+        "displayName": "Rust",
+        "canonical": "#b44d36",
+        "oklch": "oklch(55.0% 0.139 34.1)",
+        "tonalRamp": [
+          "#210000",
+          "#470e03",
+          "#702616",
+          "#9d402b",
+          "#c3624c",
+          "#e18b77",
+          "#fdb5a3",
+          "#ffe9e4"
+        ]
+      },
+      "wall-ink": {
+        "role": "neutral",
+        "displayName": "Wall Ink",
+        "canonical": "#b3beb8",
+        "oklch": "oklch(79.1% 0.015 162.4)",
+        "tonalRamp": [
+          "#090c0a",
+          "#212724",
+          "#3d4440",
+          "#5b645f",
+          "#7b8580",
+          "#9fa7a3",
+          "#c4cbc7",
+          "#eaf0ed"
+        ]
+      },
+      "wall-dim": {
+        "role": "neutral",
+        "displayName": "Wall Dim",
+        "canonical": "#d9e0dc",
+        "oklch": "oklch(90.0% 0.009 161.3)",
+        "tonalRamp": [
+          "#0a0c0a",
+          "#232624",
+          "#3f4341",
+          "#5d6360",
+          "#7e8481",
+          "#a1a6a3",
+          "#c6cac8",
+          "#ecefed"
+        ]
+      },
+      "trust-ink": {
+        "role": "neutral",
+        "displayName": "Trust Ink",
+        "canonical": "#eaf1ed",
+        "oklch": "oklch(95.2% 0.009 161.3)",
+        "tonalRamp": [
+          "#0a0c0b",
+          "#232624",
+          "#3f4341",
+          "#5d6360",
+          "#7e8481",
+          "#a1a6a3",
+          "#c6cac8",
+          "#ecefed"
+        ]
+      },
+      "trust-ink-secondary": {
+        "role": "neutral",
+        "displayName": "Trust Ink Secondary",
+        "canonical": "#a9b8b0",
+        "oklch": "oklch(76.9% 0.020 162.8)",
+        "tonalRamp": [
+          "#080c0a",
+          "#202723",
+          "#3b4540",
+          "#58655e",
+          "#79867f",
+          "#9da8a2",
+          "#c2ccc7",
+          "#e9f1ec"
+        ]
+      },
+      "dark-canvas": {
+        "role": "neutral",
+        "displayName": "Mist Canvas (dark)",
+        "canonical": "#0f1712",
+        "oklch": "oklch(19.5% 0.016 157.2)",
+        "tonalRamp": [
+          "#090c0a",
+          "#212723",
+          "#3d443f",
+          "#5b645e",
+          "#7c857f",
+          "#9fa7a2",
+          "#c4cbc6",
+          "#eaf0ec"
+        ]
+      },
+      "dark-surface": {
+        "role": "neutral",
+        "displayName": "Paper White (dark)",
+        "canonical": "#17211c",
+        "oklch": "oklch(23.6% 0.017 163.1)",
+        "tonalRamp": [
+          "#080c0a",
+          "#202723",
+          "#3c4440",
+          "#59645f",
+          "#7a8580",
+          "#9ea8a3",
+          "#c3cbc7",
+          "#eaf0ed"
+        ]
+      },
+      "dark-sunken": {
+        "role": "neutral",
+        "displayName": "Sunken Sage (dark)",
+        "canonical": "#0b120e",
+        "oklch": "oklch(17.3% 0.014 159.5)",
+        "tonalRamp": [
+          "#090c0a",
+          "#222624",
+          "#3d4440",
+          "#5b645f",
+          "#7c8580",
+          "#a0a7a3",
+          "#c5cbc7",
+          "#ebf0ed"
+        ]
+      },
+      "dark-ink": {
+        "role": "neutral",
+        "displayName": "Deep Ink (dark)",
+        "canonical": "#eaf1ed",
+        "oklch": "oklch(95.2% 0.009 161.3)",
+        "tonalRamp": [
+          "#0a0c0b",
+          "#232624",
+          "#3f4341",
+          "#5d6360",
+          "#7e8481",
+          "#a1a6a3",
+          "#c6cac8",
+          "#ecefed"
+        ]
+      },
+      "dark-ink-secondary": {
+        "role": "neutral",
+        "displayName": "Slate Sage (dark)",
+        "canonical": "#9aaaa2",
+        "oklch": "oklch(72.3% 0.021 164.3)",
+        "tonalRamp": [
+          "#070d0a",
+          "#1f2723",
+          "#3a4540",
+          "#57655e",
+          "#78867f",
+          "#9ca8a2",
+          "#c2ccc7",
+          "#e8f1ed"
+        ]
+      },
+      "dark-hairline": {
+        "role": "neutral",
+        "displayName": "Hairline (dark)",
+        "canonical": "#26332c",
+        "oklch": "oklch(30.7% 0.022 161.3)",
+        "tonalRamp": [
+          "#070d0a",
+          "#1f2723",
+          "#3a453f",
+          "#58655e",
+          "#78867e",
+          "#9ca8a2",
+          "#c2ccc6",
+          "#e9f1ec"
+        ]
+      },
+      "dark-petrol": {
+        "role": "primary",
+        "displayName": "Glacier Petrol",
+        "canonical": "#47b3d1",
+        "oklch": "oklch(71.7% 0.106 219.6)",
+        "tonalRamp": [
+          "#000f1a",
+          "#002c3b",
+          "#004b60",
+          "#006d87",
+          "#2990ab",
+          "#65b2c9",
+          "#97d4e7",
+          "#d6f5ff"
+        ]
+      },
+      "dark-petrol-deep": {
+        "role": "primary",
+        "displayName": "Petrol Depth (dark)",
+        "canonical": "#6cc5de",
+        "oklch": "oklch(77.7% 0.092 218.2)",
+        "tonalRamp": [
+          "#000f18",
+          "#002b38",
+          "#004b5b",
+          "#0c6c82",
+          "#3c8fa5",
+          "#6fb0c3",
+          "#9ed3e3",
+          "#d5f5ff"
+        ]
+      },
+      "dark-petrol-mist": {
+        "role": "primary",
+        "displayName": "Petrol Mist (dark)",
+        "canonical": "#173842",
+        "oklch": "oklch(32.1% 0.042 220.4)",
+        "tonalRamp": [
+          "#030d11",
+          "#15282e",
+          "#2e464e",
+          "#486771",
+          "#698893",
+          "#8faab4",
+          "#b7ced5",
+          "#e0f2f8"
+        ]
+      },
+      "dark-on-accent": {
+        "role": "primary",
+        "displayName": "On Accent (dark)",
+        "canonical": "#0b120e",
+        "oklch": "oklch(17.3% 0.014 159.5)",
+        "tonalRamp": [
+          "#090c0a",
+          "#222624",
+          "#3d4440",
+          "#5b645f",
+          "#7c8580",
+          "#a0a7a3",
+          "#c5cbc7",
+          "#ebf0ed"
+        ]
+      },
+      "dark-positive": {
+        "role": "secondary",
+        "displayName": "Ledger Green (dark)",
+        "canonical": "#4fb89a",
+        "oklch": "oklch(71.3% 0.107 171.6)",
+        "tonalRamp": [
+          "#001208",
+          "#002f21",
+          "#00503c",
+          "#00735a",
+          "#33957b",
+          "#6bb69f",
+          "#9cd8c4",
+          "#ccfbea"
+        ]
+      },
+      "dark-amber": {
+        "role": "tertiary",
+        "displayName": "Amber (dark)",
+        "canonical": "#d9a94f",
+        "oklch": "oklch(76.2% 0.121 80.9)",
+        "tonalRamp": [
+          "#170700",
+          "#381f00",
+          "#5b3b00",
+          "#815900",
+          "#a57a24",
+          "#c49f5d",
+          "#e3c590",
+          "#ffeccc"
+        ]
+      },
+      "dark-negative": {
+        "role": "tertiary",
+        "displayName": "Rust (dark)",
+        "canonical": "#e08469",
+        "oklch": "oklch(70.6% 0.120 37.2)",
+        "tonalRamp": [
+          "#1e0100",
+          "#431406",
+          "#6b2c1a",
+          "#954730",
+          "#bb6950",
+          "#d9907b",
+          "#f6b8a6",
+          "#ffe9e3"
+        ]
+      },
+      "dark-wall-ink": {
+        "role": "neutral",
+        "displayName": "Wall Ink (dark)",
+        "canonical": "#3a4a42",
+        "oklch": "oklch(39.3% 0.024 163.4)",
+        "tonalRamp": [
+          "#070d0a",
+          "#1e2823",
+          "#39453f",
+          "#56655e",
+          "#77877e",
+          "#9ba9a2",
+          "#c1ccc6",
+          "#e8f1ec"
+        ]
+      },
+      "dark-wall-dim": {
+        "role": "neutral",
+        "displayName": "Wall Dim (dark)",
+        "canonical": "#1f2a24",
+        "oklch": "oklch(27.2% 0.019 161.0)",
+        "tonalRamp": [
+          "#080c0a",
+          "#202723",
+          "#3b453f",
+          "#59645e",
+          "#7a867f",
+          "#9da8a2",
+          "#c3ccc7",
+          "#e9f0ec"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "One per page: hero question, confirm heading."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings, balanced wrap, often capped 14-18ch."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card, row and list headings."
+      },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "Money values in plan bands and tiles."
+      },
+      "lead": {
+        "displayName": "Lead",
+        "purpose": "Section intros at 62ch max."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Reading text; 16px under 640px."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Ranking labels, chips, band labels, form label."
+      },
+      "note": {
+        "displayName": "Note",
+        "purpose": "Sample-data disclaimers, helper text, footnotes."
+      },
+      "statement": {
+        "displayName": "Statement",
+        "purpose": "Raw bank-statement strings only: the wall, file names, quoted merchants."
+      }
+    },
+    "shadows": [
+      {
+        "name": "resolving-sheet",
+        "value": "0 1px 2px rgba(22, 33, 29, 0.06), 0 24px 64px -12px rgba(22, 33, 29, 0.16)",
+        "purpose": "Hero card and confirm card only; one per view."
+      },
+      {
+        "name": "resolving-sheet-dark",
+        "value": "0 1px 2px rgba(0, 0, 0, 0.3), 0 24px 64px -12px rgba(0, 0, 0, 0.55)",
+        "purpose": "Dark-mode Resolving Sheet."
+      },
+      {
+        "name": "proposal-lift",
+        "value": "0 8px 24px -10px rgba(22, 33, 29, 0.25)",
+        "purpose": "Coach proposal awaiting confirmation."
+      },
+      {
+        "name": "focus-halo",
+        "value": "0 0 0 3px #dceaec",
+        "purpose": "Input focus halo (dark: #173842)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Entrances: wall settle, bar growth, nav CTA reveal."
+      },
+      {
+        "name": "state",
+        "value": "160ms ease",
+        "purpose": "Hover colour and border changes on buttons, links, inputs."
+      },
+      {
+        "name": "row-highlight",
+        "value": "280ms ease",
+        "purpose": "Statement wall rows lighting and dimming with the ranking."
+      },
+      {
+        "name": "row-background",
+        "value": "200ms ease",
+        "purpose": "Ranking row hover background."
+      },
+      {
+        "name": "wall-settle",
+        "value": "1600ms ease-out, 200ms delay",
+        "purpose": "Wall text settles from Slate Sage to Wall Ink on load."
+      },
+      {
+        "name": "bar-grow",
+        "value": "1100ms ease-out, 450ms + 90ms stagger",
+        "purpose": "Ranking bars grow from 4% on load."
+      },
+      {
+        "name": "press",
+        "value": "translateY(1px), 120ms",
+        "purpose": "Primary button active state."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Disables wall settle, bar growth, and row transitions."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wall-two-column",
+        "value": "1100px"
+      },
+      {
+        "name": "stack",
+        "value": "960px"
+      },
+      {
+        "name": "phone",
+        "value": "640px"
+      }
+    ],
+    "focus": {
+      "value": "outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px",
+      "purpose": "Global focus-visible ring."
+    },
+    "translucency": {
+      "value": "background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: saturate(1.4) blur(12px)",
+      "purpose": "Nav bar backing only (floating and docked)."
+    },
+    "appTokenSource": "apps/mobile/src/constants/flownd-theme.tsx"
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single primary action per viewport (waitlist submit).",
+      "html": "<button class=\"ds-btn-primary\">Avvisami</button>",
+      "css": ".ds-btn-primary{height:52px;padding:0 24px;border:0;border-radius:10px;background:#256b7e;color:#fff;font:700 1rem/1 Manrope,system-ui,sans-serif;cursor:pointer;transition:background 160ms ease,transform 120ms ease}.ds-btn-primary:hover{background:#1d5666}.ds-btn-primary:active{transform:translateY(1px)}.ds-btn-primary:focus-visible{outline:2px solid #256b7e;outline-offset:3px}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary action beside a primary (Modifica next to Conferma).",
+      "html": "<button class=\"ds-btn-ghost\">Modifica</button>",
+      "css": ".ds-btn-ghost{padding:9px 16px;border:0;border-radius:10px;background:transparent;color:#256b7e;box-shadow:inset 0 0 0 1px #dce3df;font:700 0.92rem/1.2 Manrope,system-ui,sans-serif;cursor:pointer;transition:background 160ms ease}.ds-btn-ghost:hover{background:#edf1ef}.ds-btn-ghost:focus-visible{outline:2px solid #256b7e;outline-offset:3px}"
+    },
+    {
+      "name": "Email Field",
+      "kind": "input",
+      "refersTo": "input-email",
+      "description": "Waitlist email input with label and helper note.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field__label\">Avvisami quando esce su iOS e Android</span><input class=\"ds-input\" type=\"email\" placeholder=\"nome@email.it\"><span class=\"ds-field__note\">Ti scriviamo una volta, al lancio.</span></label>",
+      "css": ".ds-field{display:grid;gap:10px;font-family:Manrope,system-ui,sans-serif;color:#16211d}.ds-field__label{font-size:0.95rem;font-weight:700}.ds-input{height:52px;padding:0 16px;border:1px solid #dce3df;border-radius:10px;background:#fff;color:#16211d;font:400 1rem Manrope,system-ui,sans-serif;caret-color:#256b7e;transition:border-color 160ms ease,box-shadow 160ms ease}.ds-input::placeholder{color:#6b7a73}.ds-input:focus{outline:none;border-color:#256b7e;box-shadow:0 0 0 3px #dceaec}.ds-input[aria-invalid=true]{border-color:#b44d36}.ds-field__note{font-size:0.86rem;color:#5c6b64}"
+    },
+    {
+      "name": "Docking Nav",
+      "kind": "nav",
+      "refersTo": "nav-cta",
+      "description": "Logo, section links, and a CTA that appears only when the hero form scrolls away.",
+      "html": "<header class=\"ds-nav\"><span class=\"ds-nav__brand\">Flownd</span><nav class=\"ds-nav__links\"><a href=\"#\">Movimenti</a><a href=\"#\">Piano</a><a href=\"#\">Privacy</a></nav><a class=\"ds-nav__cta\" href=\"#\">Avvisami</a></header>",
+      "css": ".ds-nav{display:flex;align-items:center;gap:32px;padding:14px 24px;background:rgba(255,255,255,0.92);border-bottom:1px solid #dce3df;backdrop-filter:saturate(1.4) blur(12px);font-family:Manrope,system-ui,sans-serif}.ds-nav__brand{margin-right:auto;font-weight:700;color:#16211d}.ds-nav__links{display:flex;gap:28px}.ds-nav__links a{color:#5c6b64;font-size:0.94rem;font-weight:500;text-decoration:none;transition:color 160ms ease}.ds-nav__links a:hover{color:#16211d}.ds-nav__cta{display:inline-flex;align-items:center;min-height:40px;padding:0 16px;border-radius:10px;background:#256b7e;color:#fff;font-size:0.94rem;font-weight:600;text-decoration:none;transition:background 160ms ease}.ds-nav__cta:hover{background:#1d5666}.ds-nav a:focus-visible{outline:2px solid #256b7e;outline-offset:3px;border-radius:6px}"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Static label for an account or category, optional line icon.",
+      "html": "<span class=\"ds-chip\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 11a8 8 0 0 0-14.3-4.3L4 9\"/><path d=\"M4 4v5h5M4 13a8 8 0 0 0 14.3 4.3L20 15\"/><path d=\"M20 20v-5h-5\"/></svg>Conto corrente</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:99px;background:#dceaec;color:#1d5666;font:600 0.88rem/1.2 Manrope,system-ui,sans-serif}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "White goal card with title, increment, progress track and note.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card__head\"><strong>Fondo emergenze</strong><span>+250 €</span></div><div class=\"ds-card__track\"><span style=\"transform:scaleX(.61)\"></span></div><p>920 € di 1.500 € · priorità 1</p></div>",
+      "css": ".ds-card{padding:18px 20px;border:1px solid #dce3df;border-radius:12px;background:#fff;color:#16211d;font-family:Manrope,system-ui,sans-serif;font-variant-numeric:tabular-nums}.ds-card__head{display:flex;justify-content:space-between;gap:16px}.ds-card__head span{color:#2e8b6f;font-weight:700}.ds-card__track{height:10px;margin:14px 0 10px;border-radius:99px;background:#edf1ef;overflow:hidden}.ds-card__track span{display:block;height:100%;border-radius:inherit;background:#2e8b6f;transform-origin:left}.ds-card p{margin:0;color:#5c6b64;font-size:0.92rem}"
+    },
+    {
+      "name": "Ranking Row",
+      "kind": "custom",
+      "refersTo": "ranking-row",
+      "description": "Signature: a category row whose hover/focus lights its statement rows in petrol.",
+      "html": "<div class=\"ds-rank\"><button class=\"ds-rank__row\"><span class=\"ds-rank__label\">Casa</span><span class=\"ds-rank__track\"><span style=\"transform:scaleX(1)\"></span></span><span class=\"ds-rank__value\">869 €</span></button><button class=\"ds-rank__row\"><span class=\"ds-rank__label\">Spesa</span><span class=\"ds-rank__track\"><span style=\"transform:scaleX(.44)\"></span></span><span class=\"ds-rank__value\">386 €</span></button><p class=\"ds-rank__wall\">26/10 POS ESSELUNGA MI VIALE -87,43</p></div>",
+      "css": ".ds-rank{display:grid;gap:2px;font-family:Manrope,system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#16211d}.ds-rank__row{display:grid;grid-template-columns:9rem 1fr 4rem;align-items:center;gap:16px;min-height:44px;padding:6px 10px;border:0;border-radius:10px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:background 200ms ease}.ds-rank__row:hover,.ds-rank__row:focus-visible{background:#edf1ef;outline:none}.ds-rank__label{font-weight:600}.ds-rank__track{height:12px;border-radius:99px;background:#edf1ef;overflow:hidden}.ds-rank__row:hover .ds-rank__track{background:#fff}.ds-rank__track span{display:block;height:100%;border-radius:inherit;background:#256b7e;transform-origin:left}.ds-rank__value{font-weight:700;text-align:right}.ds-rank__wall{margin:12px 10px 0;font:400 14px/30px \"JetBrains Mono\",ui-monospace,monospace;color:#b3beb8;transition:color 280ms ease}.ds-rank:has(.ds-rank__row:nth-child(2):hover) .ds-rank__wall{color:#256b7e}"
+    },
+    {
+      "name": "Plan Band",
+      "kind": "custom",
+      "refersTo": "plan-band-needs",
+      "description": "Three solid segments sized by share: Necessità, Desideri, Risparmio.",
+      "html": "<div class=\"ds-band\"><div class=\"ds-band__part\" style=\"flex-grow:50;background:#256b7e\"><span>Necessità · 50%</span><strong>925 €</strong></div><div class=\"ds-band__part\" style=\"flex-grow:30;background:#8a6516\"><span>Desideri · 30%</span><strong>555 €</strong></div><div class=\"ds-band__part\" style=\"flex-grow:20;background:#277a61\"><span>Risparmio · 20%</span><strong>370 €</strong></div></div>",
+      "css": ".ds-band{display:flex;gap:4px;font-family:Manrope,system-ui,sans-serif;font-variant-numeric:tabular-nums}.ds-band__part{display:flex;flex-direction:column;justify-content:space-between;min-height:120px;min-width:0;padding:18px 20px;border-radius:12px;color:#fff}.ds-band__part span{font-size:0.9rem;font-weight:600}.ds-band__part strong{font-size:1.8rem;letter-spacing:-0.02em;line-height:1.1}"
+    },
+    {
+      "name": "Resolving Sheet",
+      "kind": "card",
+      "refersTo": "sheet",
+      "description": "The one lifted surface per view, holding the answer (hero card, confirm card).",
+      "html": "<div class=\"ds-sheet\"><h1>Sei in lista.</h1><p>Ti scriveremo una sola volta, il giorno del lancio.</p></div>",
+      "css": ".ds-sheet{max-width:520px;padding:40px;border:1px solid #dce3df;border-radius:24px;background:#fff;color:#16211d;box-shadow:0 1px 2px rgba(22,33,29,0.06),0 24px 64px -12px rgba(22,33,29,0.16);font-family:Manrope,system-ui,sans-serif}.ds-sheet h1{margin:0;font-size:2.4rem;font-weight:700;line-height:1.08;letter-spacing:-0.03em}.ds-sheet p{margin:14px 0 0;color:#5c6b64;font-size:1.05rem}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Statement, Put in Order",
+    "overview": "The web surface is not a marketing skin over the app; it is the app's own world shown at page scale. A cool near-white canvas, white working surfaces, one deep ink, and a single petrol accent carry everything. The defining move is a contrast of registers: raw bank-statement text, set in pale uppercase monospace, sits behind and around the product, and clear Manrope figures, bars, and rankings resolve it. Disorder lives in the mono register; clarity lives in everything else.\n\nDensity is calm and numeric. Figures use tabular numerals, bars are thin rounded tracks, rows are separated by hairlines rather than boxes, and the page is mostly flat. Exactly one object lifts off the page with a real shadow: the sheet that holds the resolution (the hero card, the confirm card). Colour beyond petrol is semantic and earned: green for money saved and goals, amber for Desideri and overspend, rust for errors.\n\nDark mode follows the app's dark palette through `prefers-color-scheme`, swapping the custom-property set while keeping every role identical. The logo lockup swaps between its light and dark raster; the brand's blue-to-mint gradient appears only inside that mark.",
+    "keyCharacteristics": [
+      "One family (Manrope 400 to 700) for all reading text; JetBrains Mono only for raw statement strings.",
+      "One petrol accent for action, selection, and the active data mark.",
+      "Flat by default: hairline borders (1px) and sunken fills build structure; one ambient shadow lifts the resolving sheet.",
+      "Radii locked to the app: 10 / 12 / 24, plus full pills for chips and tracks.",
+      "Tabular numerals everywhere money appears.",
+      "Light and dark are the same system with swapped values, never a separate design."
+    ],
+    "rules": [
+      {
+        "name": "The One Petrol Rule",
+        "body": "Petrol is the only accent. It marks what you can press, what is selected, and the data mark currently in focus. Every other hue on the page must mean a money state.",
+        "section": "colors"
+      },
+      {
+        "name": "The Earned Contrast Rule",
+        "body": "A web colour may leave the app token only to clear contrast (4.5:1 for text). Any departure is recorded here with its reason.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mark-Only Gradient Rule",
+        "body": "The brand's blue-to-mint gradient lives inside the logo lockup raster and nowhere else: no gradient fills, text, or borders.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Family Rule",
+        "body": "Manrope sets every reading word and every figure, weights 400 to 700 only. Hierarchy comes from size, weight, and tracking, not from a second display face.",
+        "section": "typography"
+      },
+      {
+        "name": "The Statement Register Rule",
+        "body": "JetBrains Mono appears only where the text is literally what a bank or file produced: uppercase descriptors, dates, raw amounts, file names. Never for headings, UI labels, or Flownd's own figures.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Money Rule",
+        "body": "Any element showing amounts uses tabular numerals so columns of euros align.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Lift Rule",
+        "body": "Per view, only one sheet carries the large ambient shadow, and it is the one that holds the answer. Everything else stays on the page plane.",
+        "section": "elevation"
+      },
+      {
+        "name": "The 10/12/24 Rule",
+        "body": "New elements take one of the three app radii by role (control, card, sheet) or a full pill; no other radius values.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do take every colour, radius, and type role from the app theme first, and record any web departure with its contrast reason.",
+      "Do use petrol for exactly one primary action per viewport; hide competing CTAs while another is visible.",
+      "Do separate list rows with 1px hairlines and generous vertical padding instead of boxing each row.",
+      "Do set every amount in tabular numerals, and mark sample figures with a small Note-style disclaimer.",
+      "Do keep the app's `#B98A2E` amber for non-text fills only; warning text needs a darker amber that clears 4.5:1 on white.",
+      "Do ship light and dark together by swapping the custom-property set under `prefers-color-scheme`, and swap the logo raster with it.",
+      "Do honour reduced motion by disabling the wall settle, bar growth, and row transitions."
+    ],
+    "donts": [
+      "Don't introduce a second accent hue or use petrol as decoration on non-interactive surfaces beyond the feature line icons.",
+      "Don't use the brand gradient outside the logo lockup.",
+      "Don't use JetBrains Mono for headings, labels, buttons, or Flownd's own figures.",
+      "Don't add frosted or translucent cards and panels; translucency stays limited to the nav bar backing.",
+      "Don't put more than one large ambient shadow in a view, and don't use hard offset shadows.",
+      "Don't set eyebrow or kicker labels above headings; headings stand alone.",
+      "Don't place white text on Overspend Amber, Ledger Green, or Glacier Petrol; use the darkened band colours or dark-on-accent instead.",
+      "Don't use radii outside 10 / 12 / 24 and the full pill."
+    ]
+  }
+}

@@ -23,6 +23,11 @@ const legalContent = {
           'Le informazioni di sessione possono essere salvate nel browser dell’utente tramite localStorage. Il consenso bancario può essere revocato tramite la banca o Enable Banking.',
       },
       {
+        title: 'Lista d’attesa',
+        body:
+          'Se lasci la tua email nella pagina di Flownd la usiamo solo per avvisarti, una volta, quando l’app sarà disponibile negli store. Ti chiediamo di confermarla con un link: senza conferma non ti scriviamo. Per proteggere il modulo dai bot usiamo Cloudflare Turnstile e conserviamo un’impronta cifrata dell’indirizzo IP per limitare i tentativi. Puoi chiedere in qualsiasi momento di essere rimosso dalla lista.',
+      },
+      {
         title: 'Contatti privacy',
         body:
           'Per richieste relative alla protezione dei dati, contatta il titolare all’indirizzo email indicato nella registrazione dell’applicazione Enable Banking.',
