@@ -37,29 +37,30 @@ export function AnimatedLaunchOverlay() {
   useEffect(() => {
     if (loading) return;
     const timer = setTimeout(() => {
-      scale.stopAnimation(() => {
-        Animated.parallel([
-          Animated.timing(opacity, {
-            toValue: 0,
-            duration: 520,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(logoOpacity, {
-            toValue: 0,
-            duration: 360,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.timing(scale, {
-            toValue: 1.075,
-            duration: 500,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-        ]).start(({ finished }) => {
-          if (finished) setVisible(false);
-        });
+      // Niente callback di stopAnimation: con il native driver può non essere
+      // mai invocata e l'overlay resterebbe visibile per sempre.
+      scale.stopAnimation();
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 520,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(logoOpacity, {
+          toValue: 0,
+          duration: 360,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(scale, {
+          toValue: 1.075,
+          duration: 500,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (finished) setVisible(false);
       });
     }, 120);
     return () => clearTimeout(timer);
@@ -80,7 +81,7 @@ export function AnimatedLaunchOverlay() {
         void SplashScreen.hideAsync();
       }}>
       <Animated.View style={{ opacity: logoOpacity, transform: [{ scale }] }}>
-        <BrandLogo size={88} />
+        <BrandLogo size={88} tone="dark" />
       </Animated.View>
     </Animated.View>
   );

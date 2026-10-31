@@ -4,25 +4,29 @@
     "slug": "flownd",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "../../assets/F_donut.png",
+    "icon": "./assets/images/brand/icon.png",
     "scheme": "flownd",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "../../assets/F_donut.png",
+      "icon": {
+        "light": "./assets/images/brand/icon.png",
+        "dark": "./assets/images/brand/icon-dark.png",
+        "tinted": "./assets/images/brand/icon-tinted.png"
+      },
       "bundleIdentifier": "com.mlmdev.flownd"
     },
     "android": {
       "package": "com.mlmdev.flownd",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
-        "foregroundImage": "../../assets/F_donut.png",
-        "monochromeImage": "../../assets/F_donut.png"
+        "foregroundImage": "./assets/images/brand/android-icon-foreground.png",
+        "monochromeImage": "./assets/images/brand/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
-      "favicon": "../../assets/F_donut.png"
+      "favicon": "./assets/images/brand/favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -38,12 +42,12 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#0F1712",
-          "image": "../../assets/F_donut.png",
+          "image": "./assets/images/brand/mark-dark.png",
           "imageWidth": 88,
           "resizeMode": "contain",
           "dark": {
             "backgroundColor": "#0F1712",
-            "image": "../../assets/F_donut.png"
+            "image": "./assets/images/brand/mark-dark.png"
           }
         }
       ],
