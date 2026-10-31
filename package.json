@@ -23,10 +23,12 @@
     "test:coach": "node --test api/_coach.test.js api/_ai-quota.test.js",
     "test:group-finance": "node --test apps/mobile/src/lib/group-finance.test.mjs",
     "preview:web": "npm run preview --workspace @flownd/web",
-    "test:mobile": "node --test apps/mobile/src/lib/*.test.mjs apps/mobile/src/providers/*.test.mjs"
+    "test:mobile": "node --test apps/mobile/src/lib/*.test.mjs apps/mobile/src/providers/*.test.mjs",
+    "postinstall": "patch-package"
   },
   "devDependencies": {
     "expo-router": "~57.0.22",
+    "patch-package": "^8.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
