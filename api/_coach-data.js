@@ -4,7 +4,7 @@ const readTools = [
   {
     type: 'function',
     name: 'get_financial_overview',
-    description: 'Legge la panoramica personale: entrate, uscite, budget gerarchico, ciclo finanziario, conti, obiettivi, ricorrenze, prestiti e quota destinata ai gruppi. budget_income è la base del budget del ciclo corrente; i cycle_limit dei budget sono calcolati su quella base.',
+    description: 'Legge la panoramica personale: entrate, uscite, budget gerarchico, ciclo finanziario, conti, obiettivi, ricorrenze, prestiti e quota destinata ai gruppi. budget_income è la base unica del budget (media degli ultimi cicli chiusi o stima di onboarding); i cycle_limit dei budget sono calcolati su quella base.',
     strict: true,
     parameters: {
       type: 'object',
@@ -109,7 +109,7 @@ const mutationTools = [
   },
   {
     type: 'function', name: 'update_budget',
-    description: 'Propone la modifica di una quota macro del budget personale, con monthly_limit in euro per il ciclo corrente (base: budget_income.available_for_budget). Non salva senza conferma.',
+    description: 'Propone la modifica di una quota macro del budget personale, con monthly_limit in euro sulla base del budget (budget_income.available_for_budget). Non salva senza conferma.',
     strict: true,
     parameters: {
       type: 'object',
@@ -204,39 +204,42 @@ async function periodStart(client, userId, period) {
   return (await cycleStartAndIncome(client, userId)).start
 }
 
-// Base del budget come nell'app (grossBudgetMonthlyIncome / budgetMonthlyIncome):
-// entrate del ciclo incluse nel budget, e solo senza entrate nel ciclo la stima
-// salvata nel profilo; poi si sottrae la quota ai gruppi.
-export function budgetIncomeSummary(cycleIncome, plannedIncome, groupAllocation) {
+// Base unica del budget (come l'app e le quote ai gruppi): planned_monthly_income
+// è calcolato dal database come media delle entrate degli ultimi cicli chiusi, o
+// la fascia di onboarding senza storico. Le entrate del ciclo in corso sono solo
+// contesto e non cambiano la base finché il ciclo non si chiude.
+export function budgetIncomeSummary(cycleIncome, profile, groupAllocation) {
   const included = cycleIncome.filter((row) => !row.excluded_from_budget)
   const sum = (rows) => rows.reduce((total, row) => total + Number(row.amount), 0)
-  const hasIncome = cycleIncome.length > 0
-  const gross = hasIncome ? sum(included) : Number(plannedIncome || 0)
+  const reference = Number(profile?.planned_monthly_income || 0)
   const allocatedToGroups = Number(groupAllocation?.allocatedToGroups || 0)
   const groupCarryIn = Number(groupAllocation?.personalCarryIn || 0)
   return {
-    source: hasIncome ? 'cycle_income' : 'onboarding_estimate',
-    gross_income: gross,
-    included_income_count: included.length,
-    excluded_income: sum(cycleIncome.filter((row) => row.excluded_from_budget)),
+    source: profile?.planned_income_source === 'cycle_average' ? 'cycle_average' : 'onboarding_estimate',
+    reference_income: reference,
+    reference_cycles: Number(profile?.planned_income_cycles || 0),
+    current_cycle_income: sum(included),
+    current_cycle_excluded_income: sum(cycleIncome.filter((row) => row.excluded_from_budget)),
     allocated_to_groups: allocatedToGroups,
     group_carry_in: groupCarryIn,
-    available_for_budget: Math.max(0, gross - allocatedToGroups + groupCarryIn),
+    available_for_budget: Math.max(0, reference - allocatedToGroups + groupCarryIn),
   }
 }
+
+const REFERENCE_INCOME_COLUMNS = 'planned_monthly_income,planned_income_source,planned_income_cycles'
 
 export async function getBudgetIncome(client, userId) {
   const [{ cycleIncome }, profile, groupAllocation] = await Promise.all([
     cycleStartAndIncome(client, userId),
-    client.from('profiles').select('planned_monthly_income').eq('id', userId).single(),
+    client.from('profiles').select(REFERENCE_INCOME_COLUMNS).eq('id', userId).single(),
     client.rpc('my_group_allocation_summary'),
   ])
   throwFirstError([profile, groupAllocation])
-  return budgetIncomeSummary(cycleIncome, profile.data.planned_monthly_income, groupAllocation.data)
+  return budgetIncomeSummary(cycleIncome, profile.data, groupAllocation.data)
 }
 
-// Porta di materializeBudgetAmounts (apps/mobile/src/lib/onboarding.ts): i
-// monthly_limit salvati sono calcolati sulla stima del profilo, non sul ciclo.
+// Porta di materializeBudgetAmounts (apps/mobile/src/lib/onboarding.ts): come
+// l'app, i limiti si calcolano sulla base al netto della quota ai gruppi.
 export function cycleBudgetLimits(budgets, base) {
   const amounts = new Map()
   for (const row of budgets) {
@@ -267,7 +270,7 @@ export async function getFinancialOverview(client, userId, period) {
   const historyStart = period === 'cycle' ? shiftCycle(start, -6) : null
   const results = await Promise.all([
     client.from('profiles')
-      .select('planned_monthly_income,budget_cycle_start_day,budget_rollover_mode,goal_allocation_mode')
+      .select(`${REFERENCE_INCOME_COLUMNS},budget_cycle_start_day,budget_rollover_mode,goal_allocation_mode`)
       .eq('id', userId).single(),
     client.from('transactions')
       .select('amount,kind,category,excluded_from_budget')
@@ -311,10 +314,15 @@ export async function getFinancialOverview(client, userId, period) {
     return summary
   }, {})
   const accountRows = accounts.data || []
-  const { planned_monthly_income: plannedIncome, ...profileSettings } = profile.data
-  const budgetIncome = budgetIncomeSummary(cycle.cycleIncome, plannedIncome, groupAllocation.data)
   const {
-    plannedIncome: _plannedIncome, personalAvailable: _personalAvailable, ...groupAllocationData
+    planned_monthly_income: _plannedIncome,
+    planned_income_source: _plannedIncomeSource,
+    planned_income_cycles: _plannedIncomeCycles,
+    ...profileSettings
+  } = profile.data
+  const budgetIncome = budgetIncomeSummary(cycle.cycleIncome, profile.data, groupAllocation.data)
+  const {
+    plannedIncome: _groupPlannedIncome, personalAvailable: _personalAvailable, ...groupAllocationData
   } = groupAllocation.data || {}
   return {
     period, period_start: start.toISOString(), income, expense,

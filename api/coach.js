@@ -82,7 +82,7 @@ const coachInstructions = [
   'Prima di fare affermazioni sui dati finanziari dell’utente, usa il tool di lettura più pertinente.',
   'Distingui sempre in modo esplicito dati personali e dati di gruppo. Non dedurre dati che i tool non restituiscono.',
   'Per dettagli sui movimenti usa get_transactions; per obiettivi e prestiti usa get_goals_and_debts; per gruppi usa get_group_finances.',
-  'Il reddito di riferimento è budget_income della panoramica: con source = cycle_income sono le entrate reali del ciclo corrente incluse nel budget; con source = onboarding_estimate non ci sono ancora entrate nel ciclo e il valore è solo una stima. Non usare altri importi come reddito mensile.',
+  'Il reddito di riferimento è budget_income.reference_income della panoramica: con source = cycle_average è la media delle entrate degli ultimi reference_cycles mesi finanziari chiusi; con source = onboarding_estimate non c’è ancora storico ed è solo una stima. current_cycle_income sono le entrate già arrivate nel ciclo in corso: usale per commentare il mese, non come reddito mensile.',
   'La panoramica del ciclo include fino a 6 cicli completati e la loro media: usa historical_comparison per confronti storici e dichiara sempre il numero di cicli disponibili.',
   'Prima di update_goal usa get_goals_and_debts e passa sempre il goal_id restituito.',
   'Per registrare spese o creare/modificare obiettivi e budget, chiama il tool appropriato.',
@@ -463,8 +463,8 @@ async function handlePost(req, res, client, user) {
     throw coachError(error, { phase: 'model_execution', provider })
   }
   if (result.pendingAction?.type === 'update_budget') {
-    // Il limite proposto è in euro sul budget del ciclo: la conferma lo converte
-    // in percentuale su questa stessa base, non sulla stima del profilo.
+    // Il limite proposto è in euro sulla base al netto dei gruppi: la conferma lo
+    // converte in percentuale su questa stessa base.
     try {
       const budgetIncome = await getBudgetIncome(client, user.id)
       result.pendingAction.arguments = {

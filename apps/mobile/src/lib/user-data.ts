@@ -227,12 +227,18 @@ export type CoreUserData = {
   budgetRolloverMode: BudgetRolloverMode;
   incomeBand: IncomeBandId | null;
   plannedMonthlyIncome: number;
+  plannedIncomeSource: PlannedIncomeSource;
+  plannedIncomeCycles: number;
   loans: Loan[];
   goalNotice: GoalNotice | null;
   groupMonthlyAllocation: number;
   previousGroupMonthlyAllocation: number;
   groupPersonalCarryIn: number;
 };
+
+// Base unica del reddito, calcolata dal database: media degli ultimi cicli
+// chiusi con entrate, oppure la fascia dell'onboarding finché non ce ne sono.
+export type PlannedIncomeSource = 'cycle_average' | 'onboarding';
 
 export type SecondaryUserData = {
   financialAccounts: FinancialAccount[];
@@ -257,6 +263,7 @@ export async function fetchCoreUserData(userId: string): Promise<CoreUserData | 
     goalContributionsResult,
     groupAllocationResult,
     groupTransactionLinksResult,
+    referenceIncomeResult,
   ] = await Promise.all([
     supabase
       .from('budget_categories')
@@ -309,6 +316,8 @@ export async function fetchCoreUserData(userId: string): Promise<CoreUserData | 
       .order('occurred_at', { ascending: false }),
     supabase.rpc('my_group_allocation_summary'),
     supabase.rpc('my_group_transaction_links'),
+    // Un ciclo può chiudersi senza nuovi movimenti: ricalcola a ogni lettura.
+    supabase.rpc('refresh_my_budget_reference_income'),
   ]);
 
   if (
@@ -330,6 +339,12 @@ export async function fetchCoreUserData(userId: string): Promise<CoreUserData | 
       groupAllocationResult.error,
     );
   }
+  if (__DEV__ && referenceIncomeResult.error) {
+    console.warn(
+      'Flownd reference income refresh is unavailable; using the stored profile value.',
+      referenceIncomeResult.error,
+    );
+  }
   if (__DEV__ && groupTransactionLinksResult.error) {
     console.warn(
       'Flownd group transaction links are unavailable; personal transactions remain visible.',
@@ -342,10 +357,17 @@ export async function fetchCoreUserData(userId: string): Promise<CoreUserData | 
     mapTransactionRow(item, groupTransactionIds),
   );
   const incomeBand = goalSettingsResult.data.income_band as IncomeBandId | null;
+  const referenceIncome = referenceIncomeResult.error
+    ? null
+    : (referenceIncomeResult.data as { amount?: number; source?: string; cycles?: number } | null);
   const plannedMonthlyIncome = Number(
-    goalSettingsResult.data.planned_monthly_income
+    referenceIncome?.amount
+    ?? goalSettingsResult.data.planned_monthly_income
     ?? incomeReferenceForBand(incomeBand),
   );
+  const plannedIncomeSource: PlannedIncomeSource =
+    referenceIncome?.source === 'cycle_average' ? 'cycle_average' : 'onboarding';
+  const plannedIncomeCycles = Number(referenceIncome?.cycles ?? 0);
   const hydratedBudgets: BudgetCategory[] = (budgetsResult.data ?? []).map(
     (item) => ({
       id: item.category_key,
@@ -418,6 +440,8 @@ export async function fetchCoreUserData(userId: string): Promise<CoreUserData | 
       goalSettingsResult.data.budget_rollover_mode === 'carry' ? 'carry' : 'savings',
     incomeBand,
     plannedMonthlyIncome,
+    plannedIncomeSource,
+    plannedIncomeCycles,
     loans: (loansResult.data ?? []).map((loan) => ({
       id: loan.id,
       name: loan.name,

@@ -18,26 +18,31 @@ import {
 import {
   financialCycleForDate,
   formatFinancialCycle,
-  incomeCandidatesForFinancialCycle,
 } from '@/lib/financial-cycle';
 import { useAppState } from '@/providers/app-provider';
 
 export default function BudgetScreen() {
   const { colors } = useFlowndTheme();
-  const { draft, transactions, recurringPayments, budgetCycleStartDay, budgetMonthlyIncome } = useAppState(
+  const {
+    draft,
+    transactions,
+    recurringPayments,
+    budgetCycleStartDay,
+    budgetMonthlyIncome,
+    plannedIncomeSource,
+    plannedIncomeCycles,
+  } = useAppState(
     'draft',
     'transactions',
     'recurringPayments',
     'budgetCycleStartDay',
     'budgetMonthlyIncome',
+    'plannedIncomeSource',
+    'plannedIncomeCycles',
   );
   const cycle = useMemo(
     () => financialCycleForDate(new Date(), budgetCycleStartDay, transactions),
     [budgetCycleStartDay, transactions],
-  );
-  const incomeCount = useMemo(
-    () => incomeCandidatesForFinancialCycle(transactions, cycle).length,
-    [cycle, transactions],
   );
   const groups = useMemo(
     () =>
@@ -70,8 +75,8 @@ export default function BudgetScreen() {
           icon="account_balance_wallet"
           title="Budget mensile"
           caption={
-            incomeCount
-              ? `${incomeCount} ${incomeCount === 1 ? 'entrata rilevata' : 'entrate rilevate'}`
+            plannedIncomeSource === 'cycle_average'
+              ? `Media di ${plannedIncomeCycles} ${plannedIncomeCycles === 1 ? 'mese chiuso' : 'mesi chiusi'}`
               : 'Stima basata sul profilo'
           }
           value={formatEuro(budgetMonthlyIncome)}

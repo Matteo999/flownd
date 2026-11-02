@@ -16,6 +16,8 @@ export default function BudgetIncomeScreen() {
     transactions,
     budgetCycleStartDay,
     budgetMonthlyIncome,
+    plannedIncomeSource,
+    plannedIncomeCycles,
     error,
     setTransactionBudgetInclusion,
   } = useAppState(
@@ -23,6 +25,8 @@ export default function BudgetIncomeScreen() {
     'transactions',
     'budgetCycleStartDay',
     'budgetMonthlyIncome',
+    'plannedIncomeSource',
+    'plannedIncomeCycles',
     'error',
     'setTransactionBudgetInclusion',
   );
@@ -40,14 +44,16 @@ export default function BudgetIncomeScreen() {
     <Screen>
       <PageHeader title="Budget mensile" leading={<BackButton />} />
       <Text style={[styles.intro, { color: colors.textSecondary }]}>
-        Seleziona soltanto le entrate che costituiscono nuovo reddito. Giroconti e rimborsi possono essere esclusi qui.
+        Il budget si basa sulla media delle entrate degli ultimi tre mesi finanziari chiusi. Seleziona soltanto le entrate che costituiscono nuovo reddito: giroconti e rimborsi possono essere esclusi qui. Le entrate di questo mese contano dalla sua chiusura.
       </Text>
       <Card style={styles.totalCard}>
         <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>BUDGET DEL CICLO</Text>
         <Text style={[styles.total, { color: colors.text }]}>{formatEuro(budgetMonthlyIncome)}</Text>
         <Text style={[styles.totalCaption, { color: colors.textSecondary }]}>
-          {candidates.length
-            ? `${candidates.filter((item) => !item.excludedFromBudget).length} di ${candidates.length} entrate incluse`
+          {plannedIncomeSource === 'cycle_average'
+            ? plannedIncomeCycles === 1
+              ? 'Entrate dell’ultimo mese finanziario chiuso'
+              : `Media delle entrate degli ultimi ${plannedIncomeCycles} mesi finanziari chiusi`
             : incomeBand
               ? `Stima onboarding: ${incomeBand.shortLabel}`
               : 'Stima iniziale in attesa delle prime entrate'}
@@ -92,7 +98,7 @@ export default function BudgetIncomeScreen() {
         <Card>
           <Text style={[styles.emptyTitle, { color: colors.text }]}>Nessuna entrata rilevata</Text>
           <Text style={[styles.emptyCaption, { color: colors.textSecondary }]}>
-            Finché non vengono registrate entrate nel mese finanziario, il budget usa la fascia scelta durante l’onboarding.
+            Finché non c’è almeno un mese finanziario chiuso con entrate, il budget usa la fascia scelta durante l’onboarding.
           </Text>
         </Card>
       )}

@@ -7,7 +7,6 @@ import React, {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useLayoutEffect,
   useRef,
   useState,
@@ -40,6 +39,7 @@ import {
   type FinancialAccount,
   type GoalContributionSummary,
   type CoreUserData,
+  type PlannedIncomeSource,
   coreUserDataQuery,
   secondaryUserDataQuery,
   normalizeTransactionDraft,
@@ -57,8 +57,6 @@ import {
 import {
   type BudgetRolloverMode,
   financialCycleForDate,
-  budgetIncomeForFinancialCycle,
-  incomeCandidatesForFinancialCycle,
 } from '@/lib/financial-cycle';
 import {
   type RecurringSeries,
@@ -142,6 +140,8 @@ type AppContextValue = {
   budgetCycleStartDay: number;
   budgetRolloverMode: BudgetRolloverMode;
   grossBudgetMonthlyIncome: number;
+  plannedIncomeSource: PlannedIncomeSource;
+  plannedIncomeCycles: number;
   groupMonthlyAllocation: number;
   previousGroupMonthlyAllocation: number;
   groupPersonalCarryIn: number;
@@ -362,6 +362,8 @@ export function AppProvider({ children }: PropsWithChildren) {
   const groupMonthlyAllocation = core?.groupMonthlyAllocation ?? 0;
   const previousGroupMonthlyAllocation = core?.previousGroupMonthlyAllocation ?? 0;
   const groupPersonalCarryIn = core?.groupPersonalCarryIn ?? 0;
+  const plannedIncomeSource = core?.plannedIncomeSource ?? 'onboarding';
+  const plannedIncomeCycles = core?.plannedIncomeCycles ?? 0;
   const financialAccounts = secondary?.financialAccounts ?? NO_ACCOUNTS;
   const recurringPayments = secondary?.recurringPayments ?? NO_RECURRING;
   const coachInsight = secondary?.coachInsight ?? null;
@@ -605,19 +607,9 @@ export function AppProvider({ children }: PropsWithChildren) {
     };
   }, [hydrateUserData, onboardingComplete, session?.user.id, setGoalNotice]);
 
-  const grossBudgetMonthlyIncome = useMemo(() => {
-    const cycle = financialCycleForDate(new Date(), budgetCycleStartDay, transactions);
-    const incomeCandidates = incomeCandidatesForFinancialCycle(transactions, cycle);
-    const currentCycleIncome = budgetIncomeForFinancialCycle(transactions, cycle)
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
-    return incomeCandidates.length
-      ? currentCycleIncome
-      : draft.monthlyReference;
-  }, [
-    budgetCycleStartDay,
-    draft.monthlyReference,
-    transactions,
-  ]);
+  // Base unica (media dei cicli chiusi o fascia di onboarding), la stessa che
+  // usano Coach e quote ai gruppi: non più le entrate del solo ciclo in corso.
+  const grossBudgetMonthlyIncome = draft.monthlyReference;
   const budgetMonthlyIncome = Math.max(
     0,
     grossBudgetMonthlyIncome - groupMonthlyAllocation + groupPersonalCarryIn,
@@ -1234,9 +1226,8 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     setBudgetCycleStartDay(safeStartDay);
     setBudgetRolloverMode(rolloverMode);
-    if (rolloverMode === 'savings') {
-      await hydrateUserData(session.user.id);
-    }
+    // Il giorno del ciclo cambia i cicli chiusi su cui il database calcola la base.
+    await hydrateUserData(session.user.id);
     return true;
   }
 
@@ -2264,6 +2255,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     budgetCycleStartDay,
     budgetRolloverMode,
     grossBudgetMonthlyIncome,
+    plannedIncomeSource,
+    plannedIncomeCycles,
     groupMonthlyAllocation,
     previousGroupMonthlyAllocation,
     groupPersonalCarryIn,

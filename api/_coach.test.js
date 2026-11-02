@@ -74,19 +74,40 @@ test('il ciclo inizia prima se lo stipendio arriva in anticipo', () => {
   assert.equal(currentCycleStart(27, salary, now).getTime(), new Date(2026, 9, 24).getTime())
 })
 
-test('la base del budget usa le entrate reali del ciclo e non la stima del profilo', () => {
-  const withIncome = budgetIncomeSummary([
+test('la base del budget è la media dei cicli chiusi, non le entrate del ciclo in corso', () => {
+  const average = budgetIncomeSummary([
     { amount: 1800, excluded_from_budget: false },
     { amount: 300, excluded_from_budget: true },
-  ], 2371.08, { allocatedToGroups: 200, personalCarryIn: 50 })
-  assert.equal(withIncome.source, 'cycle_income')
-  assert.equal(withIncome.gross_income, 1800)
-  assert.equal(withIncome.excluded_income, 300)
-  assert.equal(withIncome.available_for_budget, 1650)
+  ], {
+    planned_monthly_income: 2100, planned_income_source: 'cycle_average', planned_income_cycles: 3,
+  }, { allocatedToGroups: 200, personalCarryIn: 50 })
+  assert.equal(average.source, 'cycle_average')
+  assert.equal(average.reference_income, 2100)
+  assert.equal(average.reference_cycles, 3)
+  assert.equal(average.current_cycle_income, 1800)
+  assert.equal(average.current_cycle_excluded_income, 300)
+  assert.equal(average.available_for_budget, 1950)
 
-  const estimate = budgetIncomeSummary([], 1250, null)
+  const estimate = budgetIncomeSummary([], {
+    planned_monthly_income: 1250, planned_income_source: 'onboarding', planned_income_cycles: 0,
+  }, null)
   assert.equal(estimate.source, 'onboarding_estimate')
   assert.equal(estimate.available_for_budget, 1250)
+})
+
+test('la base unica è calcolata dal database e non scritta dal client', async () => {
+  const migration = await readFile(
+    new URL('../supabase/migrations/202611020002_budget_reference_income.sql', import.meta.url),
+    'utf8',
+  )
+  assert.match(migration, /limit 3/)
+  assert.match(migration, /public\.income_band_reference\(band\)/)
+  assert.match(migration, /new\.planned_monthly_income := old\.planned_monthly_income/)
+  assert.match(migration, /referencing new table as new_rows/)
+  assert.doesNotMatch(
+    migration.slice(migration.indexOf('function public.save_budget_allocations')),
+    /set planned_monthly_income = p_planned_monthly_income/,
+  )
 })
 
 test('i limiti del ciclo seguono le percentuali sulla base reale', () => {
