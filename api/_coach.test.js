@@ -2,7 +2,14 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { coachTools, cycleHistoryComparison, geminiCoachTools } from './_coach-data.js'
+import {
+  budgetIncomeSummary,
+  coachTools,
+  currentCycleStart,
+  cycleBudgetLimits,
+  cycleHistoryComparison,
+  geminiCoachTools,
+} from './_coach-data.js'
 import { coachErrorLog, conversationTitle, modelContext } from './coach.js'
 
 const expectedTools = [
@@ -58,6 +65,49 @@ test('il confronto storico usa fino a sei cicli finanziari completati', () => {
   assert.equal(comparison.average_expense, 200)
   assert.equal(comparison.difference, 50)
   assert.equal(comparison.difference_percentage, 25)
+})
+
+test('il ciclo inizia prima se lo stipendio arriva in anticipo', () => {
+  const now = new Date(2026, 9, 30, 12)
+  assert.equal(currentCycleStart(27, [], now).getTime(), new Date(2026, 9, 27).getTime())
+  const salary = [{ kind: 'income', category: 'Stipendio', occurred_at: new Date(2026, 9, 24, 9).toISOString() }]
+  assert.equal(currentCycleStart(27, salary, now).getTime(), new Date(2026, 9, 24).getTime())
+})
+
+test('la base del budget usa le entrate reali del ciclo e non la stima del profilo', () => {
+  const withIncome = budgetIncomeSummary([
+    { amount: 1800, excluded_from_budget: false },
+    { amount: 300, excluded_from_budget: true },
+  ], 2371.08, { allocatedToGroups: 200, personalCarryIn: 50 })
+  assert.equal(withIncome.source, 'cycle_income')
+  assert.equal(withIncome.gross_income, 1800)
+  assert.equal(withIncome.excluded_income, 300)
+  assert.equal(withIncome.available_for_budget, 1650)
+
+  const estimate = budgetIncomeSummary([], 1250, null)
+  assert.equal(estimate.source, 'onboarding_estimate')
+  assert.equal(estimate.available_for_budget, 1250)
+})
+
+test('i limiti del ciclo seguono le percentuali sulla base reale', () => {
+  const limits = cycleBudgetLimits([
+    { category_key: 'needs', parent_key: 'needs', is_macro: true, allocation_percentage: 50 },
+    { category_key: 'casa', parent_key: 'needs', is_macro: false, allocation_percentage: 60 },
+    { category_key: 'affitto', parent_key: 'needs', parent_category_key: 'casa', is_macro: false, allocation_percentage: 50 },
+    { category_key: 'auto', parent_key: 'needs', is_macro: false, allocation_percentage: 40, budget_enabled: false },
+  ], 2000)
+  assert.deepEqual(limits.map((row) => row.cycle_limit), [1000, 600, 300, 0])
+})
+
+test('le proposte di budget allegano la base del ciclo usata dalla conferma', async () => {
+  const source = await readFile(new URL('./coach.js', import.meta.url), 'utf8')
+  assert.match(source, /budget_base: budgetIncome\.available_for_budget/)
+  const migration = await readFile(
+    new URL('../supabase/migrations/202611020001_coach_budget_proposal_cycle_base.sql', import.meta.url),
+    'utf8',
+  )
+  assert.match(migration, /amount \/ budget_base \* 100/)
+  assert.match(migration, /save_budget_allocations\(planned_income, allocations\)/)
 })
 
 test('l API limita il contesto e non delega la memoria al provider', async () => {

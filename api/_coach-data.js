@@ -4,7 +4,7 @@ const readTools = [
   {
     type: 'function',
     name: 'get_financial_overview',
-    description: 'Legge la panoramica personale: entrate, uscite, budget gerarchico, ciclo finanziario, conti, obiettivi, ricorrenze, prestiti e quota destinata ai gruppi.',
+    description: 'Legge la panoramica personale: entrate, uscite, budget gerarchico, ciclo finanziario, conti, obiettivi, ricorrenze, prestiti e quota destinata ai gruppi. budget_income è la base del budget del ciclo corrente; i cycle_limit dei budget sono calcolati su quella base.',
     strict: true,
     parameters: {
       type: 'object',
@@ -109,7 +109,7 @@ const mutationTools = [
   },
   {
     type: 'function', name: 'update_budget',
-    description: 'Propone la modifica di una quota macro del budget personale. Non salva senza conferma.',
+    description: 'Propone la modifica di una quota macro del budget personale, con monthly_limit in euro per il ciclo corrente (base: budget_income.available_for_budget). Non salva senza conferma.',
     strict: true,
     parameters: {
       type: 'object',
@@ -156,18 +156,103 @@ function startForCalendarPeriod(period, now = new Date()) {
   return start
 }
 
-async function periodStart(client, userId, period) {
-  if (!PERIODS.includes(period)) throw new Error('Periodo non valido')
-  if (period !== 'cycle') return startForCalendarPeriod(period)
+// Stessa regola dell'app (apps/mobile/src/lib/financial-cycle.ts): uno stipendio
+// arrivato nei dieci giorni prima del giorno configurato anticipa il ciclo.
+const EARLY_SALARY_WINDOW_DAYS = 10
+
+function isSalary(row) {
+  return row.kind === 'income' && (row.income_type === 'salary' || row.category === 'Stipendio')
+}
+
+export function currentCycleStart(startDay, rows = [], now = new Date()) {
+  const day = Math.min(28, Math.max(1, Math.round(Number(startDay) || 1)))
+  const salaries = rows.filter(isSalary).map((row) => new Date(row.occurred_at))
+    .filter((occurredAt) => !Number.isNaN(occurredAt.getTime()))
+  const boundaries = [-2, -1, 0, 1, 2].map((offset) => {
+    const nominal = new Date(now.getFullYear(), now.getMonth() + offset, day)
+    const earliest = new Date(nominal)
+    earliest.setDate(earliest.getDate() - EARLY_SALARY_WINDOW_DAYS)
+    const salary = salaries
+      .filter((occurredAt) => occurredAt >= earliest && occurredAt < nominal)
+      .sort((first, second) => second - first)[0]
+    const boundary = salary ? new Date(salary) : nominal
+    boundary.setHours(0, 0, 0, 0)
+    return boundary
+  }).sort((first, second) => first - second)
+  return boundaries.findLast((boundary) => boundary <= now) ?? boundaries[0]
+}
+
+async function cycleStartAndIncome(client, userId) {
   const { data, error } = await client.from('profiles')
     .select('budget_cycle_start_day').eq('id', userId).single()
   if (error) throw error
-  const day = Math.min(28, Math.max(1, Number(data.budget_cycle_start_day || 1)))
   const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), day)
-  if (now < start) start.setMonth(start.getMonth() - 1)
-  start.setHours(0, 0, 0, 0)
-  return start
+  const lookback = new Date(now.getFullYear(), now.getMonth() - 3, 1)
+  const { data: incomeRows, error: incomeError } = await client.from('transactions')
+    .select('amount,kind,category,income_type,occurred_at,excluded_from_budget')
+    .eq('user_id', userId).eq('kind', 'income')
+    .gte('occurred_at', lookback.toISOString())
+  if (incomeError) throw incomeError
+  const start = currentCycleStart(data.budget_cycle_start_day, incomeRows || [], now)
+  const cycleIncome = (incomeRows || []).filter((row) => new Date(row.occurred_at) >= start)
+  return { start, cycleIncome }
+}
+
+async function periodStart(client, userId, period) {
+  if (!PERIODS.includes(period)) throw new Error('Periodo non valido')
+  if (period !== 'cycle') return startForCalendarPeriod(period)
+  return (await cycleStartAndIncome(client, userId)).start
+}
+
+// Base del budget come nell'app (grossBudgetMonthlyIncome / budgetMonthlyIncome):
+// entrate del ciclo incluse nel budget, e solo senza entrate nel ciclo la stima
+// salvata nel profilo; poi si sottrae la quota ai gruppi.
+export function budgetIncomeSummary(cycleIncome, plannedIncome, groupAllocation) {
+  const included = cycleIncome.filter((row) => !row.excluded_from_budget)
+  const sum = (rows) => rows.reduce((total, row) => total + Number(row.amount), 0)
+  const hasIncome = cycleIncome.length > 0
+  const gross = hasIncome ? sum(included) : Number(plannedIncome || 0)
+  const allocatedToGroups = Number(groupAllocation?.allocatedToGroups || 0)
+  const groupCarryIn = Number(groupAllocation?.personalCarryIn || 0)
+  return {
+    source: hasIncome ? 'cycle_income' : 'onboarding_estimate',
+    gross_income: gross,
+    included_income_count: included.length,
+    excluded_income: sum(cycleIncome.filter((row) => row.excluded_from_budget)),
+    allocated_to_groups: allocatedToGroups,
+    group_carry_in: groupCarryIn,
+    available_for_budget: Math.max(0, gross - allocatedToGroups + groupCarryIn),
+  }
+}
+
+export async function getBudgetIncome(client, userId) {
+  const [{ cycleIncome }, profile, groupAllocation] = await Promise.all([
+    cycleStartAndIncome(client, userId),
+    client.from('profiles').select('planned_monthly_income').eq('id', userId).single(),
+    client.rpc('my_group_allocation_summary'),
+  ])
+  throwFirstError([profile, groupAllocation])
+  return budgetIncomeSummary(cycleIncome, profile.data.planned_monthly_income, groupAllocation.data)
+}
+
+// Porta di materializeBudgetAmounts (apps/mobile/src/lib/onboarding.ts): i
+// monthly_limit salvati sono calcolati sulla stima del profilo, non sul ciclo.
+export function cycleBudgetLimits(budgets, base) {
+  const amounts = new Map()
+  for (const row of budgets) {
+    if (row.is_macro) amounts.set(row.category_key, Math.round(base * row.allocation_percentage / 100))
+  }
+  const macroKey = (row) => budgets.find((item) => item.is_macro && item.parent_key === row.parent_key)?.category_key
+  for (const row of budgets) {
+    if (row.is_macro || row.parent_category_key) continue
+    const parent = amounts.get(macroKey(row)) ?? 0
+    amounts.set(row.category_key, row.budget_enabled === false ? 0 : Math.round(parent * row.allocation_percentage / 100))
+  }
+  return budgets.map((row) => {
+    if (row.is_macro || !row.parent_category_key) return { ...row, cycle_limit: amounts.get(row.category_key) ?? 0 }
+    const parent = amounts.get(row.parent_category_key) ?? 0
+    return { ...row, cycle_limit: row.budget_enabled === false ? 0 : Math.round(parent * row.allocation_percentage / 100) }
+  })
 }
 
 function throwFirstError(results) {
@@ -176,7 +261,9 @@ function throwFirstError(results) {
 }
 
 export async function getFinancialOverview(client, userId, period) {
-  const start = await periodStart(client, userId, period)
+  if (!PERIODS.includes(period)) throw new Error('Periodo non valido')
+  const cycle = await cycleStartAndIncome(client, userId)
+  const start = period === 'cycle' ? cycle.start : startForCalendarPeriod(period)
   const historyStart = period === 'cycle' ? shiftCycle(start, -6) : null
   const results = await Promise.all([
     client.from('profiles')
@@ -224,20 +311,26 @@ export async function getFinancialOverview(client, userId, period) {
     return summary
   }, {})
   const accountRows = accounts.data || []
+  const { planned_monthly_income: plannedIncome, ...profileSettings } = profile.data
+  const budgetIncome = budgetIncomeSummary(cycle.cycleIncome, plannedIncome, groupAllocation.data)
+  const {
+    plannedIncome: _plannedIncome, personalAvailable: _personalAvailable, ...groupAllocationData
+  } = groupAllocation.data || {}
   return {
     period, period_start: start.toISOString(), income, expense,
     budget_expense: budgetExpense, net: income - expense, categories,
-    profile: profile.data,
-    budgets: (budgets.data || []).map((row) => ({
-      ...row, monthly_limit: Number(row.monthly_limit),
-      allocation_percentage: Number(row.allocation_percentage),
-    })),
+    profile: profileSettings,
+    cycle_start: cycle.start.toISOString(),
+    budget_income: budgetIncome,
+    budgets: cycleBudgetLimits((budgets.data || []).map(({ monthly_limit: _limit, ...row }) => ({
+      ...row, allocation_percentage: Number(row.allocation_percentage),
+    })), budgetIncome.available_for_budget),
     goals: (goals.data || []).map(numericGoal),
     accounts: accountRows.map((row) => ({ ...row, current_balance: Number(row.current_balance) })),
     net_worth: accountRows.reduce((sum, row) => sum + Number(row.current_balance), 0),
     recurring_payments: (recurring.data || []).map(numericAmount),
     loans: (loans.data || []).map(numericLoan),
-    group_allocation: groupAllocation.data,
+    group_allocation: groupAllocation.data ? groupAllocationData : null,
     historical_comparison: period === 'cycle'
       ? cycleHistoryComparison(history.data || [], start, expense)
       : null,

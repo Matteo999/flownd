@@ -6,6 +6,7 @@ import {
   coachTools,
   executeCoachReadTool,
   geminiCoachTools,
+  getBudgetIncome,
 } from './_coach-data.js'
 import { consumeAiQuota } from './_ai-quota.js'
 import { ApiError, serviceClient } from './eb/_supabase.js'
@@ -81,6 +82,7 @@ const coachInstructions = [
   'Prima di fare affermazioni sui dati finanziari dell’utente, usa il tool di lettura più pertinente.',
   'Distingui sempre in modo esplicito dati personali e dati di gruppo. Non dedurre dati che i tool non restituiscono.',
   'Per dettagli sui movimenti usa get_transactions; per obiettivi e prestiti usa get_goals_and_debts; per gruppi usa get_group_finances.',
+  'Il reddito di riferimento è budget_income della panoramica: con source = cycle_income sono le entrate reali del ciclo corrente incluse nel budget; con source = onboarding_estimate non ci sono ancora entrate nel ciclo e il valore è solo una stima. Non usare altri importi come reddito mensile.',
   'La panoramica del ciclo include fino a 6 cicli completati e la loro media: usa historical_comparison per confronti storici e dichiara sempre il numero di cicli disponibili.',
   'Prima di update_goal usa get_goals_and_debts e passa sempre il goal_id restituito.',
   'Per registrare spese o creare/modificare obiettivi e budget, chiama il tool appropriato.',
@@ -459,6 +461,19 @@ async function handlePost(req, res, client, user) {
       : await runOpenAICoach(context, client, user.id)
   } catch (error) {
     throw coachError(error, { phase: 'model_execution', provider })
+  }
+  if (result.pendingAction?.type === 'update_budget') {
+    // Il limite proposto è in euro sul budget del ciclo: la conferma lo converte
+    // in percentuale su questa stessa base, non sulla stima del profilo.
+    try {
+      const budgetIncome = await getBudgetIncome(client, user.id)
+      result.pendingAction.arguments = {
+        ...result.pendingAction.arguments,
+        budget_base: budgetIncome.available_for_budget,
+      }
+    } catch (error) {
+      throw coachError(error, { phase: 'budget_base', provider })
+    }
   }
   let reply
   try {
