@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import WaitlistForm from '../components/WaitlistForm.jsx'
 import './HomePage.css'
@@ -67,7 +67,7 @@ function useRanking() {
     }
     const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1])
     const spent = STATEMENT.reduce((sum, [, , amount]) => (amount < 0 ? sum - amount : sum), 0)
-    return { top: ranked.slice(0, 4), rest: ranked.length - 4, spent }
+    return { top: ranked.slice(0, 4), spent }
   }, [])
 }
 
@@ -99,10 +99,12 @@ const WALL_COLUMNS = [
   { offset: 24, duration: '155s' },
 ]
 
-function StatementWall({ active, paused }) {
+// Memoizzato: centinaia di righe che non devono riconciliarsi a ogni
+// cambiamento di stato della pagina, ma solo quando cambia la categoria attiva.
+const StatementWall = memo(function StatementWall({ active }) {
   const rows = [...STATEMENT, ...STATEMENT, ...STATEMENT]
   return (
-    <div className={`wall ${active ? 'wall--focused' : ''} ${paused ? 'is-paused' : ''}`} aria-hidden="true">
+    <div className={`wall ${active ? 'wall--focused' : ''}`} aria-hidden="true">
       {WALL_COLUMNS.map(({ offset, duration }) => (
         <div className="wall__column" key={offset}>
           <div className="wall__track" style={{ '--drift': duration }}>
@@ -118,10 +120,10 @@ function StatementWall({ active, paused }) {
       ))}
     </div>
   )
-}
+})
 
 function Ranking({ active, onActivate }) {
-  const { top, rest, spent } = useRanking()
+  const { top, spent } = useRanking()
   const max = top[0][1]
   return (
     <div className="ranking">
@@ -150,7 +152,6 @@ function Ranking({ active, onActivate }) {
           </li>
         ))}
       </ul>
-      <p className="ranking__foot">e altre {rest} categorie · seleziona una voce per vedere i suoi movimenti</p>
     </div>
   )
 }
@@ -202,7 +203,6 @@ function Budgets() {
 export default function HomePage() {
   const [active, setActive] = useState(null)
   const [heroFormVisible, setHeroFormVisible] = useState(true)
-  const [heroVisible, setHeroVisible] = useState(true)
   const root = useRef(null)
   const header = useRef(null)
   const hero = useRef(null)
@@ -221,11 +221,15 @@ export default function HomePage() {
     return () => observer.disconnect()
   }, [])
 
-  // L'estratto conto scorre solo mentre l'hero è sullo schermo.
+  // Estratto conto e chip si muovono solo mentre l'hero è sullo schermo. La
+  // classe si cambia direttamente, senza rieseguire il render della pagina.
   useEffect(() => {
-    if (!hero.current || !('IntersectionObserver' in window)) return undefined
-    const observer = new IntersectionObserver(([entry]) => setHeroVisible(entry.isIntersecting))
-    observer.observe(hero.current)
+    const section = hero.current
+    if (!section || !('IntersectionObserver' in window)) return undefined
+    const observer = new IntersectionObserver(([entry]) => {
+      section.classList.toggle('is-offscreen', !entry.isIntersecting)
+    })
+    observer.observe(section)
     return () => observer.disconnect()
   }, [])
 
@@ -234,10 +238,14 @@ export default function HomePage() {
   // aggiornata una volta per frame senza passare dallo stato React.
   useEffect(() => {
     let frame = 0
+    let last = -1
     const update = () => {
       frame = 0
-      const progress = Math.min(Math.max(window.scrollY / 140, 0), 1)
-      header.current?.style.setProperty('--dock', progress.toFixed(3))
+      const progress = Math.round(Math.min(Math.max(window.scrollY / 140, 0), 1) * 100) / 100
+      // Oltre i primi 140px il valore resta 1: nessuna scrittura, nessun ricalcolo.
+      if (progress === last) return
+      last = progress
+      header.current?.style.setProperty('--dock', String(progress))
     }
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(update)
@@ -250,34 +258,48 @@ export default function HomePage() {
     }
   }, [])
 
-  // Le sezioni entrano quando arrivano nella finestra. Si controlla la
-  // posizione a ogni scroll (una volta per frame), così anche un salto veloce
-  // oltre una sezione la rivela. Con riduzione del movimento tutto resta visibile.
+  // Le sezioni entrano quando arrivano nella finestra. Le posizioni si misurano
+  // solo al caricamento e quando cambia l'altezza della pagina: durante lo
+  // scroll si confronta un numero con scrollY, senza leggere il layout, così
+  // anche uno scroll veloce resta fluido e un salto oltre una sezione la rivela.
+  // Con riduzione del movimento tutto resta visibile.
   useEffect(() => {
     const container = root.current
     if (!container || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
-    let pending = [...container.querySelectorAll('[data-reveal]')]
+    let pending = [...container.querySelectorAll('[data-reveal]')].map((target) => ({ target, top: 0 }))
     let frame = 0
+    const measure = () => {
+      const offset = window.scrollY
+      for (const item of pending) item.top = item.target.getBoundingClientRect().top + offset
+    }
     const check = () => {
       frame = 0
-      const line = window.innerHeight * 0.88
-      pending = pending.filter((target) => {
-        if (target.getBoundingClientRect().top >= line) return true
-        target.classList.add('is-in')
+      const line = window.scrollY + window.innerHeight * 0.88
+      pending = pending.filter((item) => {
+        if (item.top >= line) return true
+        item.target.classList.add('is-in')
         return false
       })
-      if (!pending.length) window.removeEventListener('scroll', onScroll)
+      if (!pending.length) stop()
     }
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(check)
     }
+    const resizeObserver = new ResizeObserver(() => {
+      measure()
+      onScroll()
+    })
+    function stop() {
+      window.removeEventListener('scroll', onScroll)
+      resizeObserver.disconnect()
+    }
+    measure()
     check()
     container.classList.add('reveal-ready')
     window.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('resize', onScroll)
+    resizeObserver.observe(container)
     return () => {
-      window.removeEventListener('scroll', onScroll)
-      window.removeEventListener('resize', onScroll)
+      stop()
       cancelAnimationFrame(frame)
     }
   }, [])
@@ -305,17 +327,63 @@ export default function HomePage() {
 
       <main>
         <section className="hero" aria-labelledby="hero-title" ref={hero}>
-          <StatementWall active={active} paused={!heroVisible} />
+          <StatementWall active={active} />
+          <div className="hero__stage">
           <div className="hero__card">
-            <h1 id="hero-title">Dove sono finiti i soldi questo mese?</h1>
+            <h1 id="hero-title">Fai crescere i tuoi risparmi, un mese alla volta.</h1>
             <p className="hero__lead">
-              Flownd mette in ordine i tuoi movimenti e ti mostra in un colpo d’occhio dove spendi di più.
-              Poi ti aiuta a fare un piano e a mettere da parte.
+              Flownd trasforma il tuo stipendio in un piano mensile, ti mostra dove va ogni euro
+              e ti aiuta a metterne da parte di più, mese dopo mese.
             </p>
-            <Ranking active={active} onActivate={setActive} />
             <div id="iscriviti" className="hero__form" ref={heroForm}>
               <WaitlistForm />
             </div>
+            <Ranking active={active} onActivate={setActive} />
+          </div>
+          <figure className="hero__device">
+            <div className="device">
+              <span className="device__key device__key--action" aria-hidden="true" />
+              <span className="device__key device__key--volume-up" aria-hidden="true" />
+              <span className="device__key device__key--volume-down" aria-hidden="true" />
+              <span className="device__key device__key--side" aria-hidden="true" />
+              <span className="device__key device__key--camera" aria-hidden="true" />
+              <div className="device__body">
+                <div className="device__screen">
+                  <picture>
+                    <source srcSet="/app/dashboard-dark.webp" media="(prefers-color-scheme: dark)" />
+                    <img src="/app/dashboard.webp" alt="La Dashboard di Flownd su iPhone: budget disponibile del ciclo e budget per categoria" width="720" height="1561" fetchPriority="high" />
+                  </picture>
+                  <span className="device__island" aria-hidden="true" />
+                </div>
+              </div>
+            </div>
+            <span className="float-chip float-chip--spend" aria-hidden="true"><i />Spesa<b>386 €</b></span>
+            <span className="float-chip float-chip--cycle" aria-hidden="true">A fine ciclo<b>+310 €</b></span>
+            <span className="float-chip float-chip--goal" aria-hidden="true">Vacanza in Giappone<b>24%</b></span>
+          </figure>
+          </div>
+        </section>
+
+        <section className="steps" aria-labelledby="steps-title">
+          <div className="steps__inner">
+            <h2 id="steps-title" data-reveal>Dal primo giorno, in tre passi.</h2>
+            <ol className="steps__list" data-reveal="rows">
+              <li>
+                <span className="steps__num" aria-hidden="true">1</span>
+                <h3>Scarica Flownd</h3>
+                <p>Su iPhone o Android, appena esce. Ti avvisiamo noi con una sola email.</p>
+              </li>
+              <li>
+                <span className="steps__num" aria-hidden="true">2</span>
+                <h3>Dai un piano allo stipendio</h3>
+                <p>Dici quanto entra e quando: Flownd lo divide tra Necessità, Desideri e Risparmio.</p>
+              </li>
+              <li>
+                <span className="steps__num" aria-hidden="true">3</span>
+                <h3>Guarda dove vanno i soldi</h3>
+                <p>Aggiungi o importa i movimenti e scopri subito dove spendi di più e quanto metti da parte.</p>
+              </li>
+            </ol>
           </div>
         </section>
 
@@ -436,16 +504,43 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="section groups" aria-labelledby="groups-title">
-          <div className="groups__copy" data-reveal>
-            <h2 id="groups-title">Da soli, in coppia o in famiglia.</h2>
-            <p>Con i gruppi condividete spese, budget e obiettivi. Flownd tiene il conto di chi ha pagato cosa, così nessuno deve fare i calcoli a fine mese.</p>
+        <section id="gruppi" className="groups" aria-labelledby="groups-title">
+          <div className="groups__inner">
+            <div className="groups__copy" data-reveal>
+              <h2 id="groups-title">Risparmiare insieme è più facile.</h2>
+              <p>Crea un gruppo per la casa, la coppia o la famiglia. Ognuno tiene le sue spese personali e decide cosa condividere: il budget comune, le spese da dividere, il patrimonio, gli obiettivi.</p>
+              <ul className="groups__points" data-reveal="rows">
+                <li><Icon name="check" />Un budget comune, con il contributo di ciascuno</li>
+                <li><Icon name="check" />Le spese divise in automatico, senza calcoli a fine mese</li>
+                <li><Icon name="check" />Obiettivi da raggiungere insieme, come il divano nuovo o le vacanze</li>
+              </ul>
+            </div>
+            <div className="group-card" data-reveal="flow" aria-label="Esempio di gruppo Casa con due membri">
+              <div className="group-card__head">
+                <div>
+                  <p className="group-card__name">Casa</p>
+                  <p className="group-card__meta">Budget e spese comuni</p>
+                </div>
+                <span className="group-card__members" aria-hidden="true"><span>G</span><span>M</span></span>
+              </div>
+              <div className="group-card__module">
+                <div className="group-card__row"><span>Budget comune di novembre</span><strong>612 € <small>di 900 €</small></strong></div>
+                <div className="goal__track"><span style={{ '--progress': 0.68 }} /></div>
+              </div>
+              <div className="group-card__module">
+                <p className="group-card__label">Spese da dividere</p>
+                <ul className="balances">
+                  <li><span>Spesa del sabato</span><span>pagata da Giulia</span><strong>64,20 €</strong></li>
+                  <li><span>Bolletta luce</span><span>pagata da Marco</span><strong>65,00 €</strong></li>
+                  <li className="balances__total"><span>Saldo</span><span>Giulia deve a Marco</span><strong>18,00 €</strong></li>
+                </ul>
+              </div>
+              <div className="group-card__module">
+                <div className="group-card__row"><span>Obiettivo · Divano nuovo</span><strong>640 € <small>di 1.200 €</small></strong></div>
+                <div className="goal__track"><span style={{ '--progress': 0.53 }} /></div>
+              </div>
+            </div>
           </div>
-          <ul className="balances" data-reveal="rows" aria-label="Esempio di saldi in un gruppo">
-            <li><span>Spesa del sabato</span><span>pagata da Giulia</span><strong>64,20 €</strong></li>
-            <li><span>Bolletta luce</span><span>pagata da Marco</span><strong>65,00 €</strong></li>
-            <li className="balances__total"><span>Saldo</span><span>Giulia deve a Marco</span><strong>18,00 €</strong></li>
-          </ul>
         </section>
 
         <section id="privacy" className="trust" aria-labelledby="trust-title">

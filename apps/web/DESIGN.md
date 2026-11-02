@@ -21,23 +21,23 @@ colors:
   negative: "#b44d36"
   wall-ink: "#b3beb8"
   wall-dim: "#d9e0dc"
-  trust-ink: "#eaf1ed"
+  trust-ink: "#ecf6f4"
   trust-ink-secondary: "#a9b8b0"
-  dark-canvas: "#0f1712"
-  dark-surface: "#17211c"
-  dark-sunken: "#0b120e"
-  dark-ink: "#eaf1ed"
-  dark-ink-secondary: "#9aaaa2"
-  dark-hairline: "#26332c"
-  dark-petrol: "#47b3d1"
-  dark-petrol-deep: "#6cc5de"
-  dark-petrol-mist: "#173842"
-  dark-on-accent: "#0b120e"
-  dark-positive: "#4fb89a"
-  dark-amber: "#d9a94f"
-  dark-negative: "#e08469"
-  dark-wall-ink: "#3a4a42"
-  dark-wall-dim: "#1f2a24"
+  dark-canvas: "#0a1a20"
+  dark-surface: "#10262d"
+  dark-sunken: "#0b1d23"
+  dark-ink: "#ecf6f4"
+  dark-ink-secondary: "#a2bbb8"
+  dark-hairline: "#1e3d47"
+  dark-petrol: "#5cc8e2"
+  dark-petrol-deep: "#8ad9ec"
+  dark-petrol-mist: "#133a47"
+  dark-on-accent: "#0b1d23"
+  dark-positive: "#52d1aa"
+  dark-amber: "#e3b45a"
+  dark-negative: "#ec8f73"
+  dark-wall-ink: "#2b5561"
+  dark-wall-dim: "#143039"
 typography:
   display:
     fontFamily: "Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif"
@@ -366,3 +366,11 @@ A Sunken Sage well (24px radius) holding white bubbles from the coach and petrol
 - **Don't** set eyebrow or kicker labels above headings; headings stand alone.
 - **Don't** place white text on Overspend Amber, Ledger Green, or Glacier Petrol; use the darkened band colours or dark-on-accent instead.
 - **Don't** use radii outside 10 / 12 / 24 and the full pill.
+
+## Hero device, steps band and colored night
+
+- **Hero device.** Beside the resolving sheet sits a realistic iPhone 17 Pro built in CSS, sized in container units so proportions hold at any width: a titanium band (a horizontal metal gradient with inner highlight and shadow rings, the one place a gradient is allowed because it depicts material, not a background), a black bezel, a glass glare at 10% white, the Dynamic Island with its lens, and five side keys (action, volume up/down, side, camera control). The screen holds real iPhone screenshots supplied by the owner (`public/app/dashboard.webp`, dark twin `dashboard-dark.webp` swapped by `prefers-color-scheme`). Three floating chips quote figures from the statement ("Spesa 386 €", "A fine ciclo +310 €", "Vacanza in Giappone 24%"), drifting ±8px over 7s. Under 1100px the device stacks under the sheet, cropped to 440px with a bottom fade, and the chips hide.
+- **Steps band.** Right after the hero, a full-bleed band carries "Dal primo giorno, in tre passi": petrol `#256b7e` in light, a blue → petrol → green gradient (`#2b5fc4 → #1d6f8a → #1f8f79`) in dark, white type, step numerals at 3rem/800 in mint `#9fe7d6` above a white 28% hairline.
+- **Colored night.** The dark theme is no longer near-black: a deep petrol canvas (`#0a1a20`) with brighter accents. Backgrounds are always flat colour, never gradients: no glows or auras behind sections. In dark, ranking and goal bars use the brand gradient `#457FEF → #45D5B6` (bar fills only); plan bands, goals source strip, the outgoing chat bubble and the privacy band (`#112a45`) take solid tints.
+- **Groups band.** "Risparmiare insieme è più facile" is a full-bleed brand-blue band (`#2c5bbf` light, `#1f3f87` dark) with white type, mint check icons and a white group card: name and type ("Casa · Budget e spese comuni"), member initials in the app's group colours (`#3F6F82`, `#C2527A`), a shared budget bar, split expenses with the balance, and a shared goal.
+- **Hero order.** Headline "Fai crescere i tuoi risparmi, un mese alla volta.", lead, then the waitlist form, then the ranking, so the CTA stays above the fold down to 1280×720.
