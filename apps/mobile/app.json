@@ -13,7 +13,10 @@
         "dark": "./assets/images/brand/icon-dark.png",
         "tinted": "./assets/images/brand/icon-tinted.png"
       },
-      "bundleIdentifier": "com.mlmdev.flownd"
+      "bundleIdentifier": "com.mlmdev.flownd",
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "it"
+      }
     },
     "android": {
       "package": "com.mlmdev.flownd",
@@ -65,6 +68,19 @@
           "organization": "flownd",
           "project": "react-native",
           "note": "Autenticazione per upload source map: variabile SENTRY_AUTH_TOKEN (EAS environment), mai nel repo."
+        }
+      ],
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": [
+              "it"
+            ],
+            "android": [
+              "it"
+            ]
+          }
         }
       ]
     ],

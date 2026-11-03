@@ -31,6 +31,7 @@ import {
   type Loan,
   type LoanDraft,
 } from '@/lib/goals';
+import { rememberDeviceLocale } from '@/lib/auth';
 import { queryClient, queryKeys } from '@/lib/query-client';
 import { setSentryUser } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
@@ -528,6 +529,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       activeUserId.current = nextSession?.user.id ?? null;
       setSession(nextSession);
       setSentryUser(activeUserId.current);
+      if (nextSession && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
+        // Fuori dal callback: chiamare l'auth client qui dentro lo blocca.
+        setTimeout(() => void rememberDeviceLocale(nextSession), 0);
+      }
       if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') return;
       setLoading(true);
       setTimeout(() => {

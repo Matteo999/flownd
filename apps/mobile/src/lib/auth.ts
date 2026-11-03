@@ -1,4 +1,6 @@
+import type { Session } from '@supabase/supabase-js';
 import * as Linking from 'expo-linking';
+import { getLocales } from 'expo-localization';
 import { apiRequest } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 
@@ -7,33 +9,24 @@ import { supabase } from '@/lib/supabase';
 // I token in chiaro nei deep link non vengono mai accettati.
 export async function exchangeAuthCode(code: string) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) {
-    // Su Android lo stesso redirect può arrivare sia a openAuthSessionAsync sia
-    // alla route auth/callback: il secondo scambio fallisce ma la sessione c'è.
-    const { data } = await supabase.auth.getSession();
-    if (!data.session) throw error;
-  }
-  await rememberDeviceLocale();
+  if (!error) return;
+  // Su Android lo stesso redirect può arrivare sia a openAuthSessionAsync sia
+  // alla route auth/callback: il secondo scambio fallisce ma la sessione c'è.
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) throw error;
 }
 
-// Lingua del dispositivo come tag BCP 47 (es. "it-IT"), salvata nei metadati
+// Prima lingua preferita del dispositivo come tag BCP 47 (es. "it-IT"), salvata nei metadati
 // dell'account per scrivere le email nella lingua dell'utente.
 export function deviceLocale() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().locale || undefined;
-  } catch {
-    return undefined;
-  }
+  return getLocales()[0]?.languageTag || undefined;
 }
 
-// Gli account creati via social o prima di questo campo non hanno la lingua:
-// la aggiungiamo al primo accesso, senza mai sovrascrivere quella esistente.
-export async function rememberDeviceLocale() {
+// Allinea la lingua salvata a quella del dispositivo a ogni apertura e login:
+// copre gli account social, quelli creati prima del campo e i cambi di lingua.
+export async function rememberDeviceLocale(session: Session) {
   const locale = deviceLocale();
-  if (!locale) return;
-  const { data } = await supabase.auth.getSession();
-  const user = data.session?.user;
-  if (!user || user.user_metadata?.locale) return;
+  if (!locale || session.user.user_metadata?.locale === locale) return;
   await supabase.auth.updateUser({ data: { locale } }).catch(() => {});
 }
 

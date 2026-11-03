@@ -18,7 +18,7 @@ import {
   uiStyles,
   useFlowndTheme,
 } from '@/components/flownd-ui';
-import { completeAuthFromUrl, rememberDeviceLocale } from '@/lib/auth';
+import { completeAuthFromUrl } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { useAppState } from '@/providers/app-provider';
 
@@ -105,9 +105,7 @@ export default function LoginScreen() {
     setAuthLoading(null);
     if (signInError) {
       setError('Email o password non corrette.');
-      return;
     }
-    void rememberDeviceLocale();
   }
 
   async function requestPasswordReset() {
