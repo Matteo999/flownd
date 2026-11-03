@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 
+import { renderEmail } from './_email.js'
 import { ApiError, serviceClient } from './eb/_supabase.js'
 
 // Versione del testo informativo mostrato accanto al campo email. Va aggiornata
@@ -12,11 +12,6 @@ const RESEND_COOLDOWN_MS = 2 * 60_000
 const MIN_FILL_MS = 2_500
 const IP_WINDOW_MS = 60 * 60_000
 const IP_MAX_ATTEMPTS = 5
-
-const FLOWND_EMAIL_LOGO_PNG = readFileSync(
-  new URL('../apps/mobile/assets/images/flownd-alpha.png', import.meta.url),
-  'base64',
-)
 
 function isProduction() {
   return process.env.VERCEL_ENV === 'production'
@@ -73,35 +68,19 @@ async function sendConfirmationEmail(email, link) {
     console.info('Flownd waitlist: email non configurata, link di conferma locale', link)
     return
   }
+  const subject = 'Conferma la tua email per Flownd'
+  const { html, text } = renderEmail({
+    subject,
+    preheader: 'Un clic e sei in lista per il lancio di Flownd.',
+    title: 'Manca solo un clic',
+    body: 'Conferma la tua email e ti scriveremo una volta sola, quando Flownd sarà disponibile su iOS e Android.',
+    cta: { label: 'Conferma la mia email', url: link },
+    footnote: 'Il link scade tra 7 giorni. Se non hai chiesto tu l’iscrizione, ignora questo messaggio: senza conferma non ti scriveremo più.',
+  })
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from,
-      to: [email],
-      subject: 'Conferma la tua email per Flownd',
-      text: `Ciao! Conferma la tua email per ricevere un avviso quando Flownd sarà disponibile su iOS e Android: ${link}\n\nIl link scade tra 7 giorni. Se non hai chiesto tu l'iscrizione, ignora questo messaggio: senza conferma non ti scriveremo più.`,
-      attachments: [{
-        content: FLOWND_EMAIL_LOGO_PNG,
-        filename: 'flownd-logo.png',
-        content_id: 'flownd-logo',
-      }],
-      html: [
-        '<div style="display:none;max-height:0;overflow:hidden">Un clic e sei in lista per il lancio di Flownd.</div>',
-        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F6F8F7;padding:32px 12px;font-family:Manrope,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#16211D">',
-        '<tr><td align="center">',
-        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #DCE3DF;border-radius:24px;overflow:hidden">',
-        '<tr><td style="padding:28px 32px 8px"><img src="cid:flownd-logo" width="132" height="28" alt="Flownd" style="display:block;border:0;width:132px;height:28px;object-fit:contain"></td></tr>',
-        '<tr><td style="padding:8px 32px 32px">',
-        '<h1 style="margin:16px 0 12px;font-size:28px;line-height:1.15;letter-spacing:-0.6px">Manca solo un clic</h1>',
-        '<p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#5C6B64">Conferma la tua email e ti scriveremo una volta sola, quando Flownd sarà disponibile su iOS e Android.</p>',
-        `<a href="${link}" style="display:inline-block;padding:14px 22px;background:#256B7E;color:#ffffff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:700">Conferma la mia email</a>`,
-        '<p style="margin:24px 0 0;font-size:12px;line-height:1.5;color:#5C6B64">Il link scade tra 7 giorni. Se non hai chiesto tu l’iscrizione, ignora questo messaggio: senza conferma non ti scriveremo più.</p>',
-        '</td></tr></table>',
-        '<p style="margin:18px 0 0;font-size:11px;color:#5C6B64">Flownd · I tuoi soldi, finalmente chiari.</p>',
-        '</td></tr></table>',
-      ].join(''),
-    }),
+    body: JSON.stringify({ from, to: [email], subject, text, html }),
   })
   if (!response.ok) {
     console.error('Flownd waitlist email failed', {

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="it"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">
+<title>Reimposta la password di Flownd</title>
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+@media (prefers-color-scheme:dark){
+.fl-canvas{background:#0F1712!important}
+.fl-card{background:#17211C!important;border-color:#26332C!important}
+.fl-ink{color:#EAF1ED!important}
+.fl-muted{color:#9AAAA2!important}
+.fl-detail{background:#0B120E!important}
+.fl-btn{background:#47B3D1!important}
+.fl-btn a{color:#0B120E!important}
+.fl-link{color:#47B3D1!important}
+.fl-rule{border-top-color:#26332C!important}
+.fl-on-light{display:none!important}
+.fl-on-dark{display:block!important;max-height:none!important}
+}</style>
+</head>
+<body class="fl-canvas" style="margin:0;padding:0;background:#F6F8F7">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">Il link vale per un’ora e si usa una volta sola.</div>
+<table role="presentation" class="fl-canvas" width="100%" cellspacing="0" cellpadding="0" style="background:#F6F8F7;padding:32px 12px;font-family:Manrope,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#16211D">
+<tr><td align="center">
+<table role="presentation" class="fl-card" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#FFFFFF;border:1px solid #DCE3DF;border-radius:20px;border-collapse:separate">
+<tr><td style="padding:28px 32px 0"><img class="fl-on-light" src="https://www.flownd.io/email/lockup-chiaro.png" width="150" height="28" alt="Flownd" style="display:block;border:0;width:150px;height:28px"><img class="fl-on-dark" src="https://www.flownd.io/email/lockup-scuro.png" width="150" height="28" alt="Flownd" style="display:none;max-height:0;border:0;width:150px;height:28px;mso-hide:all"></td></tr>
+<tr><td style="padding:28px 32px 32px">
+<h1 class="fl-ink" style="margin:0 0 12px;font-size:28px;line-height:1.15;letter-spacing:-0.6px;font-weight:800;color:#16211D">Scegli una nuova password</h1>
+<p class="fl-muted" style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#5C6B64">Abbiamo ricevuto una richiesta per reimpostare la password del tuo account. Il link vale per un’ora e si può usare una sola volta.</p>
+
+<table role="presentation" cellspacing="0" cellpadding="0"><tr><td class="fl-btn" bgcolor="#256B7E" style="background:#256B7E;border-radius:12px">
+<a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:14px 24px;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:700;border-radius:12px">Imposta nuova password</a>
+</td></tr></table>
+<p class="fl-muted" style="margin:20px 0 0;font-size:12px;line-height:1.5;color:#5C6B64">Se il pulsante non funziona, copia questo link nel browser:<br><a class="fl-link" href="{{ .ConfirmationURL }}" style="color:#256B7E;word-break:break-all">{{ .ConfirmationURL }}</a></p>
+<hr class="fl-rule" style="border:0;border-top:1px solid #DCE3DF;margin:24px 0 16px">
+<p class="fl-muted" style="margin:0;font-size:12px;line-height:1.5;color:#5C6B64">Non hai chiesto tu il cambio? Ignora questa email: la password resta quella di prima.</p>
+</td></tr></table>
+<table role="presentation" cellspacing="0" cellpadding="0" style="margin:20px auto 0"><tr>
+<td style="padding-right:8px;vertical-align:middle"><img class="fl-on-light" src="https://www.flownd.io/email/marchio-chiaro.png" width="18" height="18" alt="" style="display:block;border:0;width:18px;height:18px"><img class="fl-on-dark" src="https://www.flownd.io/email/marchio-scuro.png" width="18" height="18" alt="" style="display:none;max-height:0;border:0;width:18px;height:18px;mso-hide:all"></td>
+<td class="fl-muted" style="font-size:11px;color:#5C6B64;vertical-align:middle">Flownd · I tuoi soldi, finalmente chiari.</td>
+</tr></table>
+</td></tr></table>
+</body></html>
