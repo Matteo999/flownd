@@ -37,6 +37,18 @@ function clientIp(req) {
   return forwarded || req.socket?.remoteAddress || 'unknown'
 }
 
+// Tag BCP 47 canonico (es. "it-IT"), dal modulo o in mancanza dall'header del
+// browser. Valori non validi diventano null invece di bloccare l'iscrizione.
+export function normalizeLocale(value, acceptLanguage) {
+  const candidate = String(value || String(acceptLanguage || '').split(',')[0].split(';')[0]).trim()
+  if (!candidate || candidate.length > 35) return null
+  try {
+    return Intl.getCanonicalLocales(candidate)[0] || null
+  } catch {
+    return null
+  }
+}
+
 function siteUrl() {
   const configured = process.env.PUBLIC_SITE_URL
   if (configured) return configured.replace(/\/+$/, '')
@@ -145,6 +157,7 @@ async function signup(req, res) {
     confirmation_sent_at: now.toISOString(),
     ip_hash: ipHash,
     consent_version: CONSENT_VERSION,
+    locale: normalizeLocale(body.locale, req.headers['accept-language']),
     updated_at: now.toISOString(),
   }
   const { error: writeError } = existing

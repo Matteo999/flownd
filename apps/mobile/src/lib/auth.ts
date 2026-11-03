@@ -7,11 +7,34 @@ import { supabase } from '@/lib/supabase';
 // I token in chiaro nei deep link non vengono mai accettati.
 export async function exchangeAuthCode(code: string) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (!error) return;
-  // Su Android lo stesso redirect può arrivare sia a openAuthSessionAsync sia
-  // alla route auth/callback: il secondo scambio fallisce ma la sessione c'è.
+  if (error) {
+    // Su Android lo stesso redirect può arrivare sia a openAuthSessionAsync sia
+    // alla route auth/callback: il secondo scambio fallisce ma la sessione c'è.
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) throw error;
+  }
+  await rememberDeviceLocale();
+}
+
+// Lingua del dispositivo come tag BCP 47 (es. "it-IT"), salvata nei metadati
+// dell'account per scrivere le email nella lingua dell'utente.
+export function deviceLocale() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Gli account creati via social o prima di questo campo non hanno la lingua:
+// la aggiungiamo al primo accesso, senza mai sovrascrivere quella esistente.
+export async function rememberDeviceLocale() {
+  const locale = deviceLocale();
+  if (!locale) return;
   const { data } = await supabase.auth.getSession();
-  if (!data.session) throw error;
+  const user = data.session?.user;
+  if (!user || user.user_metadata?.locale) return;
+  await supabase.auth.updateUser({ data: { locale } }).catch(() => {});
 }
 
 export function authCodeFromUrl(url: string) {

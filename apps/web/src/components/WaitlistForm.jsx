@@ -100,6 +100,7 @@ export default function WaitlistForm({ variant = 'card' }) {
           turnstileToken,
           website: trap,
           startedAt: startedAt.current,
+          locale: navigator.language,
         }),
       })
       const payload = await response.json().catch(() => ({}))

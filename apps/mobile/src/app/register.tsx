@@ -16,7 +16,7 @@ import {
   uiStyles,
   useFlowndTheme,
 } from '@/components/flownd-ui';
-import { MIN_PASSWORD_LENGTH } from '@/lib/auth';
+import { deviceLocale, MIN_PASSWORD_LENGTH } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { useAppState } from '@/providers/app-provider';
 
@@ -82,6 +82,7 @@ export default function RegisterScreen() {
       email: normalizedEmail,
       password,
       options: {
+        data: { locale: deviceLocale() },
         emailRedirectTo: Linking.createURL('auth/callback', {
           queryParams: fromOnboarding ? { from: 'onboarding' } : undefined,
         }),
